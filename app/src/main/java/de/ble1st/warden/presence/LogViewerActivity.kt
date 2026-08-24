@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.logging.ChainVerificationResult
 import de.ble1st.warden.logging.HashChainLogStore
 import de.ble1st.warden.logging.LogEntry
@@ -50,8 +51,18 @@ import de.ble1st.warden.ui.theme.WardenThemePrefs
  * `startActivityForResult` gegen [WardenPinActivity] (dieselbe eigene APK, kein Cross-APK-
  * Zertifikats-Pinning mehr nötig, s. [SensitiveActionActivity]-Klassendoc), `RESULT_OK` bei
  * frisch verifizierter PIN.
+ *
+ * **WardenLock-Sitzungsprüfung (Review-Nachtrag 2026-08-24):** [finishIfWardenLockSessionMissing]
+ * in [onResume], unbedingt — anders als bei [WardenPinActivity] gibt es hier keinen
+ * Presence-Request-Modus, der sich selbst aushebeln könnte. Grund: der bereits freigeschaltete
+ * Log-Inhalt (`outcome = LogAccessOutcome.Granted`, unten) ist reiner Compose-`remember`-State und
+ * übersteht ein Backgrounding unverändert (nur `onStop`, keine Zerstörung) — ohne diesen Check
+ * bliebe ein schon eingesehenes Log über einen Wiedereinstieg via Aufgabenübersicht sichtbar, ohne
+ * erneuten Presence-Nachweis.
  */
 class LogViewerActivity : FragmentActivity() {
+
+    private val wardenLockSession by lazy { (application as WardenApplication).wardenLockSession }
 
     private var pendingPinPresenceResult: ((Boolean) -> Unit)? = null
 
@@ -106,6 +117,11 @@ class LogViewerActivity : FragmentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        finishIfWardenLockSessionMissing(wardenLockSession)
     }
 }
 

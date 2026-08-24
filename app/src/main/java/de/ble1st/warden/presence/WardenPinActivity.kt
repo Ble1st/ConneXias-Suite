@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import de.ble1st.warden.BuildConfig
+import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.crypto.Engine
 import de.ble1st.warden.failsafe.FailsafeActivity
 import de.ble1st.warden.domain.pin.WardenAntiHammeringDecision
@@ -126,8 +127,25 @@ private val ButtonGroupEndShape = RoundedCornerShape(topStart = 4.dp, bottomStar
  * [DuressPinResponder] einen sofortigen `DevicePolicyManager.reboot()` aus, während die UI exakt
  * wie bei einer falschen Haupt-PIN reagiert — s. [DuressPinResponder]-Klassendoc für die
  * Begründung, warum das ein Reboot statt eines echten Wipes ist.
+ *
+ * **WardenLock-Sitzungsprüfung, bedingt (Review-Nachtrag 2026-08-24):** [finishIfWardenLockSessionMissing]
+ * greift in [onResume] nur im **normalen** Modus (`EXTRA_PRESENCE_REQUEST` nicht gesetzt, also der
+ * Einstieg über "Warden-PIN verwalten"), nicht im Presence-Request-Modus — dort *ist* dieser Aufruf
+ * gerade der Weg, überhaupt erst eine Sitzung zu erlangen (aus [WardenLockActivity]s Bootstrap-
+ * PIN-Weg oder [SensitiveActionActivity]s `executeWithPinPresence`); ein unbedingter Check dort
+ * würde sich selbst aushebeln, bevor eine PIN je eingegeben werden könnte. Grund für den Check im
+ * Normal-Modus: der Selbstbedienungs-"PIN ändern"/"Duress-PIN einrichten"-Fluss oben verlangt die
+ * alte PIN nur einmal (`unlocked = true` gilt danach als Besitznachweis für beliebig viele weitere
+ * Schritte, s. `isChangingPin`/`isSettingDuressPin`-Kommentare in [WardenPinScreen]) — dieser
+ * Compose-State übersteht ein Backgrounding unverändert (nur `onStop`, keine Zerstörung). Ohne
+ * diesen Check würde ein Wiedereinstieg über die Aufgabenübersicht mitten in diesem Fluss (nach
+ * korrekter alter PIN, vor Abschluss der Änderung) eine neue Haupt-/Duress-PIN erlauben, ohne dass
+ * die ursprüngliche PIN je bekannt sein müsste — genau die Bedrohung, gegen die WardenLock gebaut
+ * wurde, s. [WardenLockSession]-Klassendoc.
  */
 class WardenPinActivity : ComponentActivity() {
+
+    private val wardenLockSession by lazy { (application as WardenApplication).wardenLockSession }
 
     private var lockTaskDrillTriggered = false
 
@@ -195,6 +213,12 @@ class WardenPinActivity : ComponentActivity() {
      * irreführend für die Drill-Auswertung. */
     override fun onResume() {
         super.onResume()
+        // s. Klassendoc "WardenLock-Sitzungsprüfung, bedingt": nur im Normal-Modus, nie im
+        // Presence-Request-Modus (sonst würde der Check den Weg zerstören, der die Sitzung
+        // überhaupt erst herstellen soll).
+        val presenceRequested = intent?.getBooleanExtra(EXTRA_PRESENCE_REQUEST, false) == true
+        if (!presenceRequested && finishIfWardenLockSessionMissing(wardenLockSession)) return
+
         if (lockTaskDrillTriggered) return
         val requested = intent?.getBooleanExtra(EXTRA_ENGAGE_LOCK_TASK_DRILL, false) == true
         if (!requested || !BuildConfig.DEBUG) return
