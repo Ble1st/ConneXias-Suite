@@ -13,18 +13,40 @@ android {
         version = release(37)
     }
 
+    // Release-Signing: nur gesetzt, wenn die Release-Pipeline (.github/workflows/release.yml) den
+    // Keystore-Pfad per Env-Var bereitstellt (dort aus dem Secret RELEASE_KEYSTORE_BASE64
+    // dekodiert). Ein lokaler `./gradlew assembleRelease` ohne diese Env-Vars liefert weiterhin
+    // eine unsignierte Release-APK — kein Secret-Material nötig für einen lokalen Testbau.
+    val releaseStoreFilePath = System.getenv("WARDEN_RELEASE_STORE_FILE")
+    signingConfigs {
+        if (releaseStoreFilePath != null) {
+            create("release") {
+                storeFile = file(releaseStoreFilePath)
+                storePassword = System.getenv("WARDEN_RELEASE_STORE_PASSWORD")
+                keyAlias = System.getenv("WARDEN_RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("WARDEN_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "de.ble1st.warden"
         minSdk = 35
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        // Von der Release-Pipeline per -PwardenVersionCode/-PwardenVersionName aus dem Git-Tag
+        // gesetzt (siehe .github/workflows/release.yml); ohne diese Properties (lokaler Build)
+        // bleiben die bisherigen Default-Werte.
+        versionCode = (project.findProperty("wardenVersionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("wardenVersionName") as String?) ?: "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
+            if (releaseStoreFilePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             optimization {
                 enable = false
             }
