@@ -246,6 +246,20 @@ class WardenPinActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Review-Fund 2026-08-24: `Engine.verifyPassword` wirft `PasswordException.InvalidStoredHash`,
+ * wenn `hash` kein gültiges PHC-Format hat (s. `rust/engine/src/password.rs`) — praktisch nie
+ * erreichbar, weil der PIN-Hash Teil des Envelope-Klartexts ist und damit schon vom AES-GCM-
+ * Auth-Tag geschützt wird, bevor er hier ankommt, aber kein struktureller Ausschluss (z. B. ein
+ * Codec-Bug könnte theoretisch ein falsch dekodiertes Feld liefern, das den Auth-Tag trotzdem
+ * passiert). Ungefangen hätte das den Compose-Klick-Handler crashen lassen statt der
+ * vorgesehenen "Falsche PIN"-Meldung — hier stattdessen einheitlich als "nicht verifiziert"
+ * behandelt (Fail-Safe, Invariante 6, dieselbe Semantik wie `password.rs`s eigener
+ * `PasswordError::InvalidStoredHash`-Kommentar: "als 'nicht verifizierbar', nie als 'richtig'").
+ */
+private fun verifyPinHash(pin: ByteArray, hash: String): Boolean =
+    runCatching { Engine.verifyPassword(pin, PasswordHash(hash)) }.getOrDefault(false)
+
 @Composable
 private fun WardenPinScreen(
     blobStore: WardenPinStore,
@@ -335,7 +349,7 @@ private fun WardenPinScreen(
             }
             firstPin == digits -> {
                 val pinBytes = digits.joinToString(separator = "").toByteArray(StandardCharsets.UTF_8)
-                val matchesMainPin = Engine.verifyPassword(pinBytes, PasswordHash(mainBlob.pinHash))
+                val matchesMainPin = verifyPinHash(pinBytes, mainBlob.pinHash)
                 if (matchesMainPin) {
                     pinBytes.fill(0)
                     pendingFirstPin = null
@@ -388,7 +402,7 @@ private fun WardenPinScreen(
         // Presence-Request-Modus: onPresenceConfirmed wird dabei nie aufgerufen, die angeforderte
         // Aktion bleibt also ebenfalls verweigert.
         val duressHash = (currentDuressLoad() as? WardenPinStateDecision.LoadResult.Loaded)?.blob?.pinHash.orEmpty()
-        val isDuress = duressHash.isNotEmpty() && Engine.verifyPassword(pinBytes, PasswordHash(duressHash))
+        val isDuress = duressHash.isNotEmpty() && verifyPinHash(pinBytes, duressHash)
         if (isDuress) {
             pinBytes.fill(0)
             logStore.append(Log.ERROR, "WardenPin", "duress pin entered — triggering protective reboot")
@@ -409,7 +423,7 @@ private fun WardenPinScreen(
         val result = WardenPinDecision.evaluate(
             storedHash = blob.pinHash.ifEmpty { null },
             enteredPin = pinBytes,
-            verify = { pin, hash -> Engine.verifyPassword(pin, PasswordHash(hash)) },
+            verify = { pin, hash -> verifyPinHash(pin, hash) },
         )
         pinBytes.fill(0)
 
