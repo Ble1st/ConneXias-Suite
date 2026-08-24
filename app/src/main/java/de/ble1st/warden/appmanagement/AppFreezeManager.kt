@@ -45,8 +45,16 @@ class AppFreezeManager(private val context: Context) {
             "DevicePolicyManager nicht verfügbar"
         }
 
+    /** Wirft (statt `false` zu liefern), wenn `isApplicationHidden`/`isPackageSuspended` selbst
+     * fehlschlagen — real gefunden (2026-08-21, s. `AppManagementScreen`-Kommentar an der
+     * Fehleranzeige): ohne aktiven Device Owner wirft [DevicePolicyManager] eine
+     * [SecurityException]. Ein hier verschlucktes `getOrDefault(false)` würde jede Zeile
+     * fälschlich als "nicht eingefroren" zeigen, statt die vorgesehene "Liste konnte nicht
+     * geladen werden"-Fehleranzeige auszulösen — derselbe Fail-Safe-Grundsatz wie überall sonst
+     * im Projekt (Invariante 6), hier über den `runCatching` der Aufrufer (`loadManagedAppsSafely`)
+     * statt eines eigenen. */
     fun isFrozen(packageName: String): Boolean {
-        val hidden = runCatching { devicePolicyManager().isApplicationHidden(admin, packageName) }.getOrDefault(false)
+        val hidden = devicePolicyManager().isApplicationHidden(admin, packageName)
         return hidden || isSuspended(packageName)
     }
 
@@ -68,6 +76,7 @@ class AppFreezeManager(private val context: Context) {
         return failedToSuspend.isEmpty()
     }
 
+    /** Wirft ebenfalls statt zu verschlucken — s. [isFrozen]-Doc. */
     private fun isSuspended(packageName: String): Boolean =
-        runCatching { devicePolicyManager().isPackageSuspended(admin, packageName) }.getOrDefault(false)
+        devicePolicyManager().isPackageSuspended(admin, packageName)
 }

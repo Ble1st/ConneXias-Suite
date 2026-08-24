@@ -99,8 +99,13 @@ class WardenApplication : Application() {
     val concordBus: ConcordBus by lazy { ConcordBus(this, appManagementController, suspiciousAppScanController) }
 
     /** One in-process instance for the shared log envelope — callers must not construct their own
-     * [HashChainLogStore] on the same file (append races lose entries and stay chain-valid). */
-    val auditLogStore: HashChainLogStore by lazy { HashChainLogStore(LogStorage.buildEnvelopeFile(this)) }
+     * [HashChainLogStore] on the same file (append races lose entries and stay chain-valid).
+     * Wipe-guard anchor passed (s. [HashChainLogStore]-Klassendoc "Wipe-Guard") — the app's real
+     * audit trail is exactly the store a full-segment-deletion attack targets, unlike the
+     * anchor-less instrumented-test instances. */
+    val auditLogStore: HashChainLogStore by lazy {
+        HashChainLogStore(LogStorage.buildEnvelopeFile(this), wipeGuardAnchorFile = LogStorage.buildWipeGuardAnchorFile(this))
+    }
 
     /** WardenLock (Finalisierungsphase, 2026-08-24, auf Nutzerwunsch) — s. [WardenLockSession]-
      * Klassendoc. `by lazy` wie die übrigen App-weiten Instanzen; die eigentliche Invalidierung
@@ -206,6 +211,6 @@ fun wardenAuditLog(context: Context): HashChainLogStore {
     return if (app is WardenApplication) {
         app.auditLogStore
     } else {
-        HashChainLogStore(LogStorage.buildEnvelopeFile(app))
+        HashChainLogStore(LogStorage.buildEnvelopeFile(app), wipeGuardAnchorFile = LogStorage.buildWipeGuardAnchorFile(app))
     }
 }

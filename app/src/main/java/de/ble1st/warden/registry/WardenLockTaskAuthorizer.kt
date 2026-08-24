@@ -8,8 +8,10 @@ import android.content.Context
  * `startLockTask()`+`stopLockTask()` / `setLockTaskFeatures()`"). Warden-seitige DPM-Anbindung —
  * nur der Device Owner darf ein Paket für Lock-Task-Modus whitelisten. Passt strukturell ins
  * bestehende [Safeguard][de.ble1st.warden.domain.registry.Safeguard]-Muster (`DpmSafeguard`-Basis
- * wie `CameraSafeguard` etc.), wird aber bewusst **nirgends registriert**
- * (`DeviceLockdownBundle`, `RegistryReconciliationReceiver`, ...) — s. u.
+ * wie `CameraSafeguard` etc.) und ist Mitglied von [DeviceLockdownBundle] — **nicht** aber von
+ * `RegistryReconciliationReceiver`s Katalog (kein automatisches Wieder-Scharfschalten der
+ * Lock-Task-Whitelist nach Boot, dieselbe bewusste Auslassung wie beim Rest des Bündels, s.
+ * [DeviceLockdownBundle]-Klassendoc) — s. u.
  *
  * Anders als im ConneXias-Framework-Quellprojekt (dort: Warden whitelistet das *fremde*
  * Sentinel-Paket, `de.ble1st.connexiassentinel`) whitelistet dieser Safeguard **Wardens eigenes

@@ -14,20 +14,18 @@ import de.ble1st.warden.wardenAuditLog
  * Die einzige Device-Owner-fähige Komponente im gesamten Projekt (Konzept Abschnitt 1) —
  * deklariert in `:core:data`s AndroidManifest.xml, per Manifest-Merge Teil von `:warden-app`.
  *
- * Bewusst noch dünn (Meilenstein A.2 — "nacktes Gerüst", App nur baubar/installierbar/
- * aktivierbar): reagiert nur mit Logging, keine Registry-/Reconciliation-Logik. Boot-Reconciliation
- * (`ACTION_LOCKED_BOOT_COMPLETED`, Konzept 4) und die eigentliche DPM-Wrapper-Logik folgen ab
- * Meilenstein C.
- *
- * `android.util.Log` statt Timber/`:core:logging`: `LocalRingTree`/`HashChainLogStore` existieren
- * seit Meilenstein B.5/B.6, sind aber bewusst noch nicht hier verkabelt — das passiert erst mit
- * Meilenstein C zusammen mit der Registry/Reconciliation-Logik, nicht isoliert vorgezogen.
+ * Ursprünglich (Meilenstein A.2) bewusst dünn gehalten — "nacktes Gerüst", App nur baubar/
+ * installierbar/aktivierbar, nur Logging, keine Registry-/Reconciliation-Logik. Boot-
+ * Reconciliation (`ACTION_LOCKED_BOOT_COMPLETED`, Konzept 4) lebt seit Meilenstein C in
+ * [de.ble1st.warden.boot.RegistryReconciliationReceiver], nicht hier — dieser Receiver bleibt
+ * bewusst auf reine DPM-Lifecycle-Callbacks beschränkt.
  *
  * **`onSecurityLogsAvailable`/`onNetworkLogsAvailable` (Tier 5 "Forensik/Audit", 2026-08-22):**
  * das OS ruft diese Callbacks selbst auf, sobald ein Log-Batch abholbereit ist (kein eigenes
  * Polling nötig) — nur, wenn [de.ble1st.warden.registry.SecurityLoggingSafeguard]/
- * [de.ble1st.warden.registry.NetworkLoggingSafeguard] zuvor aktiviert wurden. Bewusst nur die
- * Ereigniszahl ins eigene [HashChainLogStore] übernommen, nicht jedes einzelne `SecurityEvent`/
+ * [de.ble1st.warden.registry.NetworkLoggingSafeguard] zuvor aktiviert wurden. Beide sind inzwischen
+ * über [wardenAuditLog] an den Prozess-weiten [de.ble1st.warden.logging.HashChainLogStore]
+ * verkabelt (anders als der A.2-Stand oben) — bewusst nur die Ereigniszahl übernommen, nicht jedes einzelne `SecurityEvent`/
  * `NetworkEvent`-Feld geparst — würde den Umfang dieser bewusst dünnen Klasse sprengen und ist für
  * den "wurde überhaupt etwas geloggt"-Zweck des Audit-Trails nicht nötig; die vollen Rohdaten
  * bleiben über `retrieveSecurityLogs`/`retrieveNetworkLogs` grundsätzlich abrufbar, falls künftig

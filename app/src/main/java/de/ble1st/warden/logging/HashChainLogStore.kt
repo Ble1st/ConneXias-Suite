@@ -1,6 +1,8 @@
 package de.ble1st.warden.logging
 
 import de.ble1st.warden.crypto.EnvelopeFile
+import de.ble1st.warden.domain.logging.HashChainAnchorCodec
+import de.ble1st.warden.domain.logging.HashChainWipeGuardDecision
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -48,10 +50,22 @@ import java.security.MessageDigest
  * sobald ein DEK existiert (nie kommissarisch "fehlend") — die ursprüngliche B.6-Garantie
  * "fehlende Datenfile trotz existierendem DEK ist immer ein Fehler, nie ein leerer Zustand"
  * (Invariante 6) gilt für das aktive Segment unverändert weiter.
+ *
+ * **Wipe-Guard (optionaler zweiter Anker, analog [de.ble1st.warden.domain.pin
+ * .WardenPinReplayDecision]):** die Kette selbst erkennt nur *interne* Inkonsistenz zwischen
+ * vorhandenen Einträgen — werden ganze Archiv-Segmente oder das aktive Segment sauber gelöscht
+ * (nicht nur beschädigt), bleibt eine intern konsistente, nur kürzere Kette übrig, die
+ * [verifyChainIntegrity] allein nicht von "es wurde nie geloggt" unterscheiden kann (eine leere
+ * Kette verifiziert trivial als `Valid(0)`). [wipeGuardAnchorFile] — falls übergeben — merkt sich
+ * nach jedem [append] Sequenznummer + Hash des letzten Eintrags in einer eigenen, eigenständig
+ * KEK-gewrappten Datei; [verifyChainIntegrity] vergleicht dagegen und meldet `Broken`, wenn die
+ * Kette hinter diesem Anker zurückfällt. `null` (Default) deaktiviert die Prüfung vollständig —
+ * bestehende Aufrufer/Tests ohne Anker verhalten sich unverändert wie vor dieser Ergänzung.
  */
 class HashChainLogStore(
     private val envelopeFile: EnvelopeFile,
     private val segmentCapacity: Int = DEFAULT_SEGMENT_CAPACITY,
+    private val wipeGuardAnchorFile: EnvelopeFile? = null,
 ) {
     init {
         require(segmentCapacity > 0) { "segmentCapacity muss positiv sein: $segmentCapacity" }
@@ -74,6 +88,9 @@ class HashChainLogStore(
         val entry = LogEntry(sequence, timestamp, priority, tag, message, previousHash, hash)
 
         envelopeFile.write(encodeEntries(activeChain + entry))
+        // Strictly after the data write above (s. Klassendoc "Wipe-Guard") — a crash between the
+        // two can only leave the anchor behind the chain, never ahead of it.
+        wipeGuardAnchorFile?.write(HashChainAnchorCodec.encode(entry.sequence, entry.hash))
         return entry
     }
 
@@ -86,8 +103,39 @@ class HashChainLogStore(
      */
     fun entries(): List<LogEntry> = archivedEntries() + loadActiveChain()
 
-    /** Prüft die gesamte Kette (alle Segmente) auf Konsistenz — s. Klassendoc. */
-    fun verifyChainIntegrity(): ChainVerificationResult = verifyChainIntegrity(entries())
+    /** Prüft die gesamte Kette (alle Segmente) auf Konsistenz — s. Klassendoc — und, falls ein
+     * [wipeGuardAnchorFile] übergeben wurde, zusätzlich gegen den Wipe-Guard-Anker. */
+    fun verifyChainIntegrity(): ChainVerificationResult {
+        val chain = entries()
+        val structural = verifyChainIntegrity(chain)
+        if (structural is ChainVerificationResult.Broken) return structural
+        return checkWipeGuard(chain) ?: structural
+    }
+
+    /** `null`, solange kein Anker konfiguriert ist oder die Kette ihn (noch) einhält — sonst ein
+     * `Broken`-Ergebnis mit der Wipe-Guard-Begründung als `reason`. Rein lesend: der Anker selbst
+     * wird ausschließlich in [append] fortgeschrieben, nie hier (s. Klassendoc). */
+    private fun checkWipeGuard(chain: List<LogEntry>): ChainVerificationResult.Broken? {
+        val anchorFile = wipeGuardAnchorFile ?: return null
+        val anchorPresent = anchorFile.hasStorage()
+        val (anchorSequence, anchorHash) = if (anchorPresent) {
+            HashChainAnchorCodec.decode(anchorFile.read())
+        } else {
+            0L to ByteArray(0)
+        }
+        val tail = chain.lastOrNull()
+        val decision = HashChainWipeGuardDecision.evaluate(
+            chainPresent = tail != null,
+            chainTailSequence = tail?.sequence ?: -1L,
+            chainTailHash = tail?.hash ?: ByteArray(0),
+            anchorPresent = anchorPresent,
+            anchorSequence = anchorSequence,
+            anchorHash = anchorHash,
+        )
+        return (decision as? HashChainWipeGuardDecision.Result.Reject)?.let {
+            ChainVerificationResult.Broken(tail?.sequence ?: -1L, "wipe guard: ${it.reason}")
+        }
+    }
 
     private fun loadActiveChain(): List<LogEntry> =
         if (envelopeFile.hasStorage()) decodeEntries(envelopeFile.read()) else emptyList()
