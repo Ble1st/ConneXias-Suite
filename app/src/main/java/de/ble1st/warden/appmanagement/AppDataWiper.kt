@@ -16,6 +16,13 @@ import de.ble1st.warden.admin.WardenDeviceAdminReceiver
  *
  * Anders als [AppUninstaller] **kein** `PendingIntent`/`IntentSender`-Umweg nötig: die DPM-API
  * nimmt hier direkt einen `Executor` + Callback entgegen, kein `PackageInstaller`-Mechanismus.
+ *
+ * **`SecurityException` abgefangen (Review-Fund 2026-08-24):** derselbe Grundsatz wie bei
+ * [AppUninstaller.uninstall] — ein verlorener Device-Owner-Status zwischen Scan und Tap auf
+ * "Daten löschen" darf den aufrufenden [de.ble1st.warden.appmanagement.SuspiciousAppActionReceiver]
+ * nicht abstürzen lassen, sondern muss als `onResult(false)` ankommen, damit die dafür
+ * vorgesehene "Datenlöschung fehlgeschlagen"-Meldung greift (s.
+ * `SuspiciousAppScanController.handleClearDataAction`).
  */
 class AppDataWiper(private val context: Context) {
 
@@ -27,10 +34,14 @@ class AppDataWiper(private val context: Context) {
         }
 
     fun clear(packageName: String, onResult: (success: Boolean) -> Unit) {
-        devicePolicyManager().clearApplicationUserData(
-            admin,
-            packageName,
-            ContextCompat.getMainExecutor(context),
-        ) { _, succeeded -> onResult(succeeded) }
+        try {
+            devicePolicyManager().clearApplicationUserData(
+                admin,
+                packageName,
+                ContextCompat.getMainExecutor(context),
+            ) { _, succeeded -> onResult(succeeded) }
+        } catch (e: SecurityException) {
+            onResult(false)
+        }
     }
 }

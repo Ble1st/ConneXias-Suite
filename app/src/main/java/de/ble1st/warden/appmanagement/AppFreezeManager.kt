@@ -65,7 +65,14 @@ class AppFreezeManager(private val context: Context) {
             val unsuspendResult = runCatching { devicePolicyManager().setPackagesSuspended(admin, arrayOf(packageName), false) }
             return unhidden && unsuspendResult.getOrNull()?.isEmpty() == true
         }
-        val hidden = devicePolicyManager().setApplicationHidden(admin, packageName, true)
+        // Ungated bis 2026-08-24 (Review-Fund): anders als der Unfreeze-Zweig unten und der
+        // Suspend-Fallback direkt darunter fehlte hier der runCatching-Schutz — eine
+        // SecurityException (z. B. verlorener Device-Owner-Status zwischen Scan und Tap auf
+        // "Einfrieren") hätte unbehandelt bis zum aufrufenden SuspiciousAppActionReceiver
+        // durchgeschlagen und den Prozess abstürzen lassen, statt die dafür vorgesehene
+        // "Einfrieren fehlgeschlagen"-Meldung zu zeigen (s. SuspiciousAppScanController
+        // .handleFreezeAction).
+        val hidden = runCatching { devicePolicyManager().setApplicationHidden(admin, packageName, true) }.getOrDefault(false)
         if (hidden) return true
         // Hide ist gescheitert (bekannte Lücke, s. Klassendoc) — Suspend als zweiten,
         // unabhängigen Mechanismus versuchen. `setPackagesSuspended` liefert die Pakete zurück,
