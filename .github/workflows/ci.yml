@@ -1,13 +1,15 @@
 name: CI
 
-# Läuft bei jedem Push auf main (main ist geschützt, das sind praktisch nur Merges) und bei jedem
-# PR gegen main. `workflow_call` erlaubt release.yml, exakt dieselben Checks als Quality-Gate vor
-# dem Release-Bau wiederzuverwenden, statt sie zu duplizieren.
+# Läuft bei jedem Push auf main (main ist geschützt, das sind praktisch nur Merges), bei jedem PR
+# gegen main und manuell über "Run workflow" auf der GitHub-Weboberfläche (für einen beliebigen
+# Branch). `workflow_call` erlaubt release.yml, exakt dieselben Checks als Quality-Gate vor dem
+# Release-Bau wiederzuverwenden, statt sie zu duplizieren.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
   workflow_call:
 
 concurrency:

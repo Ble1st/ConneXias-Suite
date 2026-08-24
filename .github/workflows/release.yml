@@ -1,22 +1,28 @@
 name: Release
 
-# Nur per Git-Tag (vX.Y.Z) oder manuell für einen bereits existierenden Tag. Baut die
-# Rust-Crypto-Engine für alle vier Android-ABIs frisch aus der Quelle (statt den im Repo
-# committeten jniLibs/Kotlin-Bindings zu vertrauen, s. rust/build-android.sh) und erst danach die
-# signierte Release-APK.
+# Per Git-Tag (vX.Y.Z) oder manuell über "Run workflow" auf der GitHub-Weboberfläche. Im manuellen
+# Fall wird die nächste Version automatisch aus dem letzten vX.Y.Z-Tag berechnet (Bump-Stufe per
+# Dropdown) und der neue Tag von der Pipeline selbst gesetzt und gepusht — kein manuelles Taggen
+# nötig. Baut die Rust-Crypto-Engine für alle vier Android-ABIs frisch aus der Quelle (statt den
+# im Repo committeten jniLibs/Kotlin-Bindings zu vertrauen, s. rust/build-android.sh) und erst
+# danach die signierte Release-APK.
 on:
   push:
     tags:
       - "v*.*.*"
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Bereits existierender Git-Tag, der gebaut werden soll (z. B. v1.2.3)"
+      bump:
+        description: "Versions-Bump ab dem letzten vX.Y.Z-Tag (automatische Versionierung)"
         required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 jobs:
   # Wiederverwendet exakt dieselben Checks wie CI (Rust fmt/clippy/test, Android lint/Unit-Tests/
-  # assembleDebug) als Quality-Gate — muss grün sein, bevor überhaupt ein Release-Build startet.
+  # assembleDebug) als Quality-Gate — muss grün sein, bevor überhaupt ein Release-Build (und im
+  # manuellen Fall: eine Tag-Erstellung) stattfindet.
   checks:
     uses: ./.github/workflows/ci.yml
 
@@ -28,19 +34,39 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Determine tag
-        id: tag
-        run: |
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Tag '$TAG' entspricht nicht dem erwarteten Schema vMAJOR.MINOR.PATCH"
-            exit 1
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Determine version (bei manuellem Trigger automatisch bumpen + taggen)
+        id: tag
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${{ github.ref_name }}"
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Tag '$TAG' entspricht nicht dem erwarteten Schema vMAJOR.MINOR.PATCH"
+              exit 1
+            fi
+          else
+            LATEST_TAG="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n1)"
+            LATEST_TAG="${LATEST_TAG:-v0.0.0}"
+            VERSION="${LATEST_TAG#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            case "$BUMP" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+              *) echo "::error::Unbekannte Bump-Stufe '$BUMP'"; exit 1 ;;
+            esac
+            TAG="v${MAJOR}.${MINOR}.${PATCH}"
+            echo "Letzter Tag: $LATEST_TAG, Bump: $BUMP -> neuer Tag: $TAG"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Compute versionName/versionCode
         id: version
