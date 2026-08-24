@@ -1,0 +1,126 @@
+name: Release
+
+# Nur per Git-Tag (vX.Y.Z) oder manuell für einen bereits existierenden Tag. Baut die
+# Rust-Crypto-Engine für alle vier Android-ABIs frisch aus der Quelle (statt den im Repo
+# committeten jniLibs/Kotlin-Bindings zu vertrauen, s. rust/build-android.sh) und erst danach die
+# signierte Release-APK.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Bereits existierender Git-Tag, der gebaut werden soll (z. B. v1.2.3)"
+        required: true
+
+jobs:
+  # Wiederverwendet exakt dieselben Checks wie CI (Rust fmt/clippy/test, Android lint/Unit-Tests/
+  # assembleDebug) als Quality-Gate — muss grün sein, bevor überhaupt ein Release-Build startet.
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  build-release:
+    name: Build & sign release APK
+    needs: checks
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '$TAG' entspricht nicht dem erwarteten Schema vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Compute versionName/versionCode
+        id: version
+        run: |
+          VERSION_NAME="${{ steps.tag.outputs.tag }}"
+          VERSION_NAME="${VERSION_NAME#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_NAME"
+          VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      # --- Komplette Rust-Kette: Engine frisch für alle 4 Android-ABIs aus der Quelle bauen ---
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27c
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build connexias-engine (jniLibs + Kotlin bindings)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: ./build-android.sh
+        working-directory: rust
+
+      - name: Check generated Kotlin bindings for drift
+        run: |
+          if ! git diff --quiet -- app/src/main/java/uniffi/connexias_engine/connexias_engine.kt; then
+            echo "::warning::Frisch generierte UniFFI-Kotlin-Bindings weichen vom committeten Stand ab — rust/build-android.sh lokal laufen lassen und Ergebnis committen."
+          fi
+
+      # --- Android-Release-Build ---
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode signing keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Assemble release APK
+        env:
+          WARDEN_RELEASE_STORE_FILE: ${{ runner.temp }}/release.keystore
+          WARDEN_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          WARDEN_RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          WARDEN_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --stacktrace \
+            -PwardenVersionName=${{ steps.version.outputs.name }} \
+            -PwardenVersionCode=${{ steps.version.outputs.code }}
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: warden-${{ steps.version.outputs.name }}
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 90
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Warden ${{ steps.version.outputs.name }}
+          draft: true
+          files: app/build/outputs/apk/release/*.apk

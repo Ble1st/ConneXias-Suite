@@ -14,3 +14,8 @@ local.properties
 /.claude/
 /analyse.md
 /docs/architektur-review-2026-08.md
+
+# Release-Signing: niemals einen lokalen Testkeystore versehentlich committen (CI/CD holt den
+# echten Signing-Key ausschließlich aus dem RELEASE_KEYSTORE_BASE64-Secret, s. release.yml).
+*.jks
+*.keystore
