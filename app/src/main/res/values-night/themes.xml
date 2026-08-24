@@ -1,0 +1,5 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Dunkle Variante desselben reinen Fenster-/Splash-Themes — s. values/themes.xml für die
+         volle Begründung (Architektur-Review 2026-08-24, F-6). -->
+    <style name="Theme.Warden" parent="android:Theme.Material.NoActionBar" />
+</resources>

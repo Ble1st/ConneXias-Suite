@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Nur im Debug-Build (Manifest-Overlay, greift nicht in :app:assembleRelease): setzt
+         ApplicationInfo.FLAG_TEST_ONLY. Ohne dieses Flag lässt sich ein per
+         `dpm set-device-owner` gesetzter Device Owner NUR durch Werksreset wieder entfernen
+         (`dpm remove-active-admin` wird sonst vom System verweigert) — mit dem Flag reicht
+         `adb shell dpm remove-active-admin de.ble1st.warden/de.ble1st.warden.admin.
+         WardenDeviceAdminReceiver` für einen echten Geräte-Testlauf, ohne das Testgerät jedes
+         Mal neu aufzusetzen. Ein `android:testOnly="true"`-Release-Build würde sich zusätzlich
+         weder über den Play Store noch per `pm install` ohne `-t` installieren lassen — beides
+         für Warden ohnehin nie vorgesehen (Device-Owner-Provisionierung läuft nicht über den
+         Play Store), aber genau deshalb bewusst nur im Debug-Overlay, nicht im Haupt-Manifest. -->
+    <application android:testOnly="true" />
+
+</manifest>

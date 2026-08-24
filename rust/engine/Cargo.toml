@@ -1,0 +1,55 @@
+[package]
+name = "connexias-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+name = "connexias_engine"
+
+# uniffi-bindgen als eigenes Bin-Target im selben Crate (Muster: mehrere UniFFI-Konsumenten-
+# Projekte, z. B. mozilla/uniffi-rs examples/app) — zieht die CLI-Abhängigkeiten (clap etc.)
+# nur bei explizitem Aufruf mit --features uniffi-cli, nicht in die Library selbst.
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+required-features = ["uniffi-cli"]
+
+# Offline-Signierwerkzeug (Meilenstein D.1, Konzept Abschnitt 9): läuft NIE auf dem Gerät, nur auf
+# einer Air-Gap-Maschine — nutzt die Engine als normale Rust-Library (kein UniFFI/FFI nötig),
+# damit Keygen/Sign dieselbe Ed25519-Implementierung teilen wie das On-Device-`verify_signature`,
+# statt einer zweiten, separat gepflegten Kopie. Kein Feature-Gate nötig (im Unterschied zu
+# `uniffi-bindgen` oben): zieht keine zusätzlichen CLI-Abhängigkeiten, nur `hex`.
+[[bin]]
+name = "failsafe-keytool"
+path = "src/bin/failsafe_keytool.rs"
+
+[dependencies]
+aes-gcm = "0.11"
+hkdf = "0.13"
+sha2 = "0.11"
+argon2 = "0.5"
+# Direkt als Dependency gepinnt (statt nur transitiv über argon2), um das "getrandom"-Feature
+# zu erzwingen — sonst fehlt password_hash::rand_core::OsRng (Feature-Unifikation, siehe B.1-Notizen).
+password-hash = { version = "0.5", features = ["getrandom"] }
+uniffi = "0.32"
+# Erstes echtes Geheimnis der Engine (Meilenstein B.3, siehe B.1-Notiz in aead.rs/password.rs:
+# "echte Geheimnisse kommen erst mit B.3") — DEKs zeroizen statt nur öffentliche Envelope-/
+# Hash-Daten wie in B.1/B.2.
+zeroize = "1.9"
+# Meilenstein D.1/D.2 (Konzept Abschnitt 9/10a): Ed25519 für den Offline-Failsafe — Schlüssel-
+# erzeugung/Signieren laufen nie auf dem Gerät (nur im `failsafe-keytool`-Binary), Verifikation
+# läuft in Warden. `rand_core` direkt gepinnt (statt nur transitiv über das "rand_core"-Feature),
+# damit `signing.rs` `OsRng` ohne Umweg über `ed25519_dalek::rand_core` importieren kann —
+# dasselbe Stolperfallen-Muster wie bei `password-hash`/B.1 (s. o.).
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+# Hex-Encoding fürs Offline-Tool (Übertragung von Schlüsseln/Challenges/Signaturen als Text,
+# z. B. zum Abtippen zwischen Warden-UI und Air-Gap-Maschine) — bewusst die schlanke, reine
+# `hex`-Crate statt einer selbstgeschriebenen Kodierung.
+hex = "0.4"
+
+[features]
+uniffi-cli = ["uniffi/cli"]

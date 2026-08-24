@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     Deklarierte Policy-Klassen für den DeviceAdminReceiver. Für einen Device Owner (im
+     Unterschied zu einem regulären, interaktiv aktivierten Device Admin) ist diese Liste nicht
+     rechte-limitierend — DO erhält vollen DevicePolicyManager-Zugriff unabhängig davon
+     (adb-Provisionierung zeigt auch keinen Consent-Screen, der diese Liste anzeigen würde).
+     Trotzdem gepflegt als Dokumentation dessen, was Warden laut Konzept Abschnitt 3/4
+     tatsächlich nutzt — nicht spekulativ auf Vorrat erweitert.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policy android:name="limit-password" />
+    <uses-policy android:name="reset-password" />
+    <uses-policy android:name="force-lock" />
+    <uses-policy android:name="wipe-data" />
+    <uses-policy android:name="disable-camera" />
+</device-admin>

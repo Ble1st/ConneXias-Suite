@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+# Nur "engine" — anders als im ConneXias-Framework-Quellprojekt (dort zusätzlich "archive" für
+# Steward und "barbican" für die VPN-Suite), beide bewusst nicht Teil dieses Projekts.
+members = ["engine"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+
+# Reproduzierbare Builds, `cargo build --locked`. Cargo.lock wird bewusst NICHT gitignored
+# (Gegenteil der üblichen Library-Konvention, hier aber gewollt: die Engine wird als
+# Workspace-Library direkt in die App gelinkt, nicht auf crates.io veröffentlicht).
+[profile.release]
+lto = true
+strip = true

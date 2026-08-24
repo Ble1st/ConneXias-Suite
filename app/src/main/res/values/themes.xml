@@ -1,0 +1,13 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Architektur-Review 2026-08-24 (F-6): reines Fenster-/Splash-Theme vor dem ersten
+         Compose-Frame (s. WardenTheme.kt-Klassendoc) — sämtliche tatsächliche Farbgebung läuft
+         über Wardens eigenes Compose-ColorScheme (wardenColorScheme()), nie über diese Datei. Die
+         vorherigen colorPrimary/colorSecondary/…-Einträge (Android-Studio-Vorlagenreste) hatten
+         projektweit keine einzige Referenz außer sich selbst und sind gestrichen. Parent jetzt ein
+         reines Plattform-Theme statt Theme.MaterialComponents.DayNight.DarkActionBar: kein
+         einziges MDC-/AppCompat-View in der App, minSdk 35 braucht die DayNight-
+         Kompatibilitätsschicht der MDC-Bibliothek nicht mehr. android:statusBarColor gestrichen —
+         ab API 35 (== minSdk) deprecated und wirkungslos, s. enableEdgeToEdge() in
+         WardenStatusActivity.onCreate(). -->
+    <style name="Theme.Warden" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
