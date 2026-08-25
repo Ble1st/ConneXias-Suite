@@ -143,6 +143,19 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           retention-days: 90
 
+      # F-4-Folgearbeit (R8 seit 2026-08-25 aktiv): R8s Obfuskierung ist pro Build einzigartig
+      # (kein -applymapping) — ohne mapping.txt aus genau diesem Build ist ein späterer Crash-
+      # Report (Nutzer meldet Zeile+umbenannten Klassennamen, s. proguard-rules.pro-Kommentar zu
+      # SourceFile/LineNumberTable) für diese Version nicht mehr zurückübersetzbar. Bewusst nur
+      # als CI-Artefakt (Maintainer-Zugriff über den Actions-Run), nicht als Anhang der
+      # öffentlichen GitHub-Release-Seite unten — kein Geheimnis, aber auch kein Nutzer-Download.
+      - name: Upload R8 mapping (Crash-Deobfuskierung für diese Version)
+        uses: actions/upload-artifact@v4
+        with:
+          name: warden-${{ steps.version.outputs.name }}-mapping
+          path: app/build/outputs/mapping/release/
+          retention-days: 365
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
