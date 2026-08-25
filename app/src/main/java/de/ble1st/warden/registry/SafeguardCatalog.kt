@@ -38,6 +38,10 @@ object SafeguardCatalog {
         UserRestrictionSafeguard.factoryResetDisabled(context),
         UserRestrictionSafeguard.safeBootDisabled(context),
         UserRestrictionSafeguard.modifyAccountsDisabled(context),
+        // "LockMode/Threat-Protection-Ausbau" (2026-08-25, auf Nutzerwunsch "als Schalter unter
+        // Safeguards"): weiterhin auch DeviceLockdownBundle-Mitglied, s.
+        // UserRestrictionSafeguard.debuggingFeaturesDisabled-Klassendoc für die Risiko-Begründung.
+        UserRestrictionSafeguard.debuggingFeaturesDisabled(context),
         FactoryResetProtectionSafeguard(context),
         // Permanent USB signaling off — independent of UsbAutoLockController (screen-lock poll).
         UsbDataSignalingSafeguard(context),

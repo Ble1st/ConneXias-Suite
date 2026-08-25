@@ -1,5 +1,7 @@
 package de.ble1st.warden.ui
 
+import android.app.ActivityManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -48,20 +50,37 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.BuildConfig
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.admin.DeviceOwnerStatusReader
 import de.ble1st.warden.appmanagement.AppManagementInfo
+import de.ble1st.warden.appmanagement.InstalledAppLister
+import de.ble1st.warden.appmanagement.PermissionAuditInfo
+import de.ble1st.warden.appmanagement.PermissionAuditScanner
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.autoreboot.AutoRebootStorage
 import de.ble1st.warden.bus.ConcordBus
-import de.ble1st.warden.domain.profile.WardenProfile
 import de.ble1st.warden.domain.frp.FactoryResetProtectionAccounts
 import de.ble1st.warden.domain.frp.FactoryResetProtectionDecision
+import de.ble1st.warden.domain.performance.BatteryDrainDecision
+import de.ble1st.warden.domain.presence.DestructiveCommandGuard
+import de.ble1st.warden.domain.profile.WardenProfile
+import de.ble1st.warden.performance.AppUsageInfo
+import de.ble1st.warden.performance.AppUsageReader
+import de.ble1st.warden.performance.BatteryHistoryStore
+import de.ble1st.warden.performance.BatterySnapshot
+import de.ble1st.warden.performance.BatteryStatusReader
+import de.ble1st.warden.performance.DeviceMemoryReader
+import de.ble1st.warden.performance.DeviceMemorySnapshot
 import de.ble1st.warden.registry.FactoryResetProtectionSafeguard
 import de.ble1st.warden.failsafe.FailsafeActivity
 import de.ble1st.warden.integrity.DebuggableOsStatusReader
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.pin.WardenLockScreenTextStorage
+import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
+import de.ble1st.warden.pin.WardenLockTaskDrillStorage
+import de.ble1st.warden.pin.WardenLockTaskManager
+import de.ble1st.warden.pin.WardenLockTaskPendingEngageStore
 import de.ble1st.warden.presence.SensitiveActionActivity
 import de.ble1st.warden.presence.WardenLockActivity
 import de.ble1st.warden.presence.WardenPinActivity
@@ -90,6 +109,9 @@ import de.ble1st.warden.registry.WardenSupportMessageStorage
 import de.ble1st.warden.ui.theme.WardenAccent
 import de.ble1st.warden.ui.theme.WardenTheme
 import de.ble1st.warden.ui.theme.WardenThemePrefs
+import de.ble1st.warden.wardenAuditLog
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -139,6 +161,7 @@ class WardenStatusActivity : ComponentActivity() {
         lockRequestInFlight = false
         if (result.resultCode == RESULT_OK) {
             authenticated.value = true
+            consumePendingLockTaskEngage()
         } else {
             // Zurück-Geste/abgebrochener Prompt auf WardenLockActivity — ohne Nachweis gibt es
             // nichts sinnvoll anzuzeigen, kein Fallback auf einen ungesicherten Zustand.
@@ -243,6 +266,17 @@ class WardenStatusActivity : ComponentActivity() {
                             Log.w(TAG, "Log-Zugriff abgelehnt", e)
                         }
                     },
+                    // Kein Presence-Gate hier — Beenden ist die risikofreie Richtung (kein
+                    // Kiosk-Modus, s. SensitiveAction.LOCKDOWN_TASK_ENGAGE-Klassendoc), und diese
+                    // Activity selbst ist ohnehin schon hinter WardenLockSession. runCatching, weil
+                    // Activity.stopLockTask() laut Android-Dokumentation wirft, wenn der Aufrufer
+                    // gerade nicht (mehr) das Lock-Task-Paket ist (z. B. Race: extern bereits
+                    // beendet) — derselbe defensive Umgang wie bei jedem anderen DPM-nahen Aufruf
+                    // in dieser Datei.
+                    onStopLockTask = {
+                        runCatching { WardenLockTaskManager(this).stop() }
+                            .onFailure { Log.e(TAG, "App-Lock beenden fehlgeschlagen", it) }
+                    },
                     accent = accent,
                     onAccentChange = { selected ->
                         accent = selected
@@ -307,6 +341,7 @@ class WardenStatusActivity : ComponentActivity() {
         super.onResume()
         if (wardenLockSession.isAuthenticated()) {
             authenticated.value = true
+            consumePendingLockTaskEngage()
             return
         }
         authenticated.value = false
@@ -314,6 +349,46 @@ class WardenStatusActivity : ComponentActivity() {
             lockRequestInFlight = true
             lockLauncher.launch(Intent(this, WardenLockActivity::class.java))
         }
+    }
+
+    /**
+     * "LockMode/Threat-Protection-Ausbau" (2026-08-25) — der Abholpunkt für
+     * [de.ble1st.warden.pin.WardenLockTaskPendingEngageStore]s Klassendoc: die nächste
+     * Gelegenheit, in der diese Activity wieder authentifiziert im Vordergrund läuft (Kaltstart
+     * über [WardenLockActivity] **oder** ein bereits gültiger [WardenLockSession]-Nachweis bei
+     * jedem Resume — beide Pfade oben rufen dies auf, kein dritter Ort nötig), holt eine
+     * ausstehende Anforderung ab und stößt [WardenLockTaskManager.startIfPermitted] an.
+     * [WardenLockTaskPendingEngageStore.consumeIfPending] ist ein No-Op (liefert `null`), solange
+     * nichts aussteht — dieser Aufruf bei jedem Resume ist deshalb unkritisch billig.
+     */
+    private fun consumePendingLockTaskEngage() {
+        val reason = WardenLockTaskPendingEngageStore.consumeIfPending(applicationContext) ?: return
+        // Derselbe unbedingte Debug-Build-Hardblock wie bei jeder anderen realen DPM-Aktion
+        // dieses Projekts (DestructiveCommandGuard, F.4) — WardenLockTaskManager selbst prüft nur
+        // das Notruf-Drill-Gate, nicht diesen Guard (s. dessen Klassendoc: er ist absichtlich
+        // Android-frei und kennt BuildConfig nicht), muss also hier vom Aufrufer davorgeschaltet
+        // werden, genau wie DestructiveActionExecutor.executeInternal es für den manuellen
+        // SensitiveAction.LOCKDOWN_TASK_ENGAGE-Weg bereits tut.
+        // runCatching: Activity.startLockTask() wirft laut Android-Dokumentation, wenn das
+        // eigene Paket (noch) nicht über WardenLockTaskAuthorizer.apply() für Lock-Task
+        // whitelistet ist (z. B. Lockdown-Modus wurde zwischen Anforderung und Abholung wieder
+        // zurückgesetzt) — ein Absturz von WardenStatusActivity darf daraus nicht folgen.
+        val started = DestructiveCommandGuard.isExecutionAllowed(BuildConfig.DEBUG) &&
+            runCatching {
+                WardenLockTaskManager(this).startIfPermitted(
+                    emergencyCallDrillPassed = WardenLockTaskDrillStorage.isConfirmed(applicationContext),
+                )
+            }.onFailure { Log.e(TAG, "Lock-Task-Auto-Engage fehlgeschlagen", it) }.getOrDefault(false)
+        wardenAuditLog(applicationContext).append(
+            priority = Log.WARN,
+            tag = TAG,
+            message = if (started) {
+                "Lock-Task automatisch aktiviert: $reason"
+            } else {
+                "Lock-Task-Auto-Engage angefordert, aber Gate verweigert (Debug-Build und/oder " +
+                    "Drill nicht bestätigt): $reason"
+            },
+        )
     }
 
     private companion object {
@@ -327,6 +402,8 @@ private sealed class WardenScreen {
     data object SecurityScanner : WardenScreen()
     data object Safeguards : WardenScreen()
     data object Settings : WardenScreen()
+    data object PermissionAudit : WardenScreen()
+    data object PerformanceMonitor : WardenScreen()
 }
 
 /** Architektur-Review 2026-08-24 (F-3) — `WardenScreen` selbst ist keine der sonst über
@@ -343,6 +420,8 @@ private val WardenScreenSaver: Saver<WardenScreen, String> = Saver(
             "SecurityScanner" -> WardenScreen.SecurityScanner
             "Safeguards" -> WardenScreen.Safeguards
             "Settings" -> WardenScreen.Settings
+            "PermissionAudit" -> WardenScreen.PermissionAudit
+            "PerformanceMonitor" -> WardenScreen.PerformanceMonitor
             else -> WardenScreen.Status
         }
     },
@@ -359,6 +438,7 @@ private fun WardenRoot(
     onOpenSensitiveAction: () -> Unit,
     onOpenPinManagement: () -> Unit,
     onOpenLog: () -> Unit,
+    onStopLockTask: () -> Unit,
     accent: WardenAccent,
     onAccentChange: (WardenAccent) -> Unit,
     lockScreenText: String?,
@@ -424,6 +504,8 @@ private fun WardenRoot(
                     runCatching { concordBus.lockNow() }
                         .onFailure { Log.e("WardenStatus", "Jetzt-sperren fehlgeschlagen", it) }
                 },
+                onOpenPermissionAudit = { screen = WardenScreen.PermissionAudit },
+                onOpenPerformanceMonitor = { screen = WardenScreen.PerformanceMonitor },
             )
         }
         WardenScreen.AppManagement -> {
@@ -543,6 +625,12 @@ private fun WardenRoot(
                 mutableStateOf(FactoryResetProtectionSafeguard(appContext).isFrpAgentAvailable())
             }
             var profileApplyWarning by remember { mutableStateOf<String?>(null) }
+            // "LockMode/Threat-Protection-Ausbau" (2026-08-25) — reine lokale SharedPreferences-
+            // Werte (kein DPM-Zugriff wie die übrigen Toggles oben), deshalb ohne
+            // rememberSafeguardToggle/ConcordBus direkt hier geladen/geschrieben.
+            var emergencyDrillConfirmed by remember { mutableStateOf(WardenLockTaskDrillStorage.isConfirmed(appContext)) }
+            var autoEngageOnCriticalThreat by remember { mutableStateOf(WardenLockTaskAutoEngageStore.isEnabled(appContext)) }
+            var lockTaskActive by remember { mutableStateOf(loadLockTaskActiveSafely(appContext)) }
             key(catalogGeneration) {
                 SafeguardsScreen(
                     cameraLocked = rememberSafeguardToggle(concordBus, CameraSafeguard.ID),
@@ -584,6 +672,10 @@ private fun WardenRoot(
                     modifyAccountsDisabled = rememberSafeguardToggle(
                         concordBus,
                         UserRestrictionSafeguard.MODIFY_ACCOUNTS_DISABLED_ID,
+                    ),
+                    debuggingFeaturesDisabled = rememberSafeguardToggle(
+                        concordBus,
+                        UserRestrictionSafeguard.DEBUGGING_FEATURES_DISABLED_ID,
                     ),
                     factoryResetProtectionAccounts = frpAccounts,
                     factoryResetProtectionAgentAvailable = frpAgentAvailable,
@@ -635,6 +727,32 @@ private fun WardenRoot(
                             }
                         catalogGeneration++
                     },
+                    emergencyDrillConfirmed = emergencyDrillConfirmed,
+                    emergencyDrillConfirmedAtText = WardenLockTaskDrillStorage.confirmedAtMillis(appContext)
+                        ?.let { millis -> DateFormat.getDateTimeInstance().format(Date(millis)) },
+                    onConfirmEmergencyDrill = {
+                        WardenLockTaskDrillStorage.confirm(appContext)
+                        emergencyDrillConfirmed = true
+                    },
+                    onRevokeEmergencyDrill = {
+                        WardenLockTaskDrillStorage.revoke(appContext)
+                        emergencyDrillConfirmed = false
+                        // Ein widerrufener Drill macht den Auto-Engage-Opt-in wirkungslos (Gate
+                        // verweigert ohnehin) — hier zusätzlich sichtbar mit zurückgesetzt, statt
+                        // eines Schalters, der "an" zeigt, aber nichts mehr bewirkt.
+                        WardenLockTaskAutoEngageStore.setEnabled(appContext, false)
+                        autoEngageOnCriticalThreat = false
+                    },
+                    autoEngageOnCriticalThreat = autoEngageOnCriticalThreat,
+                    onAutoEngageOnCriticalThreatChange = { requested ->
+                        WardenLockTaskAutoEngageStore.setEnabled(appContext, requested)
+                        autoEngageOnCriticalThreat = requested
+                    },
+                    lockTaskActive = lockTaskActive,
+                    onStopLockTask = {
+                        onStopLockTask()
+                        lockTaskActive = loadLockTaskActiveSafely(appContext)
+                    },
                     onBack = { screen = WardenScreen.Status },
                 )
             }
@@ -652,6 +770,95 @@ private fun WardenRoot(
                 autoRebootThresholdHours = autoRebootThresholdHours,
                 onAutoRebootThresholdHoursChange = onAutoRebootThresholdHoursChange,
                 onBack = { screen = WardenScreen.Status },
+            )
+        }
+        WardenScreen.PermissionAudit -> {
+            val appContext = LocalContext.current.applicationContext
+            val scanScope = rememberCoroutineScope()
+            var findings by remember { mutableStateOf<List<PermissionAuditInfo>?>(null) }
+            var scanInProgress by remember { mutableStateOf(false) }
+            PermissionAuditScreen(
+                findings = findings,
+                scanInProgress = scanInProgress,
+                onBack = { screen = WardenScreen.Status },
+                onScan = {
+                    if (!scanInProgress) {
+                        scanScope.launch {
+                            scanInProgress = true
+                            try {
+                                findings = withContext(Dispatchers.IO) {
+                                    runCatching { PermissionAuditScanner(appContext).scan() }
+                                        .onFailure { Log.e("WardenStatus", "Permission-Audit fehlgeschlagen", it) }
+                                        .getOrNull()
+                                }
+                            } finally {
+                                scanInProgress = false
+                            }
+                        }
+                    }
+                },
+            )
+        }
+        WardenScreen.PerformanceMonitor -> {
+            val appContext = LocalContext.current.applicationContext
+            val perfScope = rememberCoroutineScope()
+            var memory by remember { mutableStateOf<DeviceMemorySnapshot?>(null) }
+            var battery by remember { mutableStateOf<BatterySnapshot?>(null) }
+            var drainPercentPerHour by remember { mutableStateOf<Double?>(null) }
+            var usageAccessGranted by remember { mutableStateOf(false) }
+            var usageFindings by remember { mutableStateOf<List<AppUsageInfo>?>(null) }
+            var suspiciousPackageNames by remember { mutableStateOf<Set<String>>(emptySet()) }
+            var appLabels by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+            fun refresh() {
+                perfScope.launch {
+                    // Dieselbe "im IO-Dispatcher berechnen, erst danach im Composable-Aufrufer
+                    // zuweisen"-Struktur wie überall sonst in dieser Datei (z. B.
+                    // WardenScreen.SecurityScanner oben) — ein Snapshot-Bündel statt einzelner
+                    // Direktzuweisungen innerhalb von withContext, damit alle sieben Werte aus
+                    // demselben, konsistenten Lesezeitpunkt stammen und die State-Schreibzugriffe
+                    // selbst auf dem ursprünglichen (Main-)Dispatcher passieren.
+                    val snapshot = withContext(Dispatchers.IO) {
+                        val usageReader = AppUsageReader(appContext)
+                        PerformanceSnapshot(
+                            memory = runCatching { DeviceMemoryReader(appContext).read() }.getOrNull(),
+                            battery = runCatching { BatteryStatusReader(appContext).read() }.getOrNull(),
+                            drainPercentPerHour = runCatching {
+                                BatteryDrainDecision.percentPerHour(BatteryHistoryStore(appContext).recentUnchargedSamples())
+                            }.getOrNull(),
+                            usageAccessGranted = runCatching { usageReader.hasAccess() }.getOrDefault(false),
+                            usageFindings = runCatching { usageReader.recentForegroundUsage() }.getOrNull(),
+                            suspiciousPackageNames = loadFindingsSafely(concordBus)?.map { it.packageName }?.toSet().orEmpty(),
+                            appLabels = runCatching {
+                                InstalledAppLister(appContext).listInstalledApps().associate { it.packageName to it.label }
+                            }.getOrDefault(emptyMap()),
+                        )
+                    }
+                    memory = snapshot.memory
+                    battery = snapshot.battery
+                    drainPercentPerHour = snapshot.drainPercentPerHour
+                    usageAccessGranted = snapshot.usageAccessGranted
+                    usageFindings = snapshot.usageFindings
+                    suspiciousPackageNames = snapshot.suspiciousPackageNames
+                    appLabels = snapshot.appLabels
+                }
+            }
+            LaunchedEffect(Unit) { refresh() }
+
+            PerformanceMonitorScreen(
+                memory = memory,
+                battery = battery,
+                batteryDrainPercentPerHour = drainPercentPerHour,
+                usageAccessGranted = usageAccessGranted,
+                usageFindings = usageFindings,
+                suspiciousPackageNames = suspiciousPackageNames,
+                appLabels = appLabels,
+                onBack = { screen = WardenScreen.Status },
+                onRequestUsageAccess = {
+                    runCatching { appContext.startActivity(AppUsageReader(appContext).usageAccessSettingsIntent()) }
+                        .onFailure { Log.e("WardenStatus", "Nutzungsdatenzugriff-Einstellungen nicht erreichbar", it) }
+                },
+                onRefresh = { refresh() },
             )
         }
     }
@@ -767,10 +974,32 @@ private fun loadDeviceIntegrityStatusSafely(bus: ConcordBus): DeviceIntegritySta
 
 /** "Arbeite langsam am Lockdownmodus" (2026-08-22), dritter Schritt — reiner Lesepfad, s.
  * [ConcordBus.isLockdownModeActive]-Doc: kein Schalter, nur Statusanzeige. */
+/** Bündelt einen [WardenScreen.PerformanceMonitor]-Lesezyklus (s. dortiger Kommentar) — ein
+ * einzelner konsistenter Snapshot statt sieben unabhängig zeitversetzter Werte. */
+private data class PerformanceSnapshot(
+    val memory: DeviceMemorySnapshot?,
+    val battery: BatterySnapshot?,
+    val drainPercentPerHour: Double?,
+    val usageAccessGranted: Boolean,
+    val usageFindings: List<AppUsageInfo>?,
+    val suspiciousPackageNames: Set<String>,
+    val appLabels: Map<String, String>,
+)
+
 private fun loadLockdownModeActiveSafely(bus: ConcordBus): Boolean? =
     runCatching { bus.isLockdownModeActive() }
         .onFailure { Log.e("WardenStatus", "Lockdown-Modus-Status nicht ladbar", it) }
         .getOrNull()
+
+/** "LockMode/Threat-Protection-Ausbau" (2026-08-25) — `ActivityManager.getLockTaskModeState()`
+ * statt `Activity.isInLockTaskMode()`: liefert denselben Zustand ohne eine konkrete `Activity`-
+ * Instanz zu brauchen, hier bewusst genutzt, weil dieser Aufruf aus einer reinen
+ * Context-Umgebung (`appContext`) heraus passiert, nicht aus der Activity selbst. */
+private fun loadLockTaskActiveSafely(context: Context): Boolean? =
+    runCatching {
+        val am = context.getSystemService(ActivityManager::class.java) ?: return@runCatching null
+        am.lockTaskModeState != ActivityManager.LOCK_TASK_MODE_NONE
+    }.onFailure { Log.e("WardenStatus", "Lock-Task-Status nicht ladbar", it) }.getOrNull()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -790,6 +1019,8 @@ private fun WardenStatusScreen(
     onOpenSettings: () -> Unit,
     onOpenLog: () -> Unit,
     onLockNow: () -> Unit,
+    onOpenPermissionAudit: () -> Unit,
+    onOpenPerformanceMonitor: () -> Unit,
 ) {
     // Punkt 4 ("weitere App-UI-Verschönerungen", 2026-08-22) — haptisches Feedback für die einzige
     // sofort (ohne Bestätigungsschritt) ausgeführte Dashboard-Aktion, s. NumpadButton-Kommentar in
@@ -836,6 +1067,18 @@ private fun WardenStatusScreen(
                     else -> null
                 },
                 onClick = onOpenSecurityScanner,
+            )
+            MenuRow(
+                title = "Permission-Audit",
+                subtitle = "Rechte-Klassifizierung je installierter App",
+                tag = "PA",
+                onClick = onOpenPermissionAudit,
+            )
+            MenuRow(
+                title = "Performance-Monitor",
+                subtitle = "Speicher, Akku-Drain, App-Aktivität",
+                tag = "PM",
+                onClick = onOpenPerformanceMonitor,
             )
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 

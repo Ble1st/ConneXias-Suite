@@ -35,6 +35,18 @@ package de.ble1st.warden.domain.appmanagement
  *   Geräteadmin/Bedienungshilfen-Dienst zwischen zwei Scans von inaktiv auf aktiv gewechselt ist
  *   (dringlicher als die reine Deklaration, s.
  *   `de.ble1st.warden.domain.appmanagement.ActivationTransitionDecision`).
+ *
+ * Ein neuntes Signal (2026-08-25, "LockMode/Threat-Protection-Ausbau", angelehnt an
+ * Feature-Ideenliste Punkt 50 "Rollback-Schutz"):
+ * - [VERSION_DOWNGRADED] — `versionCode` eines bereits vorher gesehenen Pakets ist zwischen zwei
+ *   Scans gesunken (Downgrade-/Rollback-Angriff: eine ältere, mutmaßlich verwundbare oder bereits
+ *   als bösartig bekannte Version wurde über die vorherige installiert), s.
+ *   `de.ble1st.warden.appmanagement.VersionHistoryStore`/
+ *   `de.ble1st.warden.domain.appmanagement.VersionDowngradeDecision`. **Kein** Zugriff auf
+ *   Androids systemeigenen Play-Install-Rollback-Schutz (API 9+) — der ist Teil des
+ *   Play-Installers/-Signaturschemas v3 und für Drittapps (auch Device Owner) nicht ansprechbar;
+ *   dies ist eine eigene, lokale versionCode-Baseline nach demselben Muster wie
+ *   [SIGNING_CERT_CHANGED].
  */
 enum class SuspiciousSignal(val bit: Int) {
     EXTRA_DEVICE_ADMIN(1 shl 0),
@@ -45,6 +57,7 @@ enum class SuspiciousSignal(val bit: Int) {
     SIGNING_CERT_CHANGED(1 shl 5),
     DEVICE_ADMIN_NEWLY_ACTIVATED(1 shl 6),
     ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED(1 shl 7),
+    VERSION_DOWNGRADED(1 shl 8),
     ;
 
     companion object {

@@ -7,10 +7,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import android.graphics.Color
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import de.ble1st.warden.R
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
+import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 
 /**
  * Milestone "Manifest-Scan + Sofort-Benachrichtigung" (2026-08-21, auf Nutzerwunsch: "bei Fund
@@ -31,24 +33,40 @@ import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
  * Device-Owner-Recht) — ohne die Berechtigung zeigt das System die Benachrichtigung laut
  * Android-Dokumentation kommentarlos nicht an (kein Absturz), das try/catch hier ist trotzdem
  * dieselbe defensive Haltung wie überall sonst im Projekt.
+ *
+ * **Drei Kanäle statt einem** (2026-08-25, "Threat Alerts & Severity Levels", Feature-Ideenliste
+ * Punkt 0: "Farbcodierung und unterschiedliche Notification-Typen") — je [ThreatSeverity], mit
+ * unterschiedlicher `importance` (bestimmt u. a., ob Android überhaupt piept/vibriert) statt eines
+ * einzelnen `IMPORTANCE_HIGH`-Kanals für alles. [channelColor] steuert zusätzlich
+ * [NotificationCompat.Builder.setColor] — Ampelfarben auf dem kleinen Icon/Akzent, nicht überall
+ * vom OEM-Launcher respektiert, aber dieselbe zusätzliche visuelle Unterscheidung wie in
+ * Kaspersky-artigen Sicherheits-Apps aus der Feature-Ideenliste. Ein bereits erstellter Kanal
+ * ändert seine `importance` durch einen erneuten [NotificationChannel]-Konstruktoraufruf laut
+ * Android-Doku *nicht* mehr — unkritisch hier, die drei IDs sind seit dieser Runde stabil, es gab
+ * vorher nur den einen `CHANNEL_ID`-Kanal (Alt-Installationen behalten dessen Historie, bekommen
+ * die drei neuen Kanäle aber ab dem nächsten Start zusätzlich).
  */
 class SuspiciousAppNotifier(private val context: Context) {
 
     init {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Sicherheits-Warnungen",
-            NotificationManager.IMPORTANCE_HIGH,
-        ).apply {
-            description = "Warnt vor Apps, die im Manifest gefährliche Rechte deklarieren " +
-                "(Geräteadministrator, Bedienungshilfen-Dienst)."
-            lockscreenVisibility = Notification.VISIBILITY_SECRET
+        val manager = context.getSystemService(NotificationManager::class.java)
+        for (severity in ThreatSeverity.entries) {
+            val channel = NotificationChannel(
+                channelId(severity),
+                "Sicherheits-Warnungen — ${severityLabel(severity)}",
+                channelImportance(severity),
+            ).apply {
+                description = "Warnt vor Apps, die im Manifest gefährliche Rechte deklarieren " +
+                    "oder deren Verhalten sich verdächtig geändert hat (Stufe ${severityLabel(severity)})."
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
+            }
+            manager?.createNotificationChannel(channel)
         }
-        context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
 
     /** Fund mit Sofort-Aktionen "Einfrieren"/"Deinstallieren". */
     fun notify(finding: SuspiciousAppFindingInfo) {
+        val severity = finding.severity
         val signalsText = SuspiciousSignal.fromBitmask(finding.signalsBitmask).joinToString(", ") { signal ->
             when (signal) {
                 SuspiciousSignal.EXTRA_DEVICE_ADMIN -> "fordert Geräteadministrator-Rechte"
@@ -59,24 +77,28 @@ class SuspiciousAppNotifier(private val context: Context) {
                 SuspiciousSignal.SIGNING_CERT_CHANGED -> "Signatur-Zertifikat hat sich geändert"
                 SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED -> "Geräteadministrator gerade aktiviert"
                 SuspiciousSignal.ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED -> "Bedienungshilfen-Dienst gerade aktiviert"
+                SuspiciousSignal.VERSION_DOWNGRADED -> "auf eine ältere Version zurückgestuft"
             }
         }
-        val publicVersion = NotificationCompat.Builder(context, CHANNEL_ID)
+        val channelId = channelId(severity)
+        val publicVersion = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Sicherheitswarnung")
+            .setContentTitle("Sicherheitswarnung (${severityLabel(severity)})")
             .setContentText("Gerät entsperren, um Details und Aktionen zu sehen.")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(notificationPriority(severity))
             .setCategory(NotificationCompat.CATEGORY_SYSTEM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Verdächtige App: ${finding.label}")
+            .setContentTitle("Verdächtige App (${severityLabel(severity)}): ${finding.label}")
             .setContentText(signalsText)
             .setStyle(NotificationCompat.BigTextStyle().bigText("${finding.packageName} — $signalsText"))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(notificationPriority(severity))
             .setCategory(NotificationCompat.CATEGORY_SYSTEM)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setColor(channelColor(severity))
+            .setColorized(severity == ThreatSeverity.CRITICAL)
             .setPublicVersion(publicVersion)
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
@@ -89,9 +111,12 @@ class SuspiciousAppNotifier(private val context: Context) {
     /** Ersetzt eine Aktions-Benachrichtigung durch eine reine Fehlermeldung, wenn Einfrieren/
      * Deinstallieren am Android-OS-Schutz für bereits aktive Geräteadmins scheitert (s.
      * [AppUninstaller]-Klassendoc) — ehrlich statt stillschweigend nichts zu tun. Keine
-     * Aktionsknöpfe mehr, ein erneuter Versuch schlüge aus demselben Grund wieder fehl. */
+     * Aktionsknöpfe mehr, ein erneuter Versuch schlüge aus demselben Grund wieder fehl.
+     * Immer über den [ThreatSeverity.WARNING]-Kanal — es gibt hier keinen Fund/keine Signale, aus
+     * denen sich eine Stufe ableiten ließe, aber "eine Aktion ist fehlgeschlagen" ist mehr als
+     * reine Information. */
     fun showActionFailed(packageName: String, reason: String) {
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, channelId(ThreatSeverity.WARNING))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Aktion fehlgeschlagen: $packageName")
             .setStyle(NotificationCompat.BigTextStyle().bigText(reason))
@@ -136,9 +161,44 @@ class SuspiciousAppNotifier(private val context: Context) {
         )
     }
 
+    private fun channelId(severity: ThreatSeverity): String = when (severity) {
+        ThreatSeverity.INFO -> "suspicious_app_alerts_info"
+        ThreatSeverity.WARNING -> "suspicious_app_alerts_warning"
+        ThreatSeverity.CRITICAL -> "suspicious_app_alerts_critical"
+    }
+
+    private fun severityLabel(severity: ThreatSeverity): String = when (severity) {
+        ThreatSeverity.INFO -> "Info"
+        ThreatSeverity.WARNING -> "Warnung"
+        ThreatSeverity.CRITICAL -> "Kritisch"
+    }
+
+    /** `IMPORTANCE_LOW` (Info) postet lautlos, `IMPORTANCE_DEFAULT` (Warnung) piept einmal,
+     * `IMPORTANCE_HIGH` (Kritisch) erscheint als Heads-up — je dringlicher die Stufe, desto eher
+     * soll die Benachrichtigung sofort auffallen statt nur in der Leiste zu liegen. */
+    private fun channelImportance(severity: ThreatSeverity): Int = when (severity) {
+        ThreatSeverity.INFO -> NotificationManager.IMPORTANCE_LOW
+        ThreatSeverity.WARNING -> NotificationManager.IMPORTANCE_DEFAULT
+        ThreatSeverity.CRITICAL -> NotificationManager.IMPORTANCE_HIGH
+    }
+
+    private fun notificationPriority(severity: ThreatSeverity): Int = when (severity) {
+        ThreatSeverity.INFO -> NotificationCompat.PRIORITY_LOW
+        ThreatSeverity.WARNING -> NotificationCompat.PRIORITY_DEFAULT
+        ThreatSeverity.CRITICAL -> NotificationCompat.PRIORITY_HIGH
+    }
+
+    /** Ampelfarben — dieselbe Blau/Orange/Rot-Konvention wie
+     * [de.ble1st.warden.ui.SecurityScannerScreen]s Farbcodierung der Funde-Liste, ein einziger
+     * Ort für beide (s. dortiges `severityColor`). */
+    private fun channelColor(severity: ThreatSeverity): Int = when (severity) {
+        ThreatSeverity.INFO -> Color.parseColor("#1565C0")
+        ThreatSeverity.WARNING -> Color.parseColor("#E65100")
+        ThreatSeverity.CRITICAL -> Color.parseColor("#B00020")
+    }
+
     companion object {
         private const val TAG = "SuspiciousAppNotifier"
-        private const val CHANNEL_ID = "suspicious_app_alerts"
         private const val NOTIFICATION_ID = 1
     }
 }

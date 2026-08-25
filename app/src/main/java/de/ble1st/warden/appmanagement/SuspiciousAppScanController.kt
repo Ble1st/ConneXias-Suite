@@ -10,13 +10,19 @@ import de.ble1st.warden.domain.appmanagement.SigningCertChangeDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppFinding
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppScanDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
+import de.ble1st.warden.domain.pin.WardenLockTaskAutoEngageDecision
+import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
+import de.ble1st.warden.pin.WardenLockTaskDrillStorage
+import de.ble1st.warden.pin.WardenLockTaskPendingEngageStore
+import de.ble1st.warden.registry.DeviceLockdownBundle
 import de.ble1st.warden.wardenAuditLog
 
 /**
  * Milestone "Automatisches Einfrieren verdächtiger Apps", seit "Manifest-Scan + Sofort-
- * Benachrichtigung" (2026-08-21) und "weitere Funktionen für den Sicherheitsscanner" (2026-08-22)
- * erweitert. Verkabelt inzwischen acht Verdachtssignale ([SuspiciousSignal]-Klassendoc listet
- * alle) über die reine Entscheidungslogik [SuspiciousAppScanDecision] mit
+ * Benachrichtigung" (2026-08-21), "weitere Funktionen für den Sicherheitsscanner" (2026-08-22)
+ * und "LockMode/Threat-Protection-Ausbau" (2026-08-25) erweitert. Verkabelt inzwischen neun
+ * Verdachtssignale ([SuspiciousSignal]-Klassendoc listet alle) über die reine Entscheidungslogik
+ * [SuspiciousAppScanDecision] mit
  * [AppManagementController]s bereits bestehendem, geschützten Freeze-Pfad — kein zweiter
  * Freeze-Mechanismus, derselbe `AppFreezeGuard`-Schutz (Warden nie einfrierbar) gilt automatisch
  * mit, unabhängig von der hier zusätzlich geprüften Ausschlussmenge.
@@ -33,7 +39,9 @@ import de.ble1st.warden.wardenAuditLog
  *   tatsächlich *neue oder veränderte* Funde ([SuspiciousAppNotifiedStore]) — ein unverändert
  *   offener Fund wird nicht bei jedem 15-Minuten-Lauf erneut gepostet.
  * - [runImmediateScan] — beide Wege sofort statt beim nächsten periodischen Lauf, für den
- *   manuellen "Jetzt scannen"-Button (Feature 10).
+ *   manuellen "Jetzt scannen"-Button (Feature 10) **und** (seit 2026-08-25) für
+ *   [PackageChangeReceiver], der jede Paketänderung sofort einen Lauf auslösen lässt statt bis zu
+ *   15 Minuten auf [SuspiciousAppScanWorker] zu warten.
  *
  * **[setEnabled]`(true)` löst seit 2026-08-25 selbst einen sofortigen [scanAndEnforce]-Lauf aus**
  * (live verifiziert: vorher ließ sich ein bereits bestehender, noch nicht durchgesetzter Fund
@@ -74,6 +82,8 @@ class SuspiciousAppScanController(
     private val installSourceScanner: InstallSourceScanner,
     private val signingCertReader: SigningCertReader,
     private val signingCertHistoryStore: SigningCertHistoryStore,
+    private val versionReader: PackageVersionReader,
+    private val versionHistoryStore: VersionHistoryStore,
     private val activeCapabilityReader: ActiveCapabilityReader,
     private val activationHistoryStore: ActivationHistoryStore,
     private val notifiedStore: SuspiciousAppNotifiedStore,
@@ -82,6 +92,7 @@ class SuspiciousAppScanController(
     private val notifier: SuspiciousAppNotifier,
     private val uninstaller: AppUninstaller,
     private val dataWiper: AppDataWiper,
+    private val permissionRevoker: DangerousPermissionRevoker,
     private val ownPackageName: String,
     private val protectedPackageNames: Set<String>,
 ) {
@@ -123,13 +134,40 @@ class SuspiciousAppScanController(
     }
 
     /** Sicherheitsbenachrichtigung für neue/veränderte Funde. Ohne Argument erneut scannen
-     * (UI/Ad-hoc); Worker und Sofort-Scan übergeben die bereits evaluierte Liste. */
+     * (UI/Ad-hoc); Worker und Sofort-Scan übergeben die bereits evaluierte Liste.
+     *
+     * **Seit "LockMode/Threat-Protection-Ausbau" (2026-08-25) zusätzlich der einzige Auslöser für
+     * ein automatisches Lock-Task-Engage** (s. [WardenLockTaskAutoEngageDecision]-Klassendoc):
+     * nur *neue/veränderte* Funde zählen, kein bereits bekannter, unveränderter Fund löst bei
+     * jedem 15-Minuten-Lauf erneut eine Anforderung aus — dieselbe diff-basierte Begründung wie
+     * bei der Benachrichtigung selbst, direkt darüber. */
     fun notifyNewFindings(findings: List<SuspiciousAppFindingInfo> = scanWithDetails()) {
+        val autoEngageEligible = WardenLockTaskDrillStorage.isConfirmed(context) &&
+            WardenLockTaskAutoEngageStore.isEnabled(context)
+        // Nur bei Bedarf abgefragt (echter DPM-Aufruf) — die beiden lokalen Opt-ins oben sind
+        // billig und filtern den häufigen Fall (nichts davon aktiviert) vorher heraus.
+        val lockdownArmed by lazy { runCatching { DeviceLockdownBundle.build(context).isActive() }.getOrDefault(false) }
+
         for (finding in findings) {
             if (finding.frozen) continue
             if (notifiedStore.lastNotifiedBitmask(finding.packageName) == finding.signalsBitmask) continue
             notifier.notify(finding)
             notifiedStore.recordNotified(finding.packageName, finding.signalsBitmask)
+
+            if (autoEngageEligible &&
+                WardenLockTaskAutoEngageDecision.shouldRequestEngage(
+                    severity = finding.severity,
+                    drillConfirmed = true,
+                    lockdownArmed = lockdownArmed,
+                    autoEngageEnabled = true,
+                )
+            ) {
+                WardenLockTaskPendingEngageStore.requestEngage(
+                    context,
+                    reason = "Kritischer Verdachtsfund: ${finding.label} (${finding.packageName})",
+                )
+                logStore.append(Log.WARN, TAG, "Lock-Task-Auto-Engage angefordert: pkg=${finding.packageName}")
+            }
         }
     }
 
@@ -177,6 +215,14 @@ class SuspiciousAppScanController(
             currentFingerprints,
         )
 
+        val currentVersionCodes = nonSystemPackageNames
+            .mapNotNull { pkg -> versionReader.versionCodeFor(pkg)?.let { pkg to it } }
+            .toMap()
+        val versionDowngraded = VersionDowngradeDecision.evaluate(
+            versionHistoryStore.versionCodes(),
+            currentVersionCodes,
+        )
+
         val findings = SuspiciousAppScanDecision.evaluate(
             deviceAdminPackageNames = adminReader.declaredDeviceAdminPackageNames(),
             accessibilityPackageNames = accessibilityScanner.declaredAccessibilityServicePackageNames(),
@@ -186,6 +232,7 @@ class SuspiciousAppScanController(
             signingCertChangedPackageNames = signingCertChanged,
             deviceAdminNewlyActivatedPackageNames = newlyActivatedAdmins,
             accessibilityNewlyActivatedPackageNames = newlyActivatedAccessibility,
+            versionDowngradedPackageNames = versionDowngraded,
             ownPackageName = ownPackageName,
             protectedPackageNames = protectedPackageNames,
             systemPackageNames = systemPackageNames,
@@ -195,6 +242,7 @@ class SuspiciousAppScanController(
             activationHistoryStore.recordActiveDeviceAdmins(currentActiveAdmins)
             activationHistoryStore.recordActiveAccessibilityServices(currentActiveAccessibility)
             currentFingerprints.forEach { (pkg, fingerprint) -> signingCertHistoryStore.record(pkg, fingerprint) }
+            currentVersionCodes.forEach { (pkg, versionCode) -> versionHistoryStore.record(pkg, versionCode) }
         }
     }
 
@@ -224,6 +272,21 @@ class SuspiciousAppScanController(
             if (actuallyFrozen) {
                 notifier.cancel(finding.packageName)
                 notifiedStore.clear(finding.packageName)
+            }
+
+            // "Automated Incident Response" (2026-08-25, s. DangerousPermissionRevoker-Klassendoc)
+            // — unabhängig davon, ob das Einfrieren selbst geglückt ist (bekannte OS-Lücke für
+            // Geräteadmin-deklarierende/debuggbare Ziele, s. AppFreezeManager-Klassendoc):
+            // Rechte-Entzug ist ein zweiter, unabhängiger Mechanismus, der genau dort greifen
+            // kann, wo Einfrieren es nicht tut.
+            val revoked = runCatching { permissionRevoker.revokeDangerousPermissions(finding.packageName) }
+                .getOrDefault(emptyList())
+            if (revoked.isNotEmpty()) {
+                logStore.append(
+                    Log.WARN,
+                    TAG,
+                    "Gefährliche Rechte automatisch entzogen: pkg=${finding.packageName} rechte=$revoked",
+                )
             }
         }
     }

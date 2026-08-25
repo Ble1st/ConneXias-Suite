@@ -17,13 +17,16 @@ import de.ble1st.warden.appmanagement.AppDataWiper
 import de.ble1st.warden.appmanagement.AppFreezeManager
 import de.ble1st.warden.appmanagement.AppManagementController
 import de.ble1st.warden.appmanagement.AppUninstaller
+import de.ble1st.warden.appmanagement.DangerousPermissionRevoker
 import de.ble1st.warden.appmanagement.DeviceAdminCapabilityScanner
 import de.ble1st.warden.appmanagement.InstallSourceScanner
 import de.ble1st.warden.appmanagement.InstalledAppLister
 import de.ble1st.warden.appmanagement.NotificationListenerScanner
 import de.ble1st.warden.appmanagement.OverlayPermissionScanner
+import de.ble1st.warden.appmanagement.PackageVersionReader
 import de.ble1st.warden.appmanagement.SigningCertHistoryStore
 import de.ble1st.warden.appmanagement.SigningCertReader
+import de.ble1st.warden.appmanagement.VersionHistoryStore
 import de.ble1st.warden.appmanagement.SuspiciousAppNotifiedStore
 import de.ble1st.warden.appmanagement.SuspiciousAppNotifier
 import de.ble1st.warden.appmanagement.SuspiciousAppScanController
@@ -31,6 +34,7 @@ import de.ble1st.warden.appmanagement.SuspiciousAppScanStorage
 import de.ble1st.warden.appmanagement.SuspiciousAppScanStore
 import de.ble1st.warden.appmanagement.SuspiciousAppScanWorker
 import de.ble1st.warden.bus.ConcordBus
+import de.ble1st.warden.performance.BatterySamplingWorker
 import de.ble1st.warden.presence.WardenLockSession
 import de.ble1st.warden.usb.UsbAutoLockWorker
 import de.ble1st.warden.usb.UsbLockStateReceiver
@@ -80,6 +84,8 @@ class WardenApplication : Application() {
             installSourceScanner = InstallSourceScanner(this),
             signingCertReader = SigningCertReader(this),
             signingCertHistoryStore = SigningCertHistoryStore(this),
+            versionReader = PackageVersionReader(this),
+            versionHistoryStore = VersionHistoryStore(this),
             activeCapabilityReader = ActiveCapabilityReader(this),
             activationHistoryStore = ActivationHistoryStore(this),
             notifiedStore = SuspiciousAppNotifiedStore(this),
@@ -88,6 +94,7 @@ class WardenApplication : Application() {
             notifier = SuspiciousAppNotifier(this),
             uninstaller = AppUninstaller(this),
             dataWiper = AppDataWiper(this),
+            permissionRevoker = DangerousPermissionRevoker(this),
             ownPackageName = packageName,
             protectedPackageNames = AppManagementController.SUITE_PACKAGE_NAMES,
         )
@@ -200,6 +207,20 @@ class WardenApplication : Application() {
             UsbLockStateReceiver.syncRegistration(this)
         } catch (e: Exception) {
             Log.w("WardenApplication", "USB-Lock-Receiver-Registrierung übersprungen", e)
+        }
+        try {
+            // Performance-Monitoring-Fenster (2026-08-25) — dieselbe Best-Effort-Begründung wie
+            // oben: unabhängig davon, ob der Bildschirm je geöffnet wird, sammelt dieser Worker
+            // laufend Batterie-Verlaufsdaten, damit beim ersten Öffnen bereits eine Drain-Rate
+            // anzeigbar ist statt "keine Daten" bis zum übernächsten Intervall.
+            BatterySamplingWorker.schedule(this)
+        } catch (e: IllegalStateException) {
+            Log.w(
+                "WardenApplication",
+                "BatterySamplingWorker.schedule() übersprungen — " +
+                    "WorkManager noch nicht bereit (vermutlich frühes Direct-Boot-Fenster)",
+                e,
+            )
         }
     }
 }

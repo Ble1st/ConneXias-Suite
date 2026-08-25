@@ -1,7 +1,14 @@
 # Manueller Rauchtest (Schritt 14)
 
-`./gradlew build` läuft grün (Lint + 94 JVM-Unit-Tests + Debug-/Release-Assemble). Was nicht
-automatisiert geprüft werden kann, ohne ein echtes Gerät/Emulator zu belegen — analog zum
+`./gradlew build` läuft grün (Lint + JVM-Unit-Tests + Debug-/Release-Assemble). **Stand
+"LockMode/Threat-Protection-Ausbau" (2026-08-25): in der Cloud-Sandbox, die diese Runde
+umgesetzt hat, war `./gradlew` nicht ausführbar** — der konfigurierte Gradle-Toolchain-Download
+(JDK 25 via `api.foojay.io`) und das Android-Gradle-Plugin (`dl.google.com`) sind von der
+Netzwerk-Policy dieser Sandbox blockiert (403), unabhängig von diesem Projekt. Alle Änderungen
+dieser Runde sind deshalb nur durch sorgfältige manuelle Code-Durchsicht geprüft, **nicht**
+tatsächlich kompiliert oder getestet — `./gradlew build` auf einer Maschine mit vollem
+Internetzugriff nachholen, bevor diese Änderungen als verifiziert gelten. Was davon unabhängig
+nicht automatisiert geprüft werden kann, ohne ein echtes Gerät/Emulator zu belegen — analog zum
 Quellprojekt (`ConneXias-Framework/CLAUDE.md`, Abschnitt "Build & Test").
 
 ## Device-Owner-Setup
@@ -57,15 +64,60 @@ Danach `WardenStatusActivity` (Launcher-Icon "Warden") öffnen und prüfen:
     Boot, noch vor PIN/Muster-Eingabe), dass `RegistryReconciliationReceiver` feuert und die
     Kamera-/Bildschirm-Sicherungen aus dem persistierten Soll-Zustand wiederherstellt — das ist der
     eigentliche Zweck von `ACTION_LOCKED_BOOT_COMPLETED` + `directBootAware="true"`.
+11. **App-Lock (LockMode)** — Safeguards ▸ App-Lock (LockMode):
+    - **Nur auf einem Non-Debug-Build und NUR nach einem echten, manuell durchgeführten
+      Notruf-Test überhaupt versuchen** — s. Abschnitt "Bewusst nicht scharf geschaltet" unten.
+    - Notruf-Drill bestätigen (Bestätigungstext `NOTRUF GEPRÜFT` eintippen) — Status wechselt auf
+      "Seit …". "Zurücksetzen" muss den Status sofort wieder auf unbestätigt setzen und den
+      Auto-Engage-Schalter mit ausschalten.
+    - Manueller Weg: Sensible Aktion ▸ "App-Lock (Lock-Task) jetzt aktivieren" auswählen,
+      Bestätigungstext `LOCKTASK` eintippen, bestätigen — auf einem Debug-Build muss
+      `describeDecision` "Debug-Build — destruktive Kommandos hart abgeschaltet" zeigen, **nicht**
+      real `startLockTask()` auslösen.
+    - Automatischer Weg (zusätzlich zum Drill: Lockdown-Modus scharf UND "App-Lock automatisch bei
+      kritischem Fund" aktiviert): einen `DEVICE_ADMIN_NEWLY_ACTIVATED`/
+      `ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED`/`SIGNING_CERT_CHANGED`/`VERSION_DOWNGRADED`-Fund
+      auslösen (z. B. Test-App mit Geräteadmin aktivieren), beobachten, dass
+      `WardenLockTaskPendingEngageStore` eine Anforderung vormerkt und beim nächsten Öffnen von
+      Warden (`consumePendingLockTaskEngage`) verarbeitet wird — auf dem Debug-Testgerät weiterhin
+      hart blockiert (`DestructiveCommandGuard`), im Audit-Log aber sichtbar als "Gate verweigert".
+    - "App-Lock beenden" muss jederzeit ohne Presence-Prompt funktionieren, sobald ein Lock-Task
+      tatsächlich aktiv ist (kein Kiosk-Modus).
+12. **Real-Time Threat Protection**: eine Test-APK per `adb install` nachinstallieren, während
+    Warden im Hintergrund läuft — beobachten, dass die Sicherheitsbenachrichtigung/der
+    Sicherheits-Scanner-Fund binnen Sekunden erscheint (`PackageChangeReceiver` →
+    `SuspiciousAppScanWorker.scheduleImmediate`), nicht erst nach bis zu 15 Minuten.
+13. **Permission-Audit** öffnen, "Scannen" antippen — erwartet: Liste installierter Fremd-Apps mit
+    Anzahl gefährlicher/spezieller Rechte, "Details" zeigt die einzelnen Rechtenamen, Apps mit ≥5
+    gefährlichen Rechten sind rot markiert.
+14. **Performance-Monitor** öffnen — erwartet: Speicherbalken (`ActivityManager.MemoryInfo`),
+    Akkustand/Temperatur/Lade-Status (`BatteryManager`), nach ausreichend Wartezeit (mehrere
+    `BatterySamplingWorker`-Läufe, 30-Minuten-Intervall) eine Drain-Rate. App-Aktivität zeigt
+    "Nutzungsdatenzugriff nicht erteilt", bis unter Einstellungen manuell freigegeben — danach
+    Vordergrund-Nutzungszeit je App, verdächtige Pakete (aus dem Sicherheits-Scanner) mit ⚠
+    markiert.
+15. **Entwickleroptionen/USB-Debugging sperren** (Safeguards ▸ Alltagsbetrieb) — **nur auf einem
+    Gerät aktivieren, das nicht mehr per USB/adb entwickelt wird** (kappt vermutlich sofort die
+    adb-Verbindung und lässt sich laut Android-Dokumentation nicht mehr über die
+    Entwickleroptionen zurücknehmen). Auf dem Haupt-Testgerät nur den Bestätigungsdialog bis zum
+    Abbrechen durchspielen, nicht tatsächlich bestätigen.
 
 ## Bewusst nicht scharf geschaltet
 
-Der Notruf-/Lock-Task-Drill (`WardenLockTaskGate`/`WardenLockTaskManager`) bleibt wie im
-Quellprojekt **unbewaffnet** — `emergencyCallDrillPassed` wird nirgends automatisch auf `true`
-gesetzt, `startLockTask()` wird von keinem regulären Codepfad aufgerufen. Das Gate selbst ist
-JVM-unit-getestet (`WardenLockTaskGateTest`, beide Werte). Ein echter Lock-Task-Test auf dem Gerät
-ist für diese Runde bewusst nicht vorgesehen (Risiko: hängt das Testgerät im Kiosk-Modus fest,
-falls der Notruf-Escape-Pfad nicht wie erwartet funktioniert).
+**Seit "LockMode/Threat-Protection-Ausbau" (2026-08-25) gibt es einen echten Auslöser**
+(`de.ble1st.warden.pin.WardenLockTaskManager`/`WardenLockTaskPendingEngageStore`, manuell über
+`SensitiveAction.LOCKDOWN_TASK_ENGAGE` und automatisch bei kritischen Bedrohungsfunden) — anders
+als zuvor beschrieben ist `startLockTask()` jetzt von regulären Codepfaden erreichbar. Real
+ausgeführt wird es auf dem aktuellen Testgerät trotzdem nirgends: `emergencyCallDrillPassed` bleibt
+strukturell an `de.ble1st.warden.pin.WardenLockTaskDrillStorage` gebunden (ein manuell in der UI
+bestätigtes, nie automatisch gesetztes Bit) UND `DestructiveCommandGuard` blockiert real ausgeführte
+Lock-Task-Aufrufe weiterhin hart, solange es sich um einen Debug-Build handelt — das Testgerät läuft
+ausnahmslos Debug-Builds. **Ein echter, manuell durchgeführter Notruf-Drill auf einem
+Non-Debug-Build bleibt für diese Runde bewusst nicht durchgeführt** (Risiko: hängt das Testgerät im
+Lock-Task-Modus fest, falls der Notruf-Escape-Pfad nicht wie erwartet funktioniert) — die
+Drill-Bestätigung selbst ist aber jederzeit gefahrlos in der UI testbar (setzt nur ein lokales Bit,
+löst kein `startLockTask()` aus). Die Gate-Logik selbst ist JVM-unit-getestet
+(`WardenLockTaskGateTest`, `WardenLockTaskAutoEngageDecisionTest`, beide Werte je Bedingung).
 
 ## Reduzierte Instrumented-Tests (kompiliert, nicht auf einem Gerät ausgeführt)
 

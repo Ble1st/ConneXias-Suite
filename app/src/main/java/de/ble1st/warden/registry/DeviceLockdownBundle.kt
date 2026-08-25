@@ -16,9 +16,12 @@ import de.ble1st.warden.domain.registry.CompositeSafeguard
  * [WardenLockTaskAuthorizer] deckt davon bewusst nur die **Autorisierungs**-Hälfte ab
  * (DPM-Whitelist: darf das eigene Paket überhaupt in den Lock-Task-Modus) — dieselbe Grenze, die
  * schon in dessen eigenem Klassendoc gezogen wird: das eigentliche Scharfschalten
- * (`Activity.startLockTask()`) bleibt bewusst außerhalb dieses Bündels und jedes automatischen
- * Pfads, s. `WardenLockTaskGate`/`WardenLockTaskManager`-Klassendocs — ein `apply()` dieses
- * Bündel-Mitglieds versetzt das Gerät selbst nicht in den Kiosk-Modus.
+ * (`Activity.startLockTask()`) bleibt bewusst außerhalb *dieses Bündels* — ein `apply()` dieses
+ * Bündel-Mitglieds versetzt das Gerät selbst nicht in den Lock-Task-Modus, das ist weiterhin
+ * `WardenLockTaskManager`s Aufgabe. Seit "LockMode/Threat-Protection-Ausbau" (2026-08-25) gibt es
+ * dafür reale, aber eigenständig (presence-gated bzw. mehrfach gegatet) abgesicherte Aufrufer, s.
+ * `WardenLockTaskGate`/`WardenLockTaskManager`-Klassendocs — "jedes automatischen Pfads" gilt
+ * also nicht mehr uneingeschränkt, nur noch bezogen auf dieses eine Bündel selbst.
  *
  * **Seit "arbeite langsam am Lockdownmodus" (2026-08-22) über
  * [de.ble1st.warden.domain.presence.SensitiveAction.LOCKDOWN_MODE_ARM] erreichbar** — auf

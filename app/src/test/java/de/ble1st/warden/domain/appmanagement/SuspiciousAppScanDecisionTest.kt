@@ -18,6 +18,7 @@ class SuspiciousAppScanDecisionTest {
         signingCertChanged: Set<String> = emptySet(),
         deviceAdminNewlyActivated: Set<String> = emptySet(),
         accessibilityNewlyActivated: Set<String> = emptySet(),
+        versionDowngraded: Set<String> = emptySet(),
         system: Set<String> = emptySet(),
         trusted: Set<String> = emptySet(),
     ) = SuspiciousAppScanDecision.evaluate(
@@ -29,6 +30,7 @@ class SuspiciousAppScanDecisionTest {
         signingCertChangedPackageNames = signingCertChanged,
         deviceAdminNewlyActivatedPackageNames = deviceAdminNewlyActivated,
         accessibilityNewlyActivatedPackageNames = accessibilityNewlyActivated,
+        versionDowngradedPackageNames = versionDowngraded,
         ownPackageName = ownPackage,
         protectedPackageNames = suitePackages,
         systemPackageNames = system,
@@ -127,6 +129,13 @@ class SuspiciousAppScanDecisionTest {
         val findings = evaluate(signingCertChanged = setOf("com.example.hijacked"))
 
         assertEquals(setOf(SuspiciousSignal.SIGNING_CERT_CHANGED), findings[0].signals)
+    }
+
+    @Test
+    fun versionDowngradeIsFlagged() {
+        val findings = evaluate(versionDowngraded = setOf("com.example.rollback"))
+
+        assertEquals(setOf(SuspiciousSignal.VERSION_DOWNGRADED), findings[0].signals)
     }
 
     @Test
