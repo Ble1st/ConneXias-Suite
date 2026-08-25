@@ -90,6 +90,20 @@ android {
     }
 }
 
+// APK-Dateiname statt des generischen, vom Modulnamen (":app") abgeleiteten "app-release.apk"/
+// "app-debug.apk" — betrifft nur den Dateinamen, nicht das App-Label (@string/app_name ist
+// bereits "Warden"). Versionsname mit rein, damit z. B. eine von der Release-Pipeline erzeugte
+// "Warden-release-1.2.3.apk" auf der GitHub-Release-Seite auch ohne Ordnerkontext eindeutig ist.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set(
+                output.versionName.map { versionName -> "Warden-${variant.name}-$versionName.apk" }
+            )
+        }
+    }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
