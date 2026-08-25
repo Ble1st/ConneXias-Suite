@@ -1,11 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-     Deklarierte Policy-Klassen für den DeviceAdminReceiver. Für einen Device Owner (im
-     Unterschied zu einem regulären, interaktiv aktivierten Device Admin) ist diese Liste nicht
-     rechte-limitierend — DO erhält vollen DevicePolicyManager-Zugriff unabhängig davon
-     (adb-Provisionierung zeigt auch keinen Consent-Screen, der diese Liste anzeigen würde).
-     Trotzdem gepflegt als Dokumentation dessen, was Warden laut Konzept Abschnitt 3/4
-     tatsächlich nutzt — nicht spekulativ auf Vorrat erweitert.
+     Deklarierte Policy-Klassen für den DeviceAdminReceiver. **Korrektur (2026-08-25, echte
+     Hardware, s. Projekt-Notiz zum Testgerät):** die vorherige Annahme hier, diese Liste sei für
+     einen Device Owner nicht rechte-limitierend, war für einen Teil der neun legacy
+     `DeviceAdminInfo`-Policy-Strings schlicht falsch — `DevicePolicyManagerService` prüft
+     `getActiveAdminForCallerLocked(admin, reqPolicy, …)` für einzelne Aufrufe (bestätigt für
+     `setKeyguardDisabledFeatures`/`disable-keyguard-features`) unabhängig vom Owner-Status; ein
+     fehlender Eintrag wirft eine `SecurityException`, nicht bloß eine übersprungene
+     Consent-Anzeige. `disable-keyguard-features` fehlte hier und ließ sowohl
+     `LockScreenPrivacySafeguard` als auch `KeyguardHardeningSafeguard` (beide rufen
+     `setKeyguardDisabledFeatures`) bei jedem `apply()`/`revert()` mit genau dieser Exception
+     scheitern — live auf dem SM-A156B reproduziert. Gepflegt als Dokumentation dessen, was Warden
+     laut Konzept Abschnitt 3/4 tatsächlich nutzt, jetzt aber mit Bezug auf den echten, pro-Policy
+     enforcten Charakter dieser Liste — nicht spekulativ auf Vorrat erweitert, aber jeder
+     tatsächlich benutzte Policy-gated DPM-Aufruf muss hier stehen.
 -->
 <device-admin xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-policy android:name="limit-password" />
@@ -13,4 +21,6 @@
     <uses-policy android:name="force-lock" />
     <uses-policy android:name="wipe-data" />
     <uses-policy android:name="disable-camera" />
+    <!-- setKeyguardDisabledFeatures (KeyguardHardeningSafeguard, LockScreenPrivacySafeguard). -->
+    <uses-policy android:name="disable-keyguard-features" />
 </device-admin>
