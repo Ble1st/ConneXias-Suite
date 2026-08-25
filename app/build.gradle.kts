@@ -40,6 +40,18 @@ android {
         versionName = (project.findProperty("wardenVersionName") as String?) ?: "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // "Andere Optimierungen": ohne abiFilters landen auch die vier JNA-Legacy-ABIs
+        // (armeabi, mips, mips64 — Prä-Ice-Cream-Sandwich bzw. nie relevant gewordene
+        // Android-Architekturen) unverändert im APK, obwohl libconnexias_engine.so (rust/
+        // build-android.sh) ohnehin nur für diese vier Ziel-ABIs gebaut wird und minSdk 35
+        // sowieso kein Gerät mit einer der drei Legacy-ABIs zulässt. Warden verteilt eine rohe
+        // APK über GitHub Releases (kein Play-Store-App-Bundle mit Geräte-spezifischen Splits,
+        // s. .github/workflows/release.yml) — jede tote ABI hier landet unverändert bei jedem
+        // Nutzer im Download.
+        ndk {
+            abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+        }
     }
 
     buildTypes {
@@ -47,9 +59,20 @@ android {
             if (releaseStoreFilePath != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // F-4 (öffentliches-Repo-Checkliste): R8-Shrinking/-Obfuskierung für den Release-Bau.
+            // `includeDefault` (Default `true`) bringt weiterhin die Standard-Android-Regeln
+            // (proguard-android-optimize.txt) automatisch mit. Die eigenen Regeln kommen nicht
+            // über `keepRules { files.from(...) }` (AGP 9.3: deprecated zugunsten des neuen
+            // Source-Set-Konzepts) rein, sondern per Konvention aus src/release/keepRules/ (Regel-
+            // dateien dort müssen auf `.keep` enden, sonst bricht minifyReleaseWithR8 hart ab) —
+            // s. dortige warden.keep für die Begründung der einzelnen Regeln.
             optimization {
-                enable = false
+                enable = true
             }
+            // Ressourcen-Shrinking (unbenutzte Drawables/Strings/Layouts) — unabhängig vom
+            // Code-Shrinking oben, bleibt auf der alten `isShrinkResources`-DSL (in AGP 9 nicht
+            // Teil von `optimization { }`, s. Recherche zur AGP-9-DSL-Aufteilung).
+            isShrinkResources = true
         }
     }
     compileOptions {
@@ -64,6 +87,20 @@ android {
         // DestructiveCommandGuard/WardenLockTaskGate-Drill-Trigger brauchen BuildConfig.DEBUG —
         // AGP generiert BuildConfig seit AGP 8 nicht mehr automatisch.
         buildConfig = true
+    }
+}
+
+// APK-Dateiname statt des generischen, vom Modulnamen (":app") abgeleiteten "app-release.apk"/
+// "app-debug.apk" — betrifft nur den Dateinamen, nicht das App-Label (@string/app_name ist
+// bereits "Warden"). Versionsname mit rein, damit z. B. eine von der Release-Pipeline erzeugte
+// "Warden-release-1.2.3.apk" auf der GitHub-Release-Seite auch ohne Ordnerkontext eindeutig ist.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set(
+                output.versionName.map { versionName -> "Warden-${variant.name}-$versionName.apk" }
+            )
+        }
     }
 }
 

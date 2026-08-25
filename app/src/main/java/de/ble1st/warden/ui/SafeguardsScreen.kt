@@ -150,7 +150,10 @@ fun SafeguardsScreen(
                     append(
                         "Recovery-Wipe bleibt möglich, Gerät ist danach ohne dieses Konto nicht " +
                             "neu einzurichten. Wirkt nur bei gesperrtem Bootloader — bei OEM-Unlock " +
-                            "wirkungslos. Braucht Google-Play-Dienste / FRP-Agent.",
+                            "wirkungslos. Braucht Google-Play-Dienste / FRP-Agent. ⚠ Auf echter " +
+                            "Hardware (Samsung SM-A156B, 2026-08-25) hat ein Recovery-Wipe trotz " +
+                            "korrekt gesetzter Policy keine Konto-Abfrage ausgelöst — nicht als " +
+                            "verlässlichen Schutz behandeln, s. FactoryResetProtectionSafeguard.",
                     )
                     if (!factoryResetProtectionAgentAvailable) {
                         append(
