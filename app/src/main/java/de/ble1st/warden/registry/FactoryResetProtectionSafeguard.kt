@@ -21,6 +21,18 @@ import android.content.Intent
  * voraus, das den Broadcast unten empfängt — [isActive] spiegelt nur den DPM-seitig
  * gespeicherten Policy-Zustand, nicht ob der FRP-Agent ihn tatsächlich übernommen hat; für diesen
  * zweiten Punkt s. [isFrpAgentAvailable].
+ *
+ * **⚠ Empirisch widerlegt auf echter Hardware (2026-08-25, Samsung SM-A156B, s. Projekt-Notiz zum
+ * Testgerät):** Policy korrekt über DPM gesetzt (`dumpsys device_policy` bestätigte
+ * `factoryResetProtectionEnabled=true` mit der hinterlegten Adresse) — trotzdem kam ein direkt
+ * danach ausgelöster echter Recovery-Wipe (gesperrter Bootloader, kein OEM-Unlock) ohne jede
+ * Konto-Abfrage durch: Gerät kam komplett unprotected/neu provisionierbar zurück. Deckt sich mit
+ * der oben schon vermuteten Lücke — vermutlich hat der asynchrone GMS-FRP-Agent den Broadcast
+ * nicht (rechtzeitig) verarbeitet, bevor der Wipe lief, denkbar ist aber auch eine grundsätzliche
+ * Lücke in Samsungs Umsetzung der Enterprise-FRP-API. **Nicht als verlässlichen Diebstahlschutz
+ * behandeln, bis das auf echter Ziel-Hardware mit ausreichend Abstand zwischen Aktivierung und
+ * Wipe erneut verifiziert wurde** — `isActive()`/die UI können den tatsächlichen
+ * Durchsetzungszustand strukturell nicht von außen prüfen.
  */
 class FactoryResetProtectionSafeguard(context: Context) : DpmSafeguard(context) {
 
