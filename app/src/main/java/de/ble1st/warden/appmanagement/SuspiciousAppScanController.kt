@@ -35,6 +35,14 @@ import de.ble1st.warden.wardenAuditLog
  * - [runImmediateScan] — beide Wege sofort statt beim nächsten periodischen Lauf, für den
  *   manuellen "Jetzt scannen"-Button (Feature 10).
  *
+ * **[setEnabled]`(true)` löst seit 2026-08-25 selbst einen sofortigen [scanAndEnforce]-Lauf aus**
+ * (live verifiziert: vorher ließ sich ein bereits bestehender, noch nicht durchgesetzter Fund
+ * trotz frisch aktiviertem Schalter bis zum nächsten periodischen/manuellen Scan weiter öffnen —
+ * ein Timing-Fenster, kein Sicherheitsloch, aber überraschend, weil das Umschalten optisch
+ * sofortige Wirkung suggeriert). `setEnabled(false)` löst bewusst nichts aus — Deaktivieren soll
+ * ein bereits eingefrorenes Ergebnis nicht rückgängig machen, das bleibt dem expliziten
+ * "Entfrieren" in [AppManagementController]/[trust] vorbehalten.
+ *
  * **Systemapps sind strukturell ausgenommen** ([InstalledAppLister.isSystemApp], durchgereicht an
  * [SuspiciousAppScanDecision.evaluate]) — ein vorinstallierter Barrierefreiheits-Dienst (z. B.
  * ein herstellereigener TalkBack-Ersatz) soll nicht versehentlich eingefroren werden; das
@@ -85,6 +93,11 @@ class SuspiciousAppScanController(
     fun setEnabled(enabled: Boolean) {
         store.setEnabled(enabled)
         logStore.append(Log.WARN, TAG, "Verdachtsscanner ${if (enabled) "aktiviert" else "deaktiviert"}")
+        // Ohne dies bleibt ein beim Aktivieren bereits bestehender Fund bis zum nächsten
+        // periodischen/manuellen Scan unangetastet (weiterhin offen/öffenbar) — s. Klassendoc.
+        if (enabled) {
+            scanAndEnforce()
+        }
     }
 
     /** Evaluate + commit baselines. UI list reads use this; scheduled/immediate passes use
