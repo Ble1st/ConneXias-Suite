@@ -1,0 +1,76 @@
+# R8-Keep-Regeln für Warden.
+#
+# AGP 9 liest diese Datei nicht mehr über `optimization { keepRules { files.from(...) } } }` im
+# Gradle-Skript (deprecated seit 9.3, s. app/build.gradle.kts), sondern per Source-Set-Konvention:
+# jede `.keep`-Datei unter src/<buildType>/keepRules/ wird für genau diesen Build-Typ automatisch
+# als Proguard-Regeldatei eingesammelt (die `.keep`-Endung ist Pflicht — jede andere Endung dort
+# lässt `minifyReleaseWithR8` mit einer expliziten Fehlermeldung abbrechen). `includeDefault`
+# bleibt auf seinem Default `true` — die Standard-Android-Regeln (proguard-android-optimize.txt,
+# Framework-Klassen, Manifest-Komponenten via aapt-Rules) kommen also weiterhin automatisch dazu,
+# diese Datei ergänzt nur, was für Wardens eigenen Code/Abhängigkeiten sonst fehlen würde.
+#
+# Manifest-deklarierte Komponenten (Activities/Receiver) brauchen hier keine eigene -keep-Regel:
+# AGP generiert dafür automatisch Keep-Regeln aus der AndroidManifest.xml (aapt_rules.txt), weil
+# das OS sie zur Laufzeit per vollqualifiziertem Klassennamen aus dem PackageManager auflöst.
+# WorkManager (SuspiciousAppScanWorker/AutoRebootWorker/UsbAutoLockWorker) bringt dieselbe
+# Absicherung selbst mit (work-runtime consumer-rules.pro keept `extends ListenableWorker`).
+
+# --- UniFFI-generierte Bindings (uniffi/connexias_engine/, s. CLAUDE.md "Rust crypto engine") ---
+#
+# Autogenerierte JNA-Glue-Klasse, keine handgeschriebene Business-Logik — bewusst pauschal
+# gekeept statt einzeln kuratiert, weil hier drei voneinander unabhängige Namens-Reflection-
+# Mechanismen zusammenkommen und jede falsch entfernte/umbenannte Stelle nicht als Compile-
+# Fehler, sondern als Laufzeit-Crash (UnsatisfiedLinkError/SIGSEGV) in der nativen Engine
+# auffällt, die dann jede sicherheitsrelevante Funktion (Crypto, PIN, Registry) betrifft:
+#
+#  1. `UniffiLib`/`IntegrityCheckingUniffiLib` sind JNA-`Native.register()`-Ziele: JNA bindet
+#     jede `external fun` per Reflection über ihren *Methodennamen* an das gleichnamige native
+#     Symbol in libconnexias_engine.so — eine umbenannte Methode findet ihr Symbol nicht mehr.
+#  2. Jede `Structure`-Unterklasse (RustBuffer, ForeignBytes, UniffiRustCallStatus, die
+#     `UniffiVTableCallbackInterfaceKeyWrapper`-Vtable, ...) trägt ein `@Structure.FieldOrder(...)`
+#     mit den Feldnamen als String-Literale; JNA liest die Felder per Reflection über exakt diese
+#     Namen aus, um das native Speicherlayout nachzubilden — Feld-Umbenennung bricht das Layout
+#     lautlos (falsche Werte, kein Fehler beim Build).
+#  3. `KeyWrapper` ist ein Callback-Interface (`uniffiCallbackInterfaceKeyWrapper`), das Rust
+#     zurück nach Kotlin ruft — dieselbe namensbasierte Bindung wie 1.
+#
+# `-keep class ... { *; }` statt einer schlankeren Variante, weil UniFFI diese Datei bei jedem
+# `rust/build-android.sh`-Lauf komplett neu generiert (s. CLAUDE.md) — eine Regel, die nur die
+# heute vorhandenen Symbole auflistet, würde nach der nächsten Rust-API-Änderung lautlos wieder
+# zu eng.
+-keep class uniffi.connexias_engine.** { *; }
+-keepclassmembers class uniffi.connexias_engine.** { *; }
+
+# --- JNA selbst ---
+#
+# Das `jna`-AAR liefert keine eigenen consumer-rules mit (geprüft: kein proguard.txt im AAR) —
+# JNA muss seine eigenen Klassen ebenso per Reflection finden können (Structure-Introspektion,
+# Callback-Proxys, native Bibliothekssuche). Pauschal gekeept aus demselben Grund wie oben:
+# JNA ist eine Fremdbibliothek, keine einzelne Methode/Feld hier ist als "ungenutzt" sicher
+# einstufbar, ohne die interne Reflection-Nutzung selbst nachzuvollziehen.
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class com.sun.jna.** { *; }
+-dontwarn com.sun.jna.**
+
+# JNA bündelt Plattform-Erkennungscode für Desktop-Betriebssysteme (X11/Win32/macOS-Foundation-
+# Klassen, AWT-Abhängigkeiten), der auf Android nie geladen wird, aber beim R8-Klassen-Traversal
+# als "fehlende Klasse" auffällt, weil die referenzierten java.awt.*/com.sun.jna.platform.*-
+# Typen auf Android schlicht nicht existieren. Kein Risiko, das wegzuwarnen — dieser Code-Pfad
+# ist auf Android nie erreichbar.
+-dontwarn java.awt.**
+-dontwarn module-info
+
+# --- Crash-Reports lesbar halten ---
+#
+# Ohne diese beiden Zeilen ersetzt R8 Stacktrace-Zeilennummern durch nichtssagende `SourceFile`-
+# Angaben; mit ihnen bleiben Zeilennummern erhalten (nützlich für Bugreports vom Nutzer selbst,
+# der einzigen Fehlerquelle, die diese Device-Owner-App je erreicht — kein Crashlytics/Sentry
+# o.ä. verkabelt) und nur der ursprüngliche Dateiname wird versteckt.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+
+# --- Kotlin-Metadaten ---
+#
+# `kotlin.Metadata` wird von keiner Laufzeit-Reflection in Warden ausgewertet (kein kotlin-
+# reflect als Abhängigkeit, s. app/build.gradle.kts) — Standard-R8-Verhalten (Attribut fällt
+# beim Shrinking weg) ist hier bereits korrekt, absichtlich keine `-keep`-Regel dafür.
