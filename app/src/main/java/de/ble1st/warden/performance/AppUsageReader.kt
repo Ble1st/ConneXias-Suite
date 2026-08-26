@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Process
 import android.provider.Settings
+import android.util.Log
 
 /** Vordergrund-Nutzungszeit eines Pakets über das jüngste Abfragefenster — **kein** CPU-/RAM-Wert,
  * s. [DeviceMemoryReader]-Klassendoc für die Begründung, warum ein echter Pro-App-Ressourcenwert
@@ -48,12 +49,19 @@ class AppUsageReader(private val context: Context) {
         val usm = context.getSystemService(UsageStatsManager::class.java) ?: return null
         val end = System.currentTimeMillis()
         val begin = end - windowHours * 3_600_000L
-        return runCatching {
+        return try {
             usm.queryAndAggregateUsageStats(begin, end)
                 .values
                 .filter { it.totalTimeInForeground > 0 }
                 .map { AppUsageInfo(it.packageName, it.totalTimeInForeground) }
                 .sortedByDescending { it.totalForegroundTimeMillis }
-        }.getOrNull()
+        } catch (e: SecurityException) {
+            Log.w(TAG, "queryAndAggregateUsageStats blocked despite hasAccess() == true", e)
+            null
+        }
+    }
+
+    private companion object {
+        const val TAG = "AppUsageReader"
     }
 }

@@ -10,6 +10,7 @@ import de.ble1st.warden.domain.appmanagement.SigningCertChangeDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppFinding
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppScanDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
+import de.ble1st.warden.domain.appmanagement.VersionDowngradeDecision
 import de.ble1st.warden.domain.pin.WardenLockTaskAutoEngageDecision
 import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
 import de.ble1st.warden.pin.WardenLockTaskDrillStorage

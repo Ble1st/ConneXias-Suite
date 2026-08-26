@@ -33,6 +33,14 @@
          Extra-Permission). -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
+    <!-- Performance-Monitor (AppUsageReader): UsageStatsManager#queryAndAggregateUsageStats.
+         "signature|appop"-Protection-Level ohne DPM-Silent-Grant-Pfad (s. AppUsageReader-
+         Klassendoc) — die install-time-Deklaration hier ist trotzdem Pflicht, sonst liefert der
+         AppOps-Check in hasAccess() nie MODE_ALLOWED, egal was der Nutzer unter "Nutzungsdatenzugriff"
+         freigibt. tools:ignore, weil AGP diese Sonderberechtigung sonst als "protected" moniert. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <application
         android:name=".WardenApplication"
         android:allowBackup="false"
