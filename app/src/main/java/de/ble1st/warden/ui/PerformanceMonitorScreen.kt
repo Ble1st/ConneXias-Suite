@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -191,8 +189,13 @@ private fun UsageSection(
         EmptyStateRow(headline = "Keine Vordergrund-Aktivität in den letzten 24h")
         return
     }
-    LazyColumn(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        items(usageFindings, key = { it.packageName }) { info ->
+    // Plain Column statt LazyColumn: dieser Screen ist bereits als Ganzes per verticalScroll
+    // gescrollt (Memory-/Akku-Abschnitte oben) — eine LazyColumn darin würde mit unbegrenzter
+    // Höhe gemessen und crasht hart (IllegalStateException, Compose erlaubt das strukturell
+    // nicht). Unproblematisch, weil die Liste ohnehin auf "Fremd-Apps mit Vordergrund-Aktivität
+    // in den letzten 24h" begrenzt ist, keine potenziell tausende Einträge lange Liste.
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (info in usageFindings) {
             val suspicious = info.packageName in suspiciousPackageNames
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
