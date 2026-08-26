@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.appmanagement.SentinelInstallStatus
 import de.ble1st.warden.domain.profile.WardenProfile
 import de.ble1st.warden.domain.profile.WardenProfileSpec
 
@@ -88,8 +89,10 @@ fun SafeguardsScreen(
     onRevokeEmergencyDrill: () -> Unit,
     autoEngageOnCriticalThreat: Boolean,
     onAutoEngageOnCriticalThreatChange: (Boolean) -> Unit,
-    lockTaskActive: Boolean?,
-    onStopLockTask: () -> Unit,
+    sentinelLockTaskAuthorized: Boolean?,
+    sentinelInstallStatus: SentinelInstallStatus,
+    onInstallSentinel: () -> Unit,
+    onRefreshSentinelInstallStatus: () -> Unit,
     onBack: () -> Unit,
 ) {
     Scaffold(
@@ -313,14 +316,16 @@ fun SafeguardsScreen(
             LockdownStatusRow(lockdownModeActive)
             HorizontalDivider()
             Text(
-                text = "App-Lock (LockMode) — kein Kiosk-Modus.",
+                text = "App-Lock (LockMode) — echter Kiosk-Modus über die separate Sentinel-App.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
             LockTaskSection(
-                lockTaskActive = lockTaskActive,
-                onStopLockTask = onStopLockTask,
+                sentinelLockTaskAuthorized = sentinelLockTaskAuthorized,
+                sentinelInstallStatus = sentinelInstallStatus,
+                onInstallSentinel = onInstallSentinel,
+                onRefreshSentinelInstallStatus = onRefreshSentinelInstallStatus,
                 emergencyDrillConfirmed = emergencyDrillConfirmed,
                 emergencyDrillConfirmedAtText = emergencyDrillConfirmedAtText,
                 onConfirmEmergencyDrill = onConfirmEmergencyDrill,
@@ -333,19 +338,21 @@ fun SafeguardsScreen(
 }
 
 /**
- * "LockMode/Threat-Protection-Ausbau" (2026-08-25). Drei Teile: der aktuelle Lock-Task-Zustand
- * mit risikofreiem, ungegatetem "App-Lock beenden" (kein Kiosk-Modus — raus ist immer leicht, s.
- * `de.ble1st.warden.domain.presence.SensitiveAction.LOCKDOWN_TASK_ENGAGE`-Klassendoc), die
- * einmalige Notruf-Drill-Bestätigung (Voraussetzung für jedes echte `startLockTask()`, manuell
- * wie automatisch, s. `de.ble1st.warden.pin.WardenLockTaskDrillStorage`-Klassendoc) und der
- * eigene, separate Auto-Engage-Opt-in für kritische Bedrohungsfunde
+ * "LockMode/Threat-Protection-Ausbau" (2026-08-25), seit "Sentinel: eigenständige Kiosk-PIN-App"
+ * überarbeitet. Drei Teile: der aktuelle Sentinel-Autorisierungsstatus (nur informativ — Warden
+ * kann den Kiosk-Zustand selbst nicht mehr beenden, s. u.), die einmalige Notruf-Drill-Bestätigung
+ * (Voraussetzung für jedes echte Scharfschalten, manuell wie automatisch, s.
+ * `de.ble1st.warden.pin.WardenLockTaskDrillStorage`-Klassendoc) und der eigene, separate
+ * Auto-Engage-Opt-in für kritische Bedrohungsfunde
  * (`de.ble1st.warden.pin.WardenLockTaskAutoEngageStore`) — nur bei bestätigtem Drill überhaupt
  * anwählbar, sonst wäre der Schalter wirkungslos (das Gate verweigert trotzdem).
  */
 @Composable
 private fun LockTaskSection(
-    lockTaskActive: Boolean?,
-    onStopLockTask: () -> Unit,
+    sentinelLockTaskAuthorized: Boolean?,
+    sentinelInstallStatus: SentinelInstallStatus,
+    onInstallSentinel: () -> Unit,
+    onRefreshSentinelInstallStatus: () -> Unit,
     emergencyDrillConfirmed: Boolean,
     emergencyDrillConfirmedAtText: String?,
     onConfirmEmergencyDrill: () -> Unit,
@@ -353,21 +360,48 @@ private fun LockTaskSection(
     autoEngageOnCriticalThreat: Boolean,
     onAutoEngageOnCriticalThreatChange: (Boolean) -> Unit,
 ) {
-    if (lockTaskActive == true) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(text = "Sentinel (Kiosk-App)")
+            Text(
+                text = when (sentinelInstallStatus) {
+                    SentinelInstallStatus.NotInstalled ->
+                        "Nicht installiert — ohne Sentinel bleibt App-Lock wirkungslos " +
+                            "(SentinelLockdownEngager meldet \"nicht installiert\")."
+                    is SentinelInstallStatus.Installed ->
+                        "Installiert, Version ${sentinelInstallStatus.versionName ?: "?"} " +
+                            "(${sentinelInstallStatus.versionCode})."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onRefreshSentinelInstallStatus) { Text("Status prüfen") }
+        TextButton(onClick = onInstallSentinel) {
+            Text(if (sentinelInstallStatus is SentinelInstallStatus.Installed) "Update installieren" else "Installieren")
+        }
+    }
+    HorizontalDivider()
+
+    if (sentinelLockTaskAuthorized == true) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(text = "App-Lock AKTIV", color = MaterialTheme.colorScheme.error)
+                Text(text = "App-Lock AKTIV (Sentinel autorisiert)", color = MaterialTheme.colorScheme.error)
                 Text(
-                    text = "Notruf/Keyguard bleiben erreichbar — kein Kiosk-Modus.",
+                    text = "Notruf/Keyguard bleiben erreichbar — sonst nur Sentinels PIN-Bildschirm. " +
+                        "Ausstieg ausschließlich über Sentinels eigene PIN auf dem Gerät selbst.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = onStopLockTask) { Text("App-Lock beenden") }
         }
         HorizontalDivider()
     }

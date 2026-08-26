@@ -46,9 +46,9 @@ import de.ble1st.warden.domain.pin.WardenPinStateDecision
 import de.ble1st.warden.logging.HashChainLogStore
 import de.ble1st.warden.wardenAuditLog
 import de.ble1st.warden.pin.WardenDuressPinStorage
-import de.ble1st.warden.pin.WardenLockTaskManager
 import de.ble1st.warden.pin.WardenPinStorage
 import de.ble1st.warden.pin.WardenPinStore
+import de.ble1st.warden.sentinelbridge.SentinelLockdownEngager
 import de.ble1st.warden.ui.theme.WardenTheme
 import de.ble1st.warden.ui.theme.WardenThemePrefs
 import java.nio.charset.StandardCharsets
@@ -101,15 +101,18 @@ private val ButtonGroupEndShape = RoundedCornerShape(topStart = 4.dp, bottomStar
  * unmöglich machen, deshalb derselbe Zähler-/Ketten-Mechanismus für *jede* Mutation, nicht nur
  * für PIN-Änderungen.
  *
- * **Notruf-Drill-Trigger (H.8):** [EXTRA_ENGAGE_LOCK_TASK_DRILL] schaltet real scharf
- * (`WardenLockTaskManager.startIfPermitted(emergencyCallDrillPassed = true)`) — über einen
- * normalen `am start`-Intent-Extra, gebraucht deshalb keine laufende Instrumentierung und tut
- * nichts, sofern niemand diesen Extra explizit setzt. **Doppelt abgesichert:** zusätzlich zum
- * expliziten Extra nur wirksam auf einem Debug-Build (`BuildConfig.DEBUG`) — dieselbe "hart,
- * nicht optional"-Haltung wie `DestructiveCommandGuard`. `emergencyCallDrillPassed = true` ist
- * hier korrekt (nicht umgangen): dieser Aufruf **ist** der reale, manuell durchgeführte Drill,
- * den [WardenLockTaskGate][de.ble1st.warden.domain.pin.WardenLockTaskGate] verlangt — kein
- * automatischer/impliziter Pfad.
+ * **Notruf-Drill-Trigger (H.8, seit "Sentinel: eigenständige Kiosk-PIN-App" auf
+ * [SentinelLockdownEngager] umgestellt):** [EXTRA_ENGAGE_LOCK_TASK_DRILL] schaltet real scharf
+ * (`SentinelLockdownEngager.engage(context, emergencyCallDrillPassed = true)`, autorisiert
+ * Sentinels Paket per DPM und startet dessen `SentinelActivity` — `startLockTask()` selbst läuft
+ * danach in Sentinels eigenem Prozess, nicht hier) — über einen normalen `am start`-Intent-Extra,
+ * gebraucht deshalb keine laufende Instrumentierung und tut nichts, sofern niemand diesen Extra
+ * explizit setzt. **Doppelt abgesichert:** zusätzlich zum expliziten Extra nur wirksam auf einem
+ * Debug-Build (`BuildConfig.DEBUG`) — dieselbe "hart, nicht optional"-Haltung wie
+ * `DestructiveCommandGuard`. `emergencyCallDrillPassed = true` ist hier korrekt (nicht umgangen):
+ * dieser Aufruf **ist** der reale, manuell durchgeführte Drill, den
+ * [SentinelLockTaskGate][de.ble1st.warden.sentinel.domain.SentinelLockTaskGate] (Sentinels
+ * eigenes, framework-freies Gate) verlangt — kein automatischer/impliziter Pfad.
  *
  * **Presence-Nachweis (Threat Model T4: "Owner presence (biometric / local PIN path)"):**
  * [EXTRA_PRESENCE_REQUEST] lässt [SensitiveActionActivity] diese Activity per
@@ -205,11 +208,10 @@ class WardenPinActivity : ComponentActivity() {
         intentGeneration++
     }
 
-    /** `startLockTask()` soll laut Android-Doku aufgerufen werden, wenn die Activity bereits
-     * resumed ist, nicht schon in `onCreate()`. Der `lockTaskDrillTriggered`-Guard verhindert
-     * einen erneuten Aufruf bei einem späteren `onResume()` (z. B. nach einem Dialog),
-     * `startIfPermitted` selbst ist zwar idempotent bezüglich eines bereits aktiven
-     * Lock-Task-Zustands, ein wiederholter Log-Eintrag pro `onResume()` wäre trotzdem
+    /** Der `lockTaskDrillTriggered`-Guard verhindert einen erneuten
+     * [SentinelLockdownEngager.engage]-Aufruf bei einem späteren `onResume()` (z. B. nach einem
+     * Dialog) — `engage()` selbst ist zwar idempotent bezüglich der DPM-Autorisierung, ein
+     * wiederholter Log-Eintrag/`startActivity()` auf Sentinel pro `onResume()` wäre trotzdem
      * irreführend für die Drill-Auswertung. */
     override fun onResume() {
         super.onResume()
@@ -225,11 +227,11 @@ class WardenPinActivity : ComponentActivity() {
         lockTaskDrillTriggered = true
 
         val logStore = wardenAuditLog(applicationContext)
-        val started = WardenLockTaskManager(this).startIfPermitted(emergencyCallDrillPassed = true)
+        val started = SentinelLockdownEngager.engage(context = applicationContext, emergencyCallDrillPassed = true)
         logStore.append(
             Log.WARN,
             TAG,
-            "Notruf-Drill: startLockTask() ${if (started) "ausgelöst" else "abgelehnt (DPM-Whitelist fehlt?)"}",
+            "Notruf-Drill: Sentinel-Scharfschaltung ${if (started) "ausgelöst" else "abgelehnt (Sentinel nicht installiert?)"}",
         )
     }
 

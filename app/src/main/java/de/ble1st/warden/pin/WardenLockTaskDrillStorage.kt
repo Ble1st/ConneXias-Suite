@@ -5,12 +5,13 @@ import androidx.core.content.edit
 
 /**
  * "LockMode/Threat-Protection-Ausbau" (2026-08-25, auf Nutzerwunsch, nach ausdrücklicher Klärung
- * per Rückfrage: "Persistente Bestätigung + Trigger"). Persistiert genau das eine Bit, das
- * [de.ble1st.warden.domain.pin.WardenLockTaskGate.isLockTaskPermitted] als
- * `emergencyCallDrillPassed` braucht — bisher musste jeder Aufrufer diesen Wert selbst
- * mitbringen (dessen Klassendoc: "vom Aufrufer explizit übergeben — kein gespeichertes/
- * implizites Flag, das versehentlich `true` bleiben könnte"), was in der Praxis hieß: es gab
- * überhaupt keinen Aufrufer, `WardenLockTaskManager.startIfPermitted()` lief nirgends.
+ * per Rückfrage: "Persistente Bestätigung + Trigger"). Persistiert genau das eine Bit, das seit
+ * "Sentinel: eigenständige Kiosk-PIN-App" bei jedem
+ * [de.ble1st.warden.sentinelbridge.SentinelLockdownEngager.engage]-Aufruf als
+ * `emergencyCallDrillPassed`-Extra an Sentinel weitergereicht wird — Sentinels eigenes
+ * `de.ble1st.warden.sentinel.domain.SentinelLockTaskGate` verlangt diesen Wert vom Aufrufer
+ * explizit (kein lokal gespeichertes/implizites Flag auf Sentinels Seite, das versehentlich
+ * `true` bleiben könnte), Warden ist hier die einzig zulässige Quelle der Wahrheit dafür.
  *
  * **Weiterhin niemals implizit `true`:** [confirm] wird ausschließlich von einem UI-Flow
  * aufgerufen, der zuvor einen exakt einzutippenden Bestätigungstext verlangt (s.
@@ -22,7 +23,7 @@ import androidx.core.content.edit
  * darf das Festhalten eines bereits real durchgeführten Notruf-Tests nicht verhindern — sonst
  * ließe sich die Bestätigung auf dem aktuellen Debug-Testgerät nie vorbereiten, selbst wenn der
  * Drill tatsächlich stattgefunden hat. Der Debug-Build-Hardblock bleibt trotzdem lückenlos wirksam:
- * er sitzt beim tatsächlichen `startLockTask()`-Aufruf (`WardenLockTaskManager`/
+ * er sitzt beim tatsächlichen Scharfschalten (`SentinelLockdownEngager.engage`/
  * `SensitiveAction.LOCKDOWN_TASK_ENGAGE` über [de.ble1st.warden.presence
  * .DestructiveActionExecutor]), nicht hier.
  *

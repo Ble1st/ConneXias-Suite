@@ -73,4 +73,6 @@ jobs:
           path: |
             app/build/reports/lint-results-*.html
             app/build/reports/tests/
+            sentinel/build/reports/lint-results-*.html
+            sentinel/build/reports/tests/
           retention-days: 14

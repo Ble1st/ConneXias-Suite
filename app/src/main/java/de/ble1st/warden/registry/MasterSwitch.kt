@@ -6,11 +6,13 @@ package de.ble1st.warden.registry
  * aktuellem Soll- oder Ist-Zustand — die "alles aus"-Notbremse.
  *
  * **Scope-Hinweis:** anders als im ConneXias-Framework-Quellprojekt (dort zusätzlich optionale
- * `disarmSentinel`/`disarmNetLockdown`-Lambdas für den Cross-APK-Sentinel-Watchdog und
- * Barbican/VPN) deckt dieser `MasterSwitch` nur noch die Registry selbst ab: Sentinels
- * PIN-/Lock-Task-Logik läuft jetzt in Wardens eigenem Prozess (kein separater
- * `SentinelWatchdogController` mehr, den es zu disarmen gäbe), VPN/Barbican entfällt vollständig
- * (s. Plan-Context-Abschnitt).
+ * `disarmSentinel`/`disarmNetLockdown`-Lambdas direkt auf `MasterSwitch` selbst) deckt dieser
+ * `MasterSwitch` nur die Registry selbst ab — VPN/Barbican entfällt vollständig. Der
+ * Sentinel-Watchdog ist seit "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26) zwar wieder da,
+ * ruft aber selbst `masterSwitch.disarm()` auf (s.
+ * [de.ble1st.warden.sentinelbridge.SentinelWatchdogController.escalate]) statt umgekehrt hier
+ * eine Sentinel-spezifische Lambda zu brauchen — dieselbe Entkopplung, nur in der jeweils anderen
+ * Richtung verkabelt.
  *
  * **Bewusst (noch) ohne Presence-Schutz** — Milestone-Text: "vorerst ohne Presence". Diese
  * Klasse selbst prüft keine Autorisierung; ein künftiger Aufrufer (Wardens presence-geschützter

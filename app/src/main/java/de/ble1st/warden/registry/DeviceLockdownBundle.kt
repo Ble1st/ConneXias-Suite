@@ -14,14 +14,17 @@ import de.ble1st.warden.domain.registry.CompositeSafeguard
  * Owner — debugging-features-off is the public path that also hides the OEM-unlock toggle.
  *
  * [WardenLockTaskAuthorizer] deckt davon bewusst nur die **Autorisierungs**-Hälfte ab
- * (DPM-Whitelist: darf das eigene Paket überhaupt in den Lock-Task-Modus) — dieselbe Grenze, die
- * schon in dessen eigenem Klassendoc gezogen wird: das eigentliche Scharfschalten
- * (`Activity.startLockTask()`) bleibt bewusst außerhalb *dieses Bündels* — ein `apply()` dieses
- * Bündel-Mitglieds versetzt das Gerät selbst nicht in den Lock-Task-Modus, das ist weiterhin
- * `WardenLockTaskManager`s Aufgabe. Seit "LockMode/Threat-Protection-Ausbau" (2026-08-25) gibt es
- * dafür reale, aber eigenständig (presence-gated bzw. mehrfach gegatet) abgesicherte Aufrufer, s.
- * `WardenLockTaskGate`/`WardenLockTaskManager`-Klassendocs — "jedes automatischen Pfads" gilt
- * also nicht mehr uneingeschränkt, nur noch bezogen auf dieses eine Bündel selbst.
+ * (DPM-Whitelist: darf die separate Sentinel-App überhaupt in den Lock-Task-Modus, s. dessen
+ * eigenem Klassendoc für den Wechsel von "eigenes Paket" auf "Sentinel-Paket") — dieselbe Grenze,
+ * die schon in dessen eigenem Klassendoc gezogen wird: das eigentliche Scharfschalten
+ * (`Activity.startLockTask()`) bleibt bewusst außerhalb *dieses Bündels* und läuft seit "Sentinel:
+ * eigenständige Kiosk-PIN-App" ohnehin in Sentinels eigenem, fremden Prozess — ein `apply()`
+ * dieses Bündel-Mitglieds versetzt das Gerät selbst nicht in den Lock-Task-Modus, das ist
+ * `de.ble1st.warden.sentinelbridge.SentinelLockdownEngager`s Aufgabe. Seit
+ * "LockMode/Threat-Protection-Ausbau" (2026-08-25) gibt es dafür reale, aber eigenständig
+ * (presence-gated bzw. mehrfach gegatet) abgesicherte Aufrufer, s. `SentinelLockdownEngager`-
+ * Klassendoc — "jedes automatischen Pfads" gilt also nicht mehr uneingeschränkt, nur noch bezogen
+ * auf dieses eine Bündel selbst.
  *
  * **Seit "arbeite langsam am Lockdownmodus" (2026-08-22) über
  * [de.ble1st.warden.domain.presence.SensitiveAction.LOCKDOWN_MODE_ARM] erreichbar** — auf

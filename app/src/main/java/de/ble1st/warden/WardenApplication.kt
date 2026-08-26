@@ -36,6 +36,7 @@ import de.ble1st.warden.appmanagement.SuspiciousAppScanWorker
 import de.ble1st.warden.bus.ConcordBus
 import de.ble1st.warden.performance.BatterySamplingWorker
 import de.ble1st.warden.presence.WardenLockSession
+import de.ble1st.warden.sentinelbridge.SentinelWatchdogController
 import de.ble1st.warden.usb.UsbAutoLockWorker
 import de.ble1st.warden.usb.UsbLockStateReceiver
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -43,17 +44,21 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 
 /**
- * App-weite `Application`-Klasse. Stark gekürzte Fassung gegenüber dem ConneXias-Framework-
- * Quellprojekt: dort trug diese Klasse App-weite Instanzen mehrerer inzwischen entfallener
- * Cross-APK-Komponenten — `SuiteMembershipReconciliationWorker` (Mitgliedschafts-Abgleich
- * zwischen mehreren Geschwister-APKs, entfällt: nur noch eine APK), `SentinelWatchdogController`
- * (Cross-Process-Death-Watchdog, entfällt: Sentinel läuft jetzt in diesem Prozess, s. Plan-
- * Abschnitt "Presence: Sentinels PIN-Logik portiert"), `NetLockdownController`/
+ * App-weite `Application`-Klasse. Gegenüber dem ConneXias-Framework-Quellprojekt fehlen weiterhin
+ * mehrere dort vorhandene Cross-APK-Komponenten — `SuiteMembershipReconciliationWorker`
+ * (Mitgliedschafts-Abgleich zwischen mehreren Geschwister-APKs, entfällt: nur noch zwei APKs,
+ * Warden+Sentinel, kein Mehrparteien-Abgleich nötig), `NetLockdownController`/
  * `FirewallPolicyController` (VPN/Barbican, entfällt vollständig), `TrustedCallerAllowlist`
- * (Cross-APK-Zertifikatsprüfung, entfällt: kein fremder Aufrufer mehr) und
- * `PackageUninstallProtectionSafeguard` für die (ebenfalls entfallenen) Geschwister-Suite-APKs.
+ * (Cross-APK-Zertifikatsprüfung via Userspace-Bus, entfällt: die neue Warden↔Sentinel-Kopplung
+ * nutzt stattdessen von Android selbst durchgesetzte `signature`-Permissions, s.
+ * [de.ble1st.warden.sentinelbridge.SentinelLockdownEngager]-Klassendoc "Warum kein AIDL-Bus") und
+ * `PackageUninstallProtectionSafeguard` für die (weiterhin entfallenen) Geschwister-Suite-APKs.
  *
- * Wird in einem kommenden Schritt (Presence/PIN) um eine weitere `by lazy`-Instanz erweitert.
+ * **`SentinelWatchdogController` ist seit "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26)
+ * wieder da** — anders als in einer früheren Zwischenphase dieses Ports (Presence/PIN-Logik lief
+ * dort kurzzeitig in Wardens eigenem Prozess) läuft Sentinels PIN-/Lock-Task-UI jetzt wieder in
+ * einer eigenen, fremden APK, exakt wie im ConneXias-Framework-Quellprojekt — der
+ * Cross-Process-Death-Watchdog ist damit wieder nötig, s. [sentinelWatchdogController].
  */
 class WardenApplication : Application() {
 
@@ -119,6 +124,14 @@ class WardenApplication : Application() {
      * über `ProcessLifecycleOwner` unten läuft unabhängig davon, ob diese Property je gelesen
      * wurde (die erste Lesung — spätestens `WardenStatusActivity.onResume()` — konstruiert sie). */
     val wardenLockSession: WardenLockSession by lazy { WardenLockSession() }
+
+    /** "Sentinel: eigenständige Kiosk-PIN-App", Plan-Abschnitt "Watchdog-Sicherheitsnetz kommt in
+     * v1 mit" — `by lazy` wie die übrigen App-weiten Instanzen: [SentinelDeathWatchdog][de.ble1st
+     * .warden.sentinelbridge.SentinelDeathWatchdog] hält eine echte, lebende `bindService()`-
+     * Verbindung, an eine Activity gebunden würde sie bei jedem Verlassen des Bildschirms verwaist
+     * (weiterhin gebunden, aber ohne jede Referenz, um sie je wieder zu entschärfen) — s.
+     * [SentinelWatchdogController]-Klassendoc. */
+    val sentinelWatchdogController: SentinelWatchdogController by lazy { SentinelWatchdogController(this) }
 
     override fun onCreate() {
         super.onCreate()

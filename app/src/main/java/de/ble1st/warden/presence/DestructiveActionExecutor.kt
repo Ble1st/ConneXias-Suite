@@ -182,9 +182,9 @@ class DestructiveActionExecutor(
                     priority = Log.WARN,
                     tag = TAG,
                     message = if (outcome.isSuccess) {
-                        "WardenLockTaskManager.startIfPermitted() real angestoßen"
+                        "SentinelLockdownEngager.engage() real angestoßen"
                     } else {
-                        "WardenLockTaskManager.startIfPermitted() fehlgeschlagen: ${outcome.exceptionOrNull()}"
+                        "SentinelLockdownEngager.engage() fehlgeschlagen: ${outcome.exceptionOrNull()}"
                     },
                 )
             }

@@ -1,3 +1,6 @@
+import org.gradle.api.file.FileSystemOperations
+import javax.inject.Inject
+
 plugins {
     alias(libs.plugins.android.application)
     // Compose für die gesamte UI (Haupt-Status-Screen, App-Verwaltung/Scanner aus Herald, Presence/
@@ -101,6 +104,53 @@ androidComponents {
                 output.versionName.map { versionName -> "Warden-${variant.name}-$versionName.apk" }
             )
         }
+    }
+}
+
+// Sentinel-APK ins jeweilige Asset-Set kopieren, damit SentinelSilentInstaller sie ohne externen
+// Dateitransfer installieren kann (Plan-Entscheidung "Verteilung: als Asset gebündelt"). Pro
+// Variante (debug/release) die jeweils gleich signierte Sentinel-Variante — sonst würde die
+// Signature-Permission-Kopplung (sentinel/src/main/AndroidManifest.xml) schon beim ersten lokalen
+// Debug-Test fehlschlagen (debug-signiertes Warden neben einer anders/gar nicht signierten
+// Sentinel-APK).
+//
+// Läuft über AGP's "generated assets"-Variant-API (`addGeneratedSourceDirectory`), NICHT über
+// direktes Schreiben in `src/$variant/assets` (ursprünglicher, einfacherer Ansatz) — Letzteres
+// bringt zwar `merge<Variant>Assets` zuverlässig zum Aufsammeln der Datei, verletzt aber Gradles
+// Task-Output-Validierung für JEDEN anderen Task, der `src/main/assets` ebenfalls liest (z. B.
+// `lintAnalyzeDebug`/`generateDebugLintReportModel` — "Property has implicit dependency", da
+// diese Tasks den von `copySentinelApkFor<Variant>` geschriebenen Ordnerinhalt konsumieren, ohne
+// dass Gradle die Abhängigkeit kennt). Die Variant-API löst das strukturell für ausnahmslos jeden
+// Konsumenten (Merge, Lint, ...) statt Task für Task manuell nachzurüsten.
+abstract class CopySentinelApkTask @Inject constructor(
+    private val fileSystemOperations: FileSystemOperations,
+) : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sentinelApkDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun run() {
+        fileSystemOperations.copy {
+            from(sentinelApkDir) { include("*.apk") }
+            into(outputDir)
+            rename { "sentinel.apk" }
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val variantNameCapitalized = variant.name.replaceFirstChar { it.uppercase() }
+        val copyTask = tasks.register<CopySentinelApkTask>("copySentinelApkFor$variantNameCapitalized") {
+            dependsOn(":sentinel:assemble$variantNameCapitalized")
+            sentinelApkDir.set(project(":sentinel").layout.buildDirectory.dir("outputs/apk/${variant.name}"))
+            outputDir.set(layout.buildDirectory.dir("generated/sentinelAsset/${variant.name}"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(copyTask, CopySentinelApkTask::outputDir)
     }
 }
 

@@ -9,7 +9,9 @@
 .cxx
 local.properties
 /app/build
+/sentinel/build
 /rust/target
+
 /CLAUDE.md
 /.claude/
 /analyse.md

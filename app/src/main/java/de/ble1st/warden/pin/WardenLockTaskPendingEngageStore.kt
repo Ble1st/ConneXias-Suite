@@ -12,7 +12,7 @@ import androidx.core.content.edit
  * `WardenLockTaskAutoEngageDecision` zustimmt; [consumeIfPending] wird von
  * `de.ble1st.warden.ui.WardenStatusActivity`s `onResume()` aufgerufen — die nächste Gelegenheit,
  * in der Warden selbst wieder im Vordergrund läuft, holt die Anforderung ab und stößt den
- * tatsächlichen `WardenLockTaskManager.startIfPermitted()`-Aufruf an.
+ * tatsächlichen `de.ble1st.warden.sentinelbridge.SentinelLockdownEngager.engage()`-Aufruf an.
  *
  * **Bewusst kein Vordergrund-Erzwingen (kein `USE_FULL_SCREEN_INTENT`/kein automatisches
  * Öffnen von Warden):** die zugehörige `ThreatSeverity.CRITICAL`-Sicherheitsbenachrichtigung

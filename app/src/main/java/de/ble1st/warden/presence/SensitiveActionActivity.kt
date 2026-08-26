@@ -42,7 +42,7 @@ import de.ble1st.warden.domain.presence.SensitiveAction
 import de.ble1st.warden.domain.presence.SensitiveActionDecisionResult
 import de.ble1st.warden.domain.registry.SafeguardRegistry
 import de.ble1st.warden.pin.WardenLockTaskDrillStorage
-import de.ble1st.warden.pin.WardenLockTaskManager
+import de.ble1st.warden.sentinelbridge.SentinelLockdownEngager
 import de.ble1st.warden.registry.DeviceLockNowManager
 import de.ble1st.warden.registry.DeviceLockdownBundle
 import de.ble1st.warden.registry.MasterSwitch
@@ -201,12 +201,10 @@ class SensitiveActionActivity : FragmentActivity() {
          * [DestructiveActionExecutor]).
          *
          * **`activity: Activity` statt bloß `Context`** (seit `LOCKDOWN_TASK_ENGAGE`,
-         * 2026-08-25): [WardenLockTaskManager]/`Activity.startLockTask()` verlangt laut Android-
-         * Dokumentation zwingend eine laufende `Activity`, kein bloßer `Context` genügt — anders
-         * als jede andere hier verkabelte Aktion. Diese Activity selbst (nicht
-         * `WardenStatusActivity` darunter im Task-Stack) genügt: `startLockTask()` sperrt laut
-         * Dokumentation den gesamten *Task*, unabhängig davon, welche seiner Activities den Aufruf
-         * macht. */
+         * 2026-08-25) — nicht mehr technisch zwingend seit "Sentinel: eigenständige Kiosk-PIN-
+         * App" (`startLockTask()` läuft jetzt in Sentinels eigenem Prozess, nicht mehr hier), aber
+         * beibehalten: kein Grund, die Signatur zu verschmälern, nur weil der konkrete Aufruf
+         * jetzt ein reiner `Context`-Verbraucher ist. */
         private fun buildExecutor(activity: Activity): DestructiveActionExecutor {
             val context = activity.applicationContext
             val admin = ComponentName(context, WardenDeviceAdminReceiver::class.java)
@@ -240,7 +238,8 @@ class SensitiveActionActivity : FragmentActivity() {
                 // "nie ein potenziell veraltetes Bit cachen"-Vorbehalt wie bei jedem anderen
                 // isActive()-Lesezugriff in diesem Projekt).
                 performLockTaskEngage = {
-                    WardenLockTaskManager(activity).startIfPermitted(
+                    SentinelLockdownEngager.engage(
+                        context = context,
                         emergencyCallDrillPassed = WardenLockTaskDrillStorage.isConfirmed(context),
                     )
                 },
@@ -266,8 +265,9 @@ private fun describeAction(action: SensitiveAction): String = when (action) {
     SensitiveAction.LOCKDOWN_MODE_ARM ->
         "USB aus, Safe Boot/Werksreset/OEM-Unlock/Debugging blockiert. Rückweg: Alle Safeguards zurücksetzen."
     SensitiveAction.LOCKDOWN_TASK_ENGAGE ->
-        "App-Lock (kein Kiosk-Modus — Notruf/Keyguard bleiben erreichbar). Braucht bestätigten " +
-            "Notruf-Drill (Safeguards ▸ Lockdown-Modus). Ausstieg jederzeit über \"App-Lock beenden\"."
+        "Echter Kiosk-Modus über die separate Sentinel-App — Notruf/Keyguard bleiben erreichbar, " +
+            "sonst nichts. Braucht bestätigten Notruf-Drill (Safeguards ▸ Lockdown-Modus) und eine " +
+            "installierte Sentinel-App. Ausstieg nur über Sentinels eigene PIN auf dem Gerät selbst."
 }
 
 private fun describeDecision(action: SensitiveAction, decision: SensitiveActionDecisionResult): String = when (decision) {

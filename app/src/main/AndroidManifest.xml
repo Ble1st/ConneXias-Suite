@@ -41,6 +41,21 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26) — Warden→Sentinel-Richtung: nur
+         Warden selbst darf SentinelActivity starten/an SentinelHeartbeatService binden (s.
+         SentinelLockdownEngager-/SentinelDeathWatchdog-Klassendoc). Sentinel deklariert/besitzt
+         dieses Permission selbst (sentinel/src/main/AndroidManifest.xml), Warden braucht nur die
+         uses-permission-Deklaration. -->
+    <uses-permission android:name="de.ble1st.warden.sentinel.permission.ENGAGE" />
+
+    <!-- Sentinel→Warden-Richtung: das Entwarn-Signal (SentinelSignalReceiver). `signature`-
+         Protection-Level wird von Android selbst am Zertifikat durchgesetzt — nur ein mit
+         demselben Zertifikat signiertes Paket (Sentinel) kann diesen Broadcast überhaupt
+         zustellen, kein Userspace-Caller-Verifier nötig (Plan-Abschnitt "Warum kein AIDL-Bus"). -->
+    <permission
+        android:name="de.ble1st.warden.permission.SENTINEL_SIGNAL"
+        android:protectionLevel="signature" />
+
     <application
         android:name=".WardenApplication"
         android:allowBackup="false"
@@ -186,6 +201,27 @@
                 <data android:scheme="package" />
             </intent-filter>
         </receiver>
+
+        <!-- "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26): Sentinels Entwarn-Signal
+             (korrekte, separate Sentinel-PIN während aktivem Lock-Task). exported="true" ist für
+             einen signature-geschützten, fremd-adressierten Empfänger Pflicht — die eigentliche
+             Zugriffskontrolle liegt im android:permission-Attribut, s. SentinelSignalReceiver-
+             Klassendoc. -->
+        <receiver
+            android:name=".sentinelbridge.SentinelSignalReceiver"
+            android:exported="true"
+            android:permission="de.ble1st.warden.permission.SENTINEL_SIGNAL">
+            <intent-filter>
+                <action android:name="de.ble1st.warden.sentinel.action.PIN_VERIFIED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Silent-Install-Ergebnis (SentinelSilentInstaller, PackageInstaller-Session-Callback).
+             exported="false" — nur Androids an dieselbe App gerichteter Ergebnis-Callback löst
+             diesen Receiver aus, dieselbe Begründung wie SuspiciousAppActionReceiver. -->
+        <receiver
+            android:name=".appmanagement.SentinelInstallResultReceiver"
+            android:exported="false" />
 
     </application>
 

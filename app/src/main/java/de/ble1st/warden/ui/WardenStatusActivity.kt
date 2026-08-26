@@ -1,6 +1,5 @@
 package de.ble1st.warden.ui
 
-import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -57,6 +56,8 @@ import de.ble1st.warden.appmanagement.AppManagementInfo
 import de.ble1st.warden.appmanagement.InstalledAppLister
 import de.ble1st.warden.appmanagement.PermissionAuditInfo
 import de.ble1st.warden.appmanagement.PermissionAuditScanner
+import de.ble1st.warden.appmanagement.SentinelInstallStatusReader
+import de.ble1st.warden.appmanagement.SentinelSilentInstaller
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.autoreboot.AutoRebootStorage
 import de.ble1st.warden.bus.ConcordBus
@@ -79,8 +80,9 @@ import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.pin.WardenLockScreenTextStorage
 import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
 import de.ble1st.warden.pin.WardenLockTaskDrillStorage
-import de.ble1st.warden.pin.WardenLockTaskManager
 import de.ble1st.warden.pin.WardenLockTaskPendingEngageStore
+import de.ble1st.warden.registry.WardenLockTaskAuthorizer
+import de.ble1st.warden.sentinelbridge.SentinelLockdownEngager
 import de.ble1st.warden.presence.SensitiveActionActivity
 import de.ble1st.warden.presence.WardenLockActivity
 import de.ble1st.warden.presence.WardenPinActivity
@@ -266,17 +268,6 @@ class WardenStatusActivity : ComponentActivity() {
                             Log.w(TAG, "Log-Zugriff abgelehnt", e)
                         }
                     },
-                    // Kein Presence-Gate hier — Beenden ist die risikofreie Richtung (kein
-                    // Kiosk-Modus, s. SensitiveAction.LOCKDOWN_TASK_ENGAGE-Klassendoc), und diese
-                    // Activity selbst ist ohnehin schon hinter WardenLockSession. runCatching, weil
-                    // Activity.stopLockTask() laut Android-Dokumentation wirft, wenn der Aufrufer
-                    // gerade nicht (mehr) das Lock-Task-Paket ist (z. B. Race: extern bereits
-                    // beendet) — derselbe defensive Umgang wie bei jedem anderen DPM-nahen Aufruf
-                    // in dieser Datei.
-                    onStopLockTask = {
-                        runCatching { WardenLockTaskManager(this).stop() }
-                            .onFailure { Log.e(TAG, "App-Lock beenden fehlgeschlagen", it) }
-                    },
                     accent = accent,
                     onAccentChange = { selected ->
                         accent = selected
@@ -357,25 +348,23 @@ class WardenStatusActivity : ComponentActivity() {
      * Gelegenheit, in der diese Activity wieder authentifiziert im Vordergrund läuft (Kaltstart
      * über [WardenLockActivity] **oder** ein bereits gültiger [WardenLockSession]-Nachweis bei
      * jedem Resume — beide Pfade oben rufen dies auf, kein dritter Ort nötig), holt eine
-     * ausstehende Anforderung ab und stößt [WardenLockTaskManager.startIfPermitted] an.
+     * ausstehende Anforderung ab und stößt [SentinelLockdownEngager.engage] an. Seit "Sentinel:
+     * eigenständige Kiosk-PIN-App" scharfschaltet dieser Aufruf Sentinels Paket, nicht mehr
+     * Wardens eigenes — s. dessen Klassendoc.
      * [WardenLockTaskPendingEngageStore.consumeIfPending] ist ein No-Op (liefert `null`), solange
      * nichts aussteht — dieser Aufruf bei jedem Resume ist deshalb unkritisch billig.
      */
     private fun consumePendingLockTaskEngage() {
         val reason = WardenLockTaskPendingEngageStore.consumeIfPending(applicationContext) ?: return
         // Derselbe unbedingte Debug-Build-Hardblock wie bei jeder anderen realen DPM-Aktion
-        // dieses Projekts (DestructiveCommandGuard, F.4) — WardenLockTaskManager selbst prüft nur
-        // das Notruf-Drill-Gate, nicht diesen Guard (s. dessen Klassendoc: er ist absichtlich
-        // Android-frei und kennt BuildConfig nicht), muss also hier vom Aufrufer davorgeschaltet
-        // werden, genau wie DestructiveActionExecutor.executeInternal es für den manuellen
-        // SensitiveAction.LOCKDOWN_TASK_ENGAGE-Weg bereits tut.
-        // runCatching: Activity.startLockTask() wirft laut Android-Dokumentation, wenn das
-        // eigene Paket (noch) nicht über WardenLockTaskAuthorizer.apply() für Lock-Task
-        // whitelistet ist (z. B. Lockdown-Modus wurde zwischen Anforderung und Abholung wieder
-        // zurückgesetzt) — ein Absturz von WardenStatusActivity darf daraus nicht folgen.
+        // dieses Projekts (DestructiveCommandGuard, F.4) — SentinelLockdownEngager prüft selbst
+        // nur, ob Sentinel überhaupt installiert ist, nicht diesen Guard, muss also hier vom
+        // Aufrufer davorgeschaltet werden, genau wie DestructiveActionExecutor.executeInternal es
+        // für den manuellen SensitiveAction.LOCKDOWN_TASK_ENGAGE-Weg bereits tut.
         val started = DestructiveCommandGuard.isExecutionAllowed(BuildConfig.DEBUG) &&
             runCatching {
-                WardenLockTaskManager(this).startIfPermitted(
+                SentinelLockdownEngager.engage(
+                    context = applicationContext,
                     emergencyCallDrillPassed = WardenLockTaskDrillStorage.isConfirmed(applicationContext),
                 )
             }.onFailure { Log.e(TAG, "Lock-Task-Auto-Engage fehlgeschlagen", it) }.getOrDefault(false)
@@ -438,7 +427,6 @@ private fun WardenRoot(
     onOpenSensitiveAction: () -> Unit,
     onOpenPinManagement: () -> Unit,
     onOpenLog: () -> Unit,
-    onStopLockTask: () -> Unit,
     accent: WardenAccent,
     onAccentChange: (WardenAccent) -> Unit,
     lockScreenText: String?,
@@ -630,7 +618,8 @@ private fun WardenRoot(
             // rememberSafeguardToggle/ConcordBus direkt hier geladen/geschrieben.
             var emergencyDrillConfirmed by remember { mutableStateOf(WardenLockTaskDrillStorage.isConfirmed(appContext)) }
             var autoEngageOnCriticalThreat by remember { mutableStateOf(WardenLockTaskAutoEngageStore.isEnabled(appContext)) }
-            var lockTaskActive by remember { mutableStateOf(loadLockTaskActiveSafely(appContext)) }
+            var sentinelLockTaskAuthorized by remember { mutableStateOf(loadSentinelLockTaskAuthorizedSafely(appContext)) }
+            var sentinelInstallStatus by remember { mutableStateOf(SentinelInstallStatusReader(appContext).currentStatus()) }
             key(catalogGeneration) {
                 SafeguardsScreen(
                     cameraLocked = rememberSafeguardToggle(concordBus, CameraSafeguard.ID),
@@ -748,10 +737,20 @@ private fun WardenRoot(
                         WardenLockTaskAutoEngageStore.setEnabled(appContext, requested)
                         autoEngageOnCriticalThreat = requested
                     },
-                    lockTaskActive = lockTaskActive,
-                    onStopLockTask = {
-                        onStopLockTask()
-                        lockTaskActive = loadLockTaskActiveSafely(appContext)
+                    sentinelLockTaskAuthorized = sentinelLockTaskAuthorized,
+                    sentinelInstallStatus = sentinelInstallStatus,
+                    onInstallSentinel = {
+                        // Nur der synchrone Teil (Session erzeugt/committet) ist hier sichtbar —
+                        // das eigentliche Ergebnis kommt asynchron über
+                        // SentinelInstallResultReceiver (Log-Eintrag), s. dessen Klassendoc. Der
+                        // Status hier bleibt bis zum nächsten "Status prüfen"/Bildschirmwechsel
+                        // auf dem alten Stand — dieselbe "informativ, nicht perfekt live"-Haltung
+                        // wie bei sentinelLockTaskAuthorized oben.
+                        runCatching { SentinelSilentInstaller(appContext).install() }
+                            .onFailure { Log.e("WardenStatus", "Sentinel-Silent-Install nicht auslösbar", it) }
+                    },
+                    onRefreshSentinelInstallStatus = {
+                        sentinelInstallStatus = SentinelInstallStatusReader(appContext).currentStatus()
                     },
                     onBack = { screen = WardenScreen.Status },
                 )
@@ -991,15 +990,16 @@ private fun loadLockdownModeActiveSafely(bus: ConcordBus): Boolean? =
         .onFailure { Log.e("WardenStatus", "Lockdown-Modus-Status nicht ladbar", it) }
         .getOrNull()
 
-/** "LockMode/Threat-Protection-Ausbau" (2026-08-25) — `ActivityManager.getLockTaskModeState()`
- * statt `Activity.isInLockTaskMode()`: liefert denselben Zustand ohne eine konkrete `Activity`-
- * Instanz zu brauchen, hier bewusst genutzt, weil dieser Aufruf aus einer reinen
- * Context-Umgebung (`appContext`) heraus passiert, nicht aus der Activity selbst. */
-private fun loadLockTaskActiveSafely(context: Context): Boolean? =
-    runCatching {
-        val am = context.getSystemService(ActivityManager::class.java) ?: return@runCatching null
-        am.lockTaskModeState != ActivityManager.LOCK_TASK_MODE_NONE
-    }.onFailure { Log.e("WardenStatus", "Lock-Task-Status nicht ladbar", it) }.getOrNull()
+/** Seit "Sentinel: eigenständige Kiosk-PIN-App": Warden selbst ist nie mehr das Lock-Task-Paket
+ * (`ActivityManager.lockTaskModeState` auf Wardens eigenem Prozess wäre seitdem strukturell immer
+ * `NONE`, deshalb kein `ActivityManager`-Aufruf mehr hier) — die einzig noch aussagekräftige, von
+ * Warden aus beobachtbare Annäherung ist, ob Sentinels Paket aktuell für Lock-Task autorisiert ist
+ * ([WardenLockTaskAuthorizer.isActive]), nicht ob Sentinel *gerade tatsächlich* im Kiosk-Zustand
+ * ist (das weiß nur Sentinels eigener, fremder Prozess). */
+private fun loadSentinelLockTaskAuthorizedSafely(context: Context): Boolean? =
+    runCatching { WardenLockTaskAuthorizer(context).isActive() }
+        .onFailure { Log.e("WardenStatus", "Sentinel-Lock-Task-Autorisierung nicht ladbar", it) }
+        .getOrNull()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
