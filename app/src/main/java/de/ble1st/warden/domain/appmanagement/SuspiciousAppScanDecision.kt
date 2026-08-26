@@ -22,7 +22,8 @@ package de.ble1st.warden.domain.appmanagement
  * Sechs weitere Signal-Paket-Mengen (2026-08-22, auf Nutzerwunsch "weitere Funktionen für den
  * Sicherheitsscanner", s. [SuspiciousSignal]-Klassendoc für die Begründung jedes einzelnen), alle
  * mit Default `emptySet()` — bestehende Aufrufer mit nur den ursprünglichen zwei Signalen bleiben
- * unverändert kompilierbar.
+ * unverändert kompilierbar. Eine siebte (2026-08-25, [SuspiciousSignal.VERSION_DOWNGRADED]),
+ * derselbe Default.
  */
 object SuspiciousAppScanDecision {
 
@@ -35,6 +36,7 @@ object SuspiciousAppScanDecision {
         signingCertChangedPackageNames: Set<String> = emptySet(),
         deviceAdminNewlyActivatedPackageNames: Set<String> = emptySet(),
         accessibilityNewlyActivatedPackageNames: Set<String> = emptySet(),
+        versionDowngradedPackageNames: Set<String> = emptySet(),
         ownPackageName: String,
         protectedPackageNames: Set<String>,
         systemPackageNames: Set<String>,
@@ -58,6 +60,7 @@ object SuspiciousAppScanDecision {
         record(signingCertChangedPackageNames, SuspiciousSignal.SIGNING_CERT_CHANGED)
         record(deviceAdminNewlyActivatedPackageNames, SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED)
         record(accessibilityNewlyActivatedPackageNames, SuspiciousSignal.ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED)
+        record(versionDowngradedPackageNames, SuspiciousSignal.VERSION_DOWNGRADED)
 
         return signalsByPackage
             .map { (pkg, signals) -> SuspiciousAppFinding(pkg, signals) }

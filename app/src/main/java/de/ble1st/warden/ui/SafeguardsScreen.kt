@@ -75,12 +75,21 @@ fun SafeguardsScreen(
     safeBootDisabled: SafeguardToggleState,
     factoryResetProtection: SafeguardToggleState,
     modifyAccountsDisabled: SafeguardToggleState,
+    debuggingFeaturesDisabled: SafeguardToggleState,
     factoryResetProtectionAccounts: String,
     factoryResetProtectionAgentAvailable: Boolean,
     onSaveFactoryResetProtectionAccounts: (String) -> Unit,
     lockdownModeActive: Boolean?,
     profileApplyWarning: String?,
     onApplyProfile: (WardenProfile) -> Unit,
+    emergencyDrillConfirmed: Boolean,
+    emergencyDrillConfirmedAtText: String?,
+    onConfirmEmergencyDrill: () -> Unit,
+    onRevokeEmergencyDrill: () -> Unit,
+    autoEngageOnCriticalThreat: Boolean,
+    onAutoEngageOnCriticalThreatChange: (Boolean) -> Unit,
+    lockTaskActive: Boolean?,
+    onStopLockTask: () -> Unit,
     onBack: () -> Unit,
 ) {
     Scaffold(
@@ -170,6 +179,21 @@ fun SafeguardsScreen(
                 label = "Konten in den Einstellungen nicht ändern lassen",
                 state = modifyAccountsDisabled,
                 supportingText = "Verhindert, dass jemand das Entsperrkonto vor dem Wipe löscht.",
+            )
+            HorizontalDivider()
+            ConfirmBeforeEnableEntryRow(
+                label = "Entwickleroptionen/USB-Debugging sperren",
+                state = debuggingFeaturesDisabled,
+                supportingText = "Verhindert adb-Zugriff durch Angreifer mit physischem Zugriff " +
+                    "(Feature 35). ⚠ Lässt sich laut Android nicht mehr über die " +
+                    "Entwickleroptionen zurücknehmen, solange aktiv — auf einem per USB an einen " +
+                    "Entwicklungsrechner angeschlossenen Gerät kappt das Einschalten " +
+                    "wahrscheinlich sofort die eigene adb-Verbindung.",
+                confirmTitle = "Entwickleroptionen/USB-Debugging wirklich sperren?",
+                confirmText = "Kappt vermutlich sofort jede bestehende adb-Verbindung zu diesem " +
+                    "Gerät und lässt sich laut Android-Dokumentation nicht mehr über die " +
+                    "Entwickleroptionen selbst zurücknehmen — nur noch über diesen Schalter in " +
+                    "Warden. Nur auf einem Gerät aktivieren, das nicht mehr per USB entwickelt wird.",
             )
             HorizontalDivider()
             SafeguardEntryRow(
@@ -287,9 +311,140 @@ fun SafeguardsScreen(
                 modifier = Modifier.padding(vertical = 12.dp),
             )
             LockdownStatusRow(lockdownModeActive)
+            HorizontalDivider()
+            Text(
+                text = "App-Lock (LockMode) — kein Kiosk-Modus.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 12.dp),
+            )
+            LockTaskSection(
+                lockTaskActive = lockTaskActive,
+                onStopLockTask = onStopLockTask,
+                emergencyDrillConfirmed = emergencyDrillConfirmed,
+                emergencyDrillConfirmedAtText = emergencyDrillConfirmedAtText,
+                onConfirmEmergencyDrill = onConfirmEmergencyDrill,
+                onRevokeEmergencyDrill = onRevokeEmergencyDrill,
+                autoEngageOnCriticalThreat = autoEngageOnCriticalThreat,
+                onAutoEngageOnCriticalThreatChange = onAutoEngageOnCriticalThreatChange,
+            )
         }
     }
 }
+
+/**
+ * "LockMode/Threat-Protection-Ausbau" (2026-08-25). Drei Teile: der aktuelle Lock-Task-Zustand
+ * mit risikofreiem, ungegatetem "App-Lock beenden" (kein Kiosk-Modus — raus ist immer leicht, s.
+ * `de.ble1st.warden.domain.presence.SensitiveAction.LOCKDOWN_TASK_ENGAGE`-Klassendoc), die
+ * einmalige Notruf-Drill-Bestätigung (Voraussetzung für jedes echte `startLockTask()`, manuell
+ * wie automatisch, s. `de.ble1st.warden.pin.WardenLockTaskDrillStorage`-Klassendoc) und der
+ * eigene, separate Auto-Engage-Opt-in für kritische Bedrohungsfunde
+ * (`de.ble1st.warden.pin.WardenLockTaskAutoEngageStore`) — nur bei bestätigtem Drill überhaupt
+ * anwählbar, sonst wäre der Schalter wirkungslos (das Gate verweigert trotzdem).
+ */
+@Composable
+private fun LockTaskSection(
+    lockTaskActive: Boolean?,
+    onStopLockTask: () -> Unit,
+    emergencyDrillConfirmed: Boolean,
+    emergencyDrillConfirmedAtText: String?,
+    onConfirmEmergencyDrill: () -> Unit,
+    onRevokeEmergencyDrill: () -> Unit,
+    autoEngageOnCriticalThreat: Boolean,
+    onAutoEngageOnCriticalThreatChange: (Boolean) -> Unit,
+) {
+    if (lockTaskActive == true) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(text = "App-Lock AKTIV", color = MaterialTheme.colorScheme.error)
+                Text(
+                    text = "Notruf/Keyguard bleiben erreichbar — kein Kiosk-Modus.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onStopLockTask) { Text("App-Lock beenden") }
+        }
+        HorizontalDivider()
+    }
+
+    var confirmDrill by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(text = "Notruf-Drill bestätigt")
+            Text(
+                text = if (emergencyDrillConfirmed) {
+                    "Seit $emergencyDrillConfirmedAtText — Voraussetzung für jedes echte App-Lock " +
+                        "(manuell oder automatisch)."
+                } else {
+                    "Erst nach einem echten, manuell durchgeführten Test bestätigen: Notruf " +
+                        "(112/911) während App-Lock aktiv wählen und Erreichbarkeit prüfen."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (emergencyDrillConfirmed) {
+            TextButton(onClick = onRevokeEmergencyDrill) { Text("Zurücksetzen") }
+        } else {
+            TextButton(onClick = { confirmDrill = true }) { Text("Bestätigen") }
+        }
+    }
+    if (confirmDrill) {
+        var typed by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { confirmDrill = false },
+            title = { Text("Notruf-Drill wirklich bestätigen?") },
+            text = {
+                Column {
+                    Text(
+                        "Nur bestätigen, wenn der Notruf-Test auf DIESEM Gerät tatsächlich " +
+                            "durchgeführt wurde. Ohne echten Test riskiert ein späteres App-Lock, " +
+                            "dass ein Notruf nicht mehr funktioniert.",
+                    )
+                    OutlinedTextField(
+                        value = typed,
+                        onValueChange = { typed = it },
+                        label = { Text("Tippe $EMERGENCY_DRILL_CONFIRMATION_PHRASE") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = typed == EMERGENCY_DRILL_CONFIRMATION_PHRASE,
+                    onClick = {
+                        onConfirmEmergencyDrill()
+                        confirmDrill = false
+                    },
+                ) { Text("Bestätigen") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDrill = false }) { Text("Abbrechen") }
+            },
+        )
+    }
+    HorizontalDivider()
+    SafeguardToggleRow(
+        label = "App-Lock automatisch bei kritischem Fund",
+        supportingText = "Nur wirksam nach bestätigtem Notruf-Drill und scharf geschaltetem " +
+            "Lockdown-Modus (Sensible Aktion). Alarmiert per Benachrichtigung, aktiviert das " +
+            "App-Lock beim nächsten Öffnen von Warden.",
+        checked = autoEngageOnCriticalThreat,
+        onCheckedChange = onAutoEngageOnCriticalThreatChange,
+        toggleEnabled = emergencyDrillConfirmed,
+    )
+}
+
+private const val EMERGENCY_DRILL_CONFIRMATION_PHRASE = "NOTRUF GEPRÜFT"
 
 @Composable
 private fun ProfilePicker(onApplyProfile: (WardenProfile) -> Unit) {
@@ -498,6 +653,61 @@ private fun ResetProtectionEntryRow(
             },
             dismissButton = {
                 TextButton(onClick = { confirmDisable = false }) { Text("Abbrechen") }
+            },
+        )
+    }
+}
+
+/**
+ * [SafeguardEntryRow] variant for switches whose risk sits on **enabling**, not disabling
+ * (mirror image of [ResetProtectionEntryRow]) — currently only
+ * `UserRestrictionSafeguard.debuggingFeaturesDisabled`, s. its class doc for the adb-cutoff
+ * reasoning. Disabling (the risk-free direction, and the only way back once adb itself is gone)
+ * stays a plain tap.
+ */
+@Composable
+private fun ConfirmBeforeEnableEntryRow(
+    label: String,
+    state: SafeguardToggleState,
+    supportingText: String? = null,
+    confirmTitle: String,
+    confirmText: String,
+) {
+    var confirmEnable by remember { mutableStateOf(false) }
+    SafeguardToggleRow(
+        label = label,
+        supportingText = supportingText,
+        checked = state.locked == true,
+        onCheckedChange = { requested ->
+            if (requested && state.locked == false) {
+                confirmEnable = true
+            } else {
+                state.onToggle(requested)
+            }
+        },
+        toggleEnabled = state.locked != null,
+    )
+    if (state.locked == null) {
+        ErrorStateRow(
+            headline = "Status konnte nicht gelesen werden",
+            detail = "Vermutlich kein Device Owner aktiv.",
+        )
+    }
+    if (confirmEnable) {
+        AlertDialog(
+            onDismissRequest = { confirmEnable = false },
+            title = { Text(confirmTitle) },
+            text = { Text(confirmText) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        state.onToggle(true)
+                        confirmEnable = false
+                    },
+                ) { Text("Sperren") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmEnable = false }) { Text("Abbrechen") }
             },
         )
     }

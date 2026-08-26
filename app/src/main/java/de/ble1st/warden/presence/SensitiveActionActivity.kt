@@ -41,6 +41,8 @@ import de.ble1st.warden.domain.presence.DestructiveCommandGuard
 import de.ble1st.warden.domain.presence.SensitiveAction
 import de.ble1st.warden.domain.presence.SensitiveActionDecisionResult
 import de.ble1st.warden.domain.registry.SafeguardRegistry
+import de.ble1st.warden.pin.WardenLockTaskDrillStorage
+import de.ble1st.warden.pin.WardenLockTaskManager
 import de.ble1st.warden.registry.DeviceLockNowManager
 import de.ble1st.warden.registry.DeviceLockdownBundle
 import de.ble1st.warden.registry.MasterSwitch
@@ -62,8 +64,9 @@ import de.ble1st.warden.ui.theme.WardenThemePrefs
  * `FragmentActivity` statt `ComponentActivity` — Plattform-Anforderung von
  * `androidx.biometric.BiometricPrompt` ([PresenceManager]-Klassendoc).
  *
- * **`REBOOT`/`MASTER_SWITCH_REVERT`/`LOCK_NOW`/`LOCKDOWN_MODE_ARM` real verkabelt, `WIPE_DATA`
- * bewusst weiterhin Stub** ([DestructiveActionExecutor]-Klassendoc für die Begründung).
+ * **`REBOOT`/`MASTER_SWITCH_REVERT`/`LOCK_NOW`/`LOCKDOWN_MODE_ARM`/`LOCKDOWN_TASK_ENGAGE`
+ * (seit 2026-08-25) real verkabelt, `WIPE_DATA` bewusst weiterhin Stub**
+ * ([DestructiveActionExecutor]-Klassendoc für die Begründung).
  *
  * **`LOCKDOWN_MODE_ARM` (2026-08-22, "arbeite langsam am Lockdownmodus" — erster, bewusst
  * kleiner Schritt, presence-gated auf ausdrücklichen Nutzerwunsch statt als einfacher
@@ -129,7 +132,7 @@ class SensitiveActionActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
 
-        val executor = buildExecutor(applicationContext)
+        val executor = buildExecutor(this)
         val presenceManager = PresenceManager(this)
         val executionAllowed = DestructiveCommandGuard.isExecutionAllowed(BuildConfig.DEBUG)
         // Nur gelesen, nicht hier umschaltbar — s. FailsafeActivity-Kommentar.
@@ -195,8 +198,17 @@ class SensitiveActionActivity : FragmentActivity() {
          * `DevicePolicyManager`-Aufrufen für `REBOOT` und `MasterSwitch.disarm()` für
          * `MASTER_SWITCH_REVERT` — dieselben drei bekannten C.2-Schalter wie `FailsafeActivity`
          * und `RegistryReconciliationReceiver`. `WIPE_DATA` bleibt Stub (s. Klassendoc/
-         * [DestructiveActionExecutor]). */
-        private fun buildExecutor(context: Context): DestructiveActionExecutor {
+         * [DestructiveActionExecutor]).
+         *
+         * **`activity: Activity` statt bloß `Context`** (seit `LOCKDOWN_TASK_ENGAGE`,
+         * 2026-08-25): [WardenLockTaskManager]/`Activity.startLockTask()` verlangt laut Android-
+         * Dokumentation zwingend eine laufende `Activity`, kein bloßer `Context` genügt — anders
+         * als jede andere hier verkabelte Aktion. Diese Activity selbst (nicht
+         * `WardenStatusActivity` darunter im Task-Stack) genügt: `startLockTask()` sperrt laut
+         * Dokumentation den gesamten *Task*, unabhängig davon, welche seiner Activities den Aufruf
+         * macht. */
+        private fun buildExecutor(activity: Activity): DestructiveActionExecutor {
+            val context = activity.applicationContext
             val admin = ComponentName(context, WardenDeviceAdminReceiver::class.java)
             val devicePolicyManager = checkNotNull(context.getSystemService(DevicePolicyManager::class.java)) {
                 "DevicePolicyManager nicht verfügbar"
@@ -223,6 +235,15 @@ class SensitiveActionActivity : FragmentActivity() {
                 // damit der gewünschte Zustand über PersistentSafeguardRegistry persistiert wird,
                 // genau wie bei jedem anderen Registry-Eintrag (Klassendoc oben).
                 performLockdownArm = { registry.apply(DeviceLockdownBundle.ID) },
+                // s. Klassendoc oben — WardenLockTaskDrillStorage wird hier, unmittelbar vor dem
+                // tatsächlichen Aufruf, gelesen, nicht früher zwischengespeichert (derselbe
+                // "nie ein potenziell veraltetes Bit cachen"-Vorbehalt wie bei jedem anderen
+                // isActive()-Lesezugriff in diesem Projekt).
+                performLockTaskEngage = {
+                    WardenLockTaskManager(activity).startIfPermitted(
+                        emergencyCallDrillPassed = WardenLockTaskDrillStorage.isConfirmed(context),
+                    )
+                },
             )
         }
 
@@ -244,6 +265,9 @@ private fun describeAction(action: SensitiveAction): String = when (action) {
     SensitiveAction.LOCK_NOW -> "Sperrt das Gerät sofort"
     SensitiveAction.LOCKDOWN_MODE_ARM ->
         "USB aus, Safe Boot/Werksreset/OEM-Unlock/Debugging blockiert. Rückweg: Alle Safeguards zurücksetzen."
+    SensitiveAction.LOCKDOWN_TASK_ENGAGE ->
+        "App-Lock (kein Kiosk-Modus — Notruf/Keyguard bleiben erreichbar). Braucht bestätigten " +
+            "Notruf-Drill (Safeguards ▸ Lockdown-Modus). Ausstieg jederzeit über \"App-Lock beenden\"."
 }
 
 private fun describeDecision(action: SensitiveAction, decision: SensitiveActionDecisionResult): String = when (decision) {

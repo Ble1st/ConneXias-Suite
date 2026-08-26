@@ -33,6 +33,14 @@
          Extra-Permission). -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
+    <!-- Performance-Monitor (AppUsageReader): UsageStatsManager#queryAndAggregateUsageStats.
+         "signature|appop"-Protection-Level ohne DPM-Silent-Grant-Pfad (s. AppUsageReader-
+         Klassendoc) — die install-time-Deklaration hier ist trotzdem Pflicht, sonst liefert der
+         AppOps-Check in hasAccess() nie MODE_ALLOWED, egal was der Nutzer unter "Nutzungsdatenzugriff"
+         freigibt. tools:ignore, weil AGP diese Sonderberechtigung sonst als "protected" moniert. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <application
         android:name=".WardenApplication"
         android:allowBackup="false"
@@ -159,6 +167,25 @@
         <receiver
             android:name=".appmanagement.SuspiciousAppActionReceiver"
             android:exported="false" />
+
+        <!-- "LockMode/Threat-Protection-Ausbau" (2026-08-25): sofortiger Verdachtsscan bei
+             App-Installation/-Update/-Deinstallation statt bis zu 15 Minuten auf den nächsten
+             periodischen SuspiciousAppScanWorker-Lauf zu warten, s.
+             PackageChangeReceiver-Klassendoc. PACKAGE_ADDED/PACKAGE_REPLACED/PACKAGE_REMOVED sind
+             Protected Broadcasts (nur das System kann sie senden) und gehören zu den wenigen
+             impliziten Broadcasts, die weiterhin an manifest-deklarierte Empfänger zugestellt
+             werden. exported="false" trotzdem explizit (targetSdk 37 verlangt das Attribut
+             ohnehin, dieselbe Vorsicht wie bei RegistryReconciliationReceiver). -->
+        <receiver
+            android:name=".appmanagement.PackageChangeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.PACKAGE_ADDED" />
+                <action android:name="android.intent.action.PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.PACKAGE_REMOVED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

@@ -31,8 +31,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
+import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.integrity.RootIndicatorSignal
 
@@ -277,19 +279,49 @@ private fun FindingRow(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(text = finding.label, style = MaterialTheme.typography.bodyLarge)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(text = finding.label, style = MaterialTheme.typography.bodyLarge)
+                SeverityBadge(finding.severity)
+            }
             Text(text = finding.packageName, style = MaterialTheme.typography.bodySmall)
             Text(
                 text = signalsText(SuspiciousSignal.fromBitmask(finding.signalsBitmask)) +
                     if (finding.frozen) " · eingefroren" else "",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                color = severityColor(finding.severity),
             )
         }
         TextButton(onClick = onTrust) {
             Text("Vertrauen")
         }
     }
+}
+
+/** "Threat Alerts & Severity Levels" (2026-08-25) — Ampelfarbe je [ThreatSeverity], geteilt
+ * zwischen dieser Zeile (Signaltext-Farbe, Badge-Hintergrund) und
+ * [de.ble1st.warden.appmanagement.SuspiciousAppNotifier]s Kanalfarbe (dort eigene Kopie, da
+ * `android.graphics.Color` statt `androidx.compose.ui.graphics.Color` — kein gemeinsamer Typ ohne
+ * Compose-Abhängigkeit im `appmanagement`-Package einzuführen, s. dortiges Klassendoc). */
+private fun severityColor(severity: ThreatSeverity): Color = when (severity) {
+    ThreatSeverity.INFO -> Color(0xFF1565C0)
+    ThreatSeverity.WARNING -> Color(0xFFE65100)
+    ThreatSeverity.CRITICAL -> Color(0xFFB00020)
+}
+
+private fun severityLabel(severity: ThreatSeverity): String = when (severity) {
+    ThreatSeverity.INFO -> "Info"
+    ThreatSeverity.WARNING -> "Warnung"
+    ThreatSeverity.CRITICAL -> "Kritisch"
+}
+
+@Composable
+private fun SeverityBadge(severity: ThreatSeverity) {
+    Text(
+        text = severityLabel(severity),
+        style = MaterialTheme.typography.labelSmall,
+        color = severityColor(severity),
+        modifier = Modifier.semantics { contentDescription = "Stufe ${severityLabel(severity)}" },
+    )
 }
 
 private fun signalsText(signals: Set<SuspiciousSignal>): String =
@@ -303,5 +335,6 @@ private fun signalsText(signals: Set<SuspiciousSignal>): String =
             SuspiciousSignal.SIGNING_CERT_CHANGED -> "Signatur geändert"
             SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED -> "Geräteadmin gerade aktiviert"
             SuspiciousSignal.ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED -> "Bedienungshilfe gerade aktiviert"
+            SuspiciousSignal.VERSION_DOWNGRADED -> "Version zurückgestuft"
         }
     }

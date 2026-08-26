@@ -25,9 +25,10 @@ import de.ble1st.warden.registry.MasterSwitchResult
  * Debug-Build) — diese Klasse verlässt sich darauf aber nicht, sondern prüft unbedingt selbst
  * noch einmal (Defense-in-Depth, dieselbe Haltung wie `CapabilityMatrix`).
  *
- * **`REBOOT`/`MASTER_SWITCH_REVERT`/`LOCK_NOW`/`LOCKDOWN_MODE_ARM` real verkabelt, `WIPE_DATA`
- * bewusst weiterhin Stub:** [performReboot]/[performMasterSwitchRevert]/[performLockNow]/
- * [performLockdownArm] sind injizierte Lambdas — dasselbe Testbarkeits-Muster wie
+ * **`REBOOT`/`MASTER_SWITCH_REVERT`/`LOCK_NOW`/`LOCKDOWN_MODE_ARM`/`LOCKDOWN_TASK_ENGAGE` (seit
+ * 2026-08-25) real verkabelt, `WIPE_DATA` bewusst weiterhin Stub:** [performReboot]/
+ * [performMasterSwitchRevert]/[performLockNow]/[performLockdownArm]/[performLockTaskEngage] sind
+ * injizierte Lambdas — dasselbe Testbarkeits-Muster wie
  * `OfflineFailsafeExecutor`s `revertAllSafeguards`/`resetDeviceCredential` — und führen bei
  * [Approved] echte DPM-Operationen aus (`DevicePolicyManager.reboot()`, `MasterSwitch.disarm()`,
  * `DeviceLockNowManager.lockNow()`, `DeviceLockdownBundle`s `apply()` über die Registry).
@@ -63,6 +64,7 @@ class DestructiveActionExecutor(
     private val performMasterSwitchRevert: () -> List<MasterSwitchResult> = { emptyList() },
     private val performLockNow: () -> Unit = {},
     private val performLockdownArm: () -> Unit = {},
+    private val performLockTaskEngage: () -> Unit = {},
 ) {
     fun execute(action: SensitiveAction, confirmationText: String, proof: PresenceProof): SensitiveActionDecisionResult =
         executeInternal(action, confirmationText, presenceConsumed = proof.consume())
@@ -171,6 +173,18 @@ class DestructiveActionExecutor(
                         "DeviceLockdownBundle.apply() real ausgeführt"
                     } else {
                         "DeviceLockdownBundle.apply() fehlgeschlagen: ${outcome.exceptionOrNull()}"
+                    },
+                )
+            }
+            SensitiveAction.LOCKDOWN_TASK_ENGAGE -> {
+                val outcome = runCatching { performLockTaskEngage() }
+                logStore.append(
+                    priority = Log.WARN,
+                    tag = TAG,
+                    message = if (outcome.isSuccess) {
+                        "WardenLockTaskManager.startIfPermitted() real angestoßen"
+                    } else {
+                        "WardenLockTaskManager.startIfPermitted() fehlgeschlagen: ${outcome.exceptionOrNull()}"
                     },
                 )
             }

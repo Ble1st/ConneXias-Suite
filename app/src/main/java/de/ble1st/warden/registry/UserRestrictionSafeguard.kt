@@ -90,20 +90,35 @@ class UserRestrictionSafeguard(
             )
 
         /**
-         * Meilenstein C.5 — Teil des Geräte-Lockdown-Bündels ([DeviceLockdownBundle]).
-         * **Bewusst nirgends live per `apply()`/`revert()` getestet** — `DISALLOW_DEBUGGING_FEATURES`
-         * schaltet USB-Debugging/ADB selbst ab und lässt sich laut Android-Dokumentation nicht
-         * mehr über die Entwickleroptionen reaktivieren, solange die Restriction aktiv ist. Auf
-         * dem per USB angeschlossenen Testgerät würde ein Testlauf damit mutmaßlich die eigene
-         * `adb`-Verbindung kappen, über die der Test überhaupt erst läuft — höheres Risiko als
-         * `DISALLOW_FACTORY_RESET` für den aktuellen Testaufbau, deshalb dieselbe Vorsicht.
+         * Meilenstein C.5 — ursprünglich nur Teil des Geräte-Lockdown-Bündels
+         * ([DeviceLockdownBundle]). Seit "LockMode/Threat-Protection-Ausbau" (2026-08-25, auf
+         * ausdrücklichen Nutzerwunsch: "als Schalter unter Safeguards") **zusätzlich** ein
+         * eigenständiger, direkt umschaltbarer Alltags-Katalogeintrag (dasselbe
+         * "auch als Einzelschalter"-Muster wie [factoryResetDisabled]/[safeBootDisabled]) —
+         * `de.ble1st.warden.ui.SafeguardsScreen` verwendet dafür bewusst eine eigene
+         * `ConfirmBeforeEnableEntryRow`-Zeile statt der ungegateten `SafeguardEntryRow`: anders
+         * als bei den Reset-Pfad-Schaltern liegt das Risiko hier beim **Einschalten**, nicht beim
+         * Ausschalten.
+         *
+         * **Weiterhin dieselbe Vorsicht wie zuvor, jetzt als UI-Warnhinweis statt nur als
+         * Kommentar:** `DISALLOW_DEBUGGING_FEATURES` schaltet USB-Debugging/ADB selbst ab und
+         * lässt sich laut Android-Dokumentation nicht mehr über die Entwickleroptionen
+         * reaktivieren, solange die Restriction aktiv ist — auf einem per USB angeschlossenen
+         * Entwicklungsgerät kappt das Aktivieren mutmaßlich die eigene `adb`-Verbindung, über die
+         * der Testlauf überhaupt erst läuft. Deshalb weiterhin **bewusst nie in diesem Repo live
+         * per `apply()` getestet** — ein realer Test auf einem Nicht-Entwicklungsgerät bleibt eine
+         * bewusste, separate Entscheidung der Betreiberin, kein Nebeneffekt dieser Verkabelung.
          */
         fun debuggingFeaturesDisabled(context: Context): UserRestrictionSafeguard =
             UserRestrictionSafeguard(
                 context = context,
                 restriction = UserManager.DISALLOW_DEBUGGING_FEATURES,
-                id = "debugging_features_disabled",
+                id = DEBUGGING_FEATURES_DISABLED_ID,
             )
+
+        /** Stabile Registry-`id` von [debuggingFeaturesDisabled] — als Konstante exponiert,
+         * dasselbe Muster wie [CONFIG_DATE_TIME_DISABLED_ID]. */
+        const val DEBUGGING_FEATURES_DISABLED_ID = "debugging_features_disabled"
 
         /**
          * Tier 1 ("Anti-Tamper", 2026-08-22): schützt die Anti-Hammering-Backoff-Zeitfenster

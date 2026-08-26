@@ -2,6 +2,8 @@ package de.ble1st.warden.appmanagement
 
 import android.content.Context
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
@@ -32,6 +34,7 @@ class SuspiciousAppScanWorker(
 
     companion object {
         private const val UNIQUE_WORK_NAME = "suspicious-app-scan"
+        private const val UNIQUE_IMMEDIATE_WORK_NAME = "suspicious-app-scan-immediate"
         private const val POLL_INTERVAL_MINUTES = 15L
 
         /** Idempotent (`KEEP`) — sicher bei jedem Prozessstart erneut aufzurufen
@@ -43,6 +46,20 @@ class SuspiciousAppScanWorker(
             ).build()
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(UNIQUE_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+        }
+
+        /** [de.ble1st.warden.appmanagement.PackageChangeReceiver]-Klassendoc: einmaliger,
+         * sofort laufender Scan statt bis zu 15 Minuten auf den nächsten periodischen [schedule]
+         * -Lauf zu warten. Eigener, vom periodischen Poll unabhängiger `UNIQUE_IMMEDIATE_WORK_NAME`
+         * (nicht derselbe wie [UNIQUE_WORK_NAME]) mit `REPLACE`-Policy — mehrere Paketänderungen
+         * kurz hintereinander (z. B. ein App-Update: `PACKAGE_REMOVED`(replacing)+`PACKAGE_ADDED`)
+         * lösen dann nur den jeweils letzten, noch nicht angelaufenen Sofort-Scan aus, statt sich
+         * in der Warteschlange zu stapeln; würde derselbe Name wie der periodische Poll verwendet,
+         * verschöbe `REPLACE` dessen bereits laufende 15-Minuten-Planung unbeabsichtigt mit. */
+        fun scheduleImmediate(context: Context) {
+            val request = OneTimeWorkRequestBuilder<SuspiciousAppScanWorker>().build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(UNIQUE_IMMEDIATE_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
         }
     }
 }

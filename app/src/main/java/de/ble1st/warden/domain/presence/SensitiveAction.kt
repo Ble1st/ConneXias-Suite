@@ -44,6 +44,25 @@ package de.ble1st.warden.domain.presence
  * Strukturell (nicht nur dokumentiert) `false` für `WIPE_DATA`: die einzige Aktion ohne jeden
  * Rückweg bleibt an einen *frischen* Nachweis gebunden, egal wie alt der App-Eintritts-Nachweis
  * ist — s. [de.ble1st.warden.presence.DestructiveActionExecutor.executeWithSessionPresence].
+ *
+ * **`LOCKDOWN_TASK_ENGAGE` (2026-08-25, "LockMode/Threat-Protection-Ausbau", auf ausdrücklichen
+ * Nutzerwunsch: "ausarbeiten von LockMode (WardenLockTask) mit Auslöser, kein Kiosk-Modus"):**
+ * der manuelle, presence-gated Weg, ein bereits per [de.ble1st.warden.registry
+ * .WardenLockTaskAuthorizer] autorisiertes `startLockTask()` tatsächlich anzustoßen (bisher gab es
+ * dafür nirgends einen Aufrufer, s. `de.ble1st.warden.pin.WardenLockTaskManager`-Klassendoc).
+ * **Kein Kiosk-Modus:** `WardenLockTaskAuthorizer` setzt weiterhin nur `EMERGENCY_PRESERVING
+ * _FEATURES` (Keyguard + Notfall-Anrufe bleiben erreichbar, kein `LOCK_TASK_FEATURE_NONE`), und
+ * ein Ausstieg bleibt jederzeit über dieselbe presence-gated Aktion erreichbar (`stopLockTask()`
+ * über `de.ble1st.warden.ui.WardenStatusActivity`, gated nur durch die ohnehin für den Bildschirm
+ * nötige `WardenLockSession`, kein zweiter Presence-Prompt für den risikofreien Ausstieg selbst —
+ * dieselbe "raus ist immer leicht" Haltung, die ein echter Kiosk-Modus gerade nicht hätte).
+ * Zusätzlich zum manuellen Weg hier existiert ein automatischer Auslöser
+ * (`de.ble1st.warden.domain.pin.WardenLockTaskAutoEngageDecision`) für kritische Bedrohungsfunde —
+ * der läuft bewusst *nicht* über diese Aktion/[de.ble1st.warden.presence
+ * .DestructiveActionExecutor] (kein frischer Presence-Nachweis in dem Moment verfügbar), sondern
+ * über einen eigenen, mehrfach eigenständig gegateten Pfad, s. dessen Klassendoc.
+ * `allowsSessionPresence = true` — derselbe bereits beim App-Eintritt erbrachte Nachweis deckt
+ * auch diesen manuellen Weg ab.
  */
 enum class SensitiveAction(val confirmationPhrase: String, val displayName: String, val allowsSessionPresence: Boolean) {
     WIPE_DATA("WIPE", "Werksreset (nicht ausgeführt)", allowsSessionPresence = false),
@@ -51,4 +70,5 @@ enum class SensitiveAction(val confirmationPhrase: String, val displayName: Stri
     MASTER_SWITCH_REVERT("REVERT", "Alle Safeguards zurücksetzen", allowsSessionPresence = true),
     LOCK_NOW("LOCK", "Sofort sperren", allowsSessionPresence = true),
     LOCKDOWN_MODE_ARM("LOCKDOWN", "Lockdown-Modus scharf schalten", allowsSessionPresence = true),
+    LOCKDOWN_TASK_ENGAGE("LOCKTASK", "App-Lock (Lock-Task) jetzt aktivieren", allowsSessionPresence = true),
 }
