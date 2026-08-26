@@ -45,6 +45,11 @@ object SafeguardCatalog {
         FactoryResetProtectionSafeguard(context),
         // Permanent USB signaling off — independent of UsbAutoLockController (screen-lock poll).
         UsbDataSignalingSafeguard(context),
+        // "Sentinel: eigenständige Kiosk-PIN-App", Live-Drill-Folgearbeit (2026-08-26): automatisch
+        // scharf geschaltet direkt bei erfolgreicher Silent-Installation
+        // (SentinelInstallResultReceiver), nicht erst hier — s. SentinelUninstallProtectionSafeguard
+        // -Klassendoc. Registrierung hier sorgt für Boot-Reconciliation + MasterSwitch-Abdeckung.
+        SentinelUninstallProtectionSafeguard(context),
     )
 
     fun registerReversible(registry: PersistentSafeguardRegistry, context: Context) {

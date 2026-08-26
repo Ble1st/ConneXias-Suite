@@ -42,8 +42,22 @@ class SentinelDeathWatchdog(
     /** Rein diagnostisch — ob aktuell ein Binder gebunden ist (für Tests/Statusanzeigen). */
     fun isBound(): Boolean = boundBinder != null
 
+    /** **Live-Drill-Fund (2026-08-26):** ruft `stop()` zuerst auf statt nur `if (connection !=
+     * null) return` — [SentinelWatchdogController] ist ein app-weites `by lazy`-Singleton, dessen
+     * `watchdog`-Feld nie neu erzeugt wird; `connection` wird ausschließlich von [stop] (regulärer
+     * PIN-Exit-Pfad in `SentinelSignalReceiver`, oder [SentinelWatchdogController.escalate]
+     * selbst) zurückgesetzt. Endet ein Lockdown-Zyklus auf jedem anderen Weg — Sentinels Prozess
+     * stirbt/wird gekillt, **exakt das Bedrohungsmodell, gegen das dieser Watchdog schützen
+     * soll** — blieb `connection` non-null und jeder folgende `arm()`-Aufruf verließ diese Methode
+     * sofort ohne neu zu binden: der Watchdog war für den Rest der Warden-Prozess-Lebensdauer
+     * lautlos wirkungslos. Empirisch auf dem physischen Testgerät bestätigt (drei echte `am
+     * crash`-Abstürze nach einem vorherigen `am force-stop`-Zyklus lösten keine Eskalation aus —
+     * identischer `BinderProxy`-Hash über alle drei Tode hinweg bewies eine nie erneuerte
+     * Zombie-Bindung). `stop()` selbst ist bereits idempotent (No-Op bei `binder == null`), macht
+     * `start()` also sicher wiederholt aufrufbar — dieselbe "jederzeit risikolos wiederholbar"-
+     * Idempotenz-Konvention wie bei jedem [de.ble1st.warden.domain.registry.Safeguard]. */
     fun start() {
-        if (connection != null) return
+        stop()
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                 if (service == null) return

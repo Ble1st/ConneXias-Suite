@@ -51,8 +51,11 @@ import androidx.lifecycle.ProcessLifecycleOwner
  * `FirewallPolicyController` (VPN/Barbican, entfällt vollständig), `TrustedCallerAllowlist`
  * (Cross-APK-Zertifikatsprüfung via Userspace-Bus, entfällt: die neue Warden↔Sentinel-Kopplung
  * nutzt stattdessen von Android selbst durchgesetzte `signature`-Permissions, s.
- * [de.ble1st.warden.sentinelbridge.SentinelLockdownEngager]-Klassendoc "Warum kein AIDL-Bus") und
- * `PackageUninstallProtectionSafeguard` für die (weiterhin entfallenen) Geschwister-Suite-APKs.
+ * [de.ble1st.warden.sentinelbridge.SentinelLockdownEngager]-Klassendoc "Warum kein AIDL-Bus").
+ * `PackageUninstallProtectionSafeguard` für Geschwister-Suite-APKs ist seit dem Live-Drill-Fund
+ * (2026-08-26) wieder da — [de.ble1st.warden.registry.SentinelUninstallProtectionSafeguard],
+ * automatisch scharf geschaltet direkt bei Sentinels Silent-Install
+ * ([de.ble1st.warden.appmanagement.SentinelInstallResultReceiver]).
  *
  * **`SentinelWatchdogController` ist seit "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26)
  * wieder da** — anders als in einer früheren Zwischenphase dieses Ports (Presence/PIN-Logik lief

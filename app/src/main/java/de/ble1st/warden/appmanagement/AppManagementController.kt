@@ -16,10 +16,14 @@ import de.ble1st.warden.wardenAuditLog
  * angefasst wird. Dieselbe "strukturell erzwungen, nicht nur dokumentiert"-Haltung wie
  * `CapabilityMatrix.NEVER_ON_BUS`.
  *
- * Anders als im ConneXias-Framework-Quellprojekt ist [SUITE_PACKAGE_NAMES] hier leer: es gibt
- * keine Geschwister-Suite-APKs mehr zu schützen (kein separates Herald/Sentinel/Steward/
- * Barbican/Atrium/Iris, s. Plan-Context-Abschnitt) — [protectedPackageNames] bleibt trotzdem ein
- * offener Konstruktorparameter, falls künftig doch wieder geschützte Fremdziele dazukommen.
+ * **Seit "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26) wieder nicht mehr leer:**
+ * [SUITE_PACKAGE_NAMES] schützt `de.ble1st.warden.sentinel` — ein eingefrorenes Sentinel wäre für
+ * Lock-Task nicht mehr startbar (`ActivityNotFoundException`/stiller Kiosk-Ausfall bei der
+ * nächsten Scharfschaltung), ohne dass ein naheliegender Rückweg bliebe, dieselbe Risikokategorie
+ * wie Warden selbst. Die Deinstallation ist separat über [de.ble1st.warden.registry
+ * .SentinelUninstallProtectionSafeguard] (`DevicePolicyManager.setUninstallBlocked`, wirkt auch
+ * gegen Einstellungen/`pm uninstall`, nicht nur gegen Wardens eigene UI-Pfade hier) blockiert —
+ * zwei unabhängige Schichten für zwei unabhängige Angriffsflächen.
  */
 class AppManagementController(
     private val context: Context,
@@ -68,8 +72,11 @@ class AppManagementController(
     companion object {
         private const val TAG = "AppManagement"
 
-        /** Keine Geschwister-Suite-APKs mehr (s. Klassendoc) — leer statt einer festen Liste
-         * fremder Paketnamen. */
-        val SUITE_PACKAGE_NAMES: Set<String> = emptySet()
+        /** Sentinels Paketname als String-Literal statt per Import — bewusst kein Compile-Zeit-
+         * Bezug von `:app`s `appmanagement`-Paket auf `:sentinel` (das Modul existiert für `:app`
+         * ohnehin nur als gebündeltes Asset, s. `SentinelSilentInstaller`-Klassendoc). Dieselbe
+         * "String-Literal statt Import"-Begründung wie in [de.ble1st.warden.registry
+         * .WardenLockTaskAuthorizer]. */
+        val SUITE_PACKAGE_NAMES: Set<String> = setOf("de.ble1st.warden.sentinel")
     }
 }
