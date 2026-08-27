@@ -63,6 +63,18 @@
          PROPERTY_SPECIAL_USE_FGS_SUBTYPE-Begründung. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- "Netz-Sperre" Bug-3-Folge-Fund (2026-08-27, live entdeckt): Warden hatte vor Netz-Sperre nie
+         eine Netzwerk-Permission gebraucht (reines DPM/On-Device-Feature-Set) — ohne INTERNET fehlt
+         dem Prozess die `inet`-Supplementary-GID, jeder rohe `socket()`-Aufruf schlägt mit EPERM
+         fehl. Der TUN-fd selbst (Builder.establish()/read()/write()) braucht das nicht — deshalb
+         funktionierten Tunnelaufbau und der reine DNS-Blocklisten-Fastpath (kein externer Socket
+         nötig) die ganze Zeit über täuschend normal, während JEDE echte NAT-Relay-Verbindung
+         (ProtectedSocketFactory.openTcp/openUdp — der eigentliche Nicht-Blocklisten-Traffic) am
+         fehlenden `inet`-GID scheiterte. ACCESS_NETWORK_STATE für die spätere Ermittlung des
+         zugrundeliegenden Netzwerks/dessen Erreichbarkeit (z. B. eine künftige echte Upstream-DNS-
+         Server-Ermittlung statt des aktuell fest verdrahteten `WardenVpnService.UPSTREAM_DNS_IPV4`). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- NetLockdownController.requestBatteryOptimizationExemptionOnce — ohne Akku-Ausnahme kann
          Doze den Always-On-VPN-Prozess einschränken, obwohl Android Always-On-VPN-Apps offiziell
          von den meisten Doze-Restriktionen ausnimmt; die Ausnahme ist ein zusätzliches,

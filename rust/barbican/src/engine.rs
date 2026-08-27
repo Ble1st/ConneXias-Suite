@@ -510,6 +510,20 @@ fn ensure_listener_for_packet(
                 return; // nur echte Verbindungseröffnungen brauchen einen neuen Listener.
             }
             let port = tcp_packet.dst_port();
+            // BEHOBEN (2026-08-27, Bug-3-Folge-Fund #5): Port 853 (DNS-over-TLS) bewusst nicht
+            // relayt. Grund ist NICHT die alte synchrone-Callback-Schwäche (die betrifft nur UDP),
+            // sondern eine echte Architekturfrage: Androids DNS-Resolver probiert im
+            // "Opportunistic"-Private-DNS-Modus (Standardeinstellung) selbstständig, ob der
+            // konfigurierte DNS-Server (hier `WardenVpnService.TUNNEL_DNS_IPV4`) DNS-over-TLS
+            // anbietet, und wechselt bei Erfolg dauerhaft dorthin — vorbei an
+            // `try_fast_path_dns_reply`, das nur reines UDP/Port 53 abfängt. Ein erfolgreicher
+            // NAT-Relay für Port 853 würde die eigentliche Blockliste (den Zweck der Netz-Sperre)
+            // also lautlos wirkungslos machen, sobald Android auf DoT umschaltet. Ein sofort
+            // verworfenes SYN lässt Androids Opportunistic-Probe schnell fehlschlagen und zwingt
+            // den Resolver zurück auf reines UDP/53, wo die Blockliste weiterhin greift.
+            if port == 853 {
+                return;
+            }
             let entry = tcp_listeners.entry(port).or_default();
             if entry.len() >= MAX_IDLE_LISTENERS_PER_PORT {
                 return; // Deckel erreicht — das SYN wird von smoltcp verworfen, App wiederholt.
@@ -541,7 +555,11 @@ fn ensure_listener_for_packet(
             // Zieladresse kommt aus `UdpMetadata::local_address` (das tatsächliche Paket-Ziel,
             // von smoltcp aus `Ipv4Repr::dst_addr` gesetzt) statt aus der Peer-Adresse. Port 53
             // braucht deshalb keine Sonderbehandlung mehr.
-            if udp_listeners.contains_key(&port) {
+            //
+            // Port 853 dagegen bewusst weiterhin blockiert — DNS-over-QUIC (das UDP-Gegenstück zu
+            // DNS-over-TLS) unterliefe sonst die Blockliste auf demselben Weg wie DoT im
+            // TCP-Zweig oben (s. dortiger Kommentar für die volle Begründung).
+            if port == 853 || udp_listeners.contains_key(&port) {
                 return;
             }
             let rx_buffer = udp::PacketBuffer::new(
