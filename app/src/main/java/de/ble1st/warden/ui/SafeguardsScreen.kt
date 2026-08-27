@@ -34,8 +34,10 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import de.ble1st.warden.appmanagement.SentinelInstallStatus
+import de.ble1st.warden.domain.pin.LockdownTriggerProfile
 import de.ble1st.warden.domain.profile.WardenProfile
 import de.ble1st.warden.domain.profile.WardenProfileSpec
 
@@ -71,6 +73,7 @@ fun SafeguardsScreen(
     lockScreenPrivacy: SafeguardToggleState,
     usbAutoLock: SafeguardToggleState,
     usbPermanentlyDisabled: SafeguardToggleState,
+    sentinelUninstallProtection: SafeguardToggleState,
     installUnknownSourcesDisabled: SafeguardToggleState,
     factoryResetDisabled: SafeguardToggleState,
     safeBootDisabled: SafeguardToggleState,
@@ -93,6 +96,8 @@ fun SafeguardsScreen(
     sentinelInstallStatus: SentinelInstallStatus,
     onInstallSentinel: () -> Unit,
     onRefreshSentinelInstallStatus: () -> Unit,
+    lockdownTriggerProfile: LockdownTriggerProfile,
+    onLockdownTriggerProfileChange: (LockdownTriggerProfile) -> Unit,
     onBack: () -> Unit,
 ) {
     Scaffold(
@@ -257,6 +262,12 @@ fun SafeguardsScreen(
             SafeguardEntryRow("USB-Datenverkehr bei Sperre automatisch deaktivieren", usbAutoLock)
             HorizontalDivider()
             SafeguardEntryRow("USB-Datenverkehr dauerhaft deaktivieren", usbPermanentlyDisabled)
+            HorizontalDivider()
+            // Live-Drill-Fund (2026-08-26/2026-08-27): registriert im Katalog seit Sentinels
+            // Silent-Install, hatte aber nie eine eigene UI-Zeile — s.
+            // SentinelUninstallProtectionSafeguard-Klassendoc, das genau diese Sichtbarkeit
+            // versprach.
+            SafeguardEntryRow("Sentinel-Deinstallation sperren", sentinelUninstallProtection)
 
             HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
             Text(
@@ -332,6 +343,8 @@ fun SafeguardsScreen(
                 onRevokeEmergencyDrill = onRevokeEmergencyDrill,
                 autoEngageOnCriticalThreat = autoEngageOnCriticalThreat,
                 onAutoEngageOnCriticalThreatChange = onAutoEngageOnCriticalThreatChange,
+                lockdownTriggerProfile = lockdownTriggerProfile,
+                onLockdownTriggerProfileChange = onLockdownTriggerProfileChange,
             )
         }
     }
@@ -359,6 +372,8 @@ private fun LockTaskSection(
     onRevokeEmergencyDrill: () -> Unit,
     autoEngageOnCriticalThreat: Boolean,
     onAutoEngageOnCriticalThreatChange: (Boolean) -> Unit,
+    lockdownTriggerProfile: LockdownTriggerProfile,
+    onLockdownTriggerProfileChange: (LockdownTriggerProfile) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -476,9 +491,48 @@ private fun LockTaskSection(
         onCheckedChange = onAutoEngageOnCriticalThreatChange,
         toggleEnabled = emergencyDrillConfirmed,
     )
+    HorizontalDivider()
+    LockdownTriggerProfilePicker(
+        current = lockdownTriggerProfile,
+        enabled = emergencyDrillConfirmed,
+        onChange = onLockdownTriggerProfileChange,
+    )
 }
 
 private const val EMERGENCY_DRILL_CONFIRMATION_PHRASE = "NOTRUF GEPRÜFT"
+
+/**
+ * "Lockdown-Auslöse-Profil" (2026-08-27) — steuert Dashboard-Button "Kiosk jetzt"
+ * (`de.ble1st.warden.ui.WardenStatusActivity`) und die Quick-Settings-Kachel
+ * (`de.ble1st.warden.sentinelbridge.SentinelQuickTile`). Dieselbe Gating-Logik wie der
+ * Auto-Engage-Schalter direkt darüber: erst nach bestätigtem Notruf-Drill wählbar, sonst wäre ein
+ * schnellerer Auslöser wirkungslos (das Gate verweigert trotzdem).
+ */
+@Composable
+private fun LockdownTriggerProfilePicker(
+    current: LockdownTriggerProfile,
+    enabled: Boolean,
+    onChange: (LockdownTriggerProfile) -> Unit,
+) {
+    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+        Text("Lockdown-Auslöse-Profil", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "Steuert Dashboard-Button \"Kiosk jetzt\" und die Quick-Settings-Kachel. Streng: kein " +
+                "Schnellauslöser, volle Presence-Prüfung + Kühlzeit in \"Sensible Aktion\". Standard: " +
+                "Schnellauslöser mit Ja/Nein-Bestätigung. Schnell: sofort, ohne Rückfrage." +
+                if (!enabled) " Erst nach bestätigtem Notruf-Drill wirksam." else "",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            for (profile in LockdownTriggerProfile.entries) {
+                TextButton(enabled = enabled, onClick = { onChange(profile) }) {
+                    Text(profile.label, fontWeight = if (profile == current) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun ProfilePicker(onApplyProfile: (WardenProfile) -> Unit) {

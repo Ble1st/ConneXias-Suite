@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import de.ble1st.warden.domain.registry.SafeguardRegistry
 import de.ble1st.warden.logging.HashChainLogStore
+import de.ble1st.warden.netlock.NetLockdownController
 import de.ble1st.warden.pin.WardenLockScreenTextStorage
 import de.ble1st.warden.registry.LockScreenInfoManager
 import de.ble1st.warden.registry.OrganizationNameManager
@@ -51,6 +52,23 @@ class RegistryReconciliationReceiver : BroadcastReceiver() {
         reconcileLockScreenInfo(context, logStore)
         reconcileOrganizationName(context, logStore)
         reconcileSupportMessage(context, logStore)
+        reconcileNetLockdown(context, logStore)
+    }
+
+    /** "Netz-Sperre" (2026-08-27): läuft bewusst nicht über [RegistryReconciler] — anders als die
+     * simplen Boolean-Toggles im Katalog braucht [NetLockdownController.arm] eine Lockdown-
+     * Allowlist, die der generische, no-arg-`apply()`-basierte Pfad nicht liefern kann (s.
+     * [de.ble1st.warden.registry.SafeguardCatalog.reversible]-Kommentar für die volle Begründung).
+     * [NetLockdownController.reconcile] übernimmt die eigentliche Soll-vs-Ist-Prüfung selbst
+     * (eigener [de.ble1st.warden.netlock.NetLockdownStore], nicht [SafeguardRegistryStore]) —
+     * diese Methode reicht nur den bereits vorhandenen [logStore] durch, analog zu
+     * [reconcileLockScreenInfo]/[reconcileOrganizationName]/[reconcileSupportMessage]. */
+    private fun reconcileNetLockdown(context: Context, logStore: HashChainLogStore) {
+        try {
+            NetLockdownController(context).reconcile()
+        } catch (e: Exception) {
+            logStore.append(Log.ERROR, TAG, "failed to reconcile net_lockdown: $e")
+        }
     }
 
     /** [LockScreenInfoManager] ist kein [de.ble1st.warden.domain.registry.Safeguard] (Freitext

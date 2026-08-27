@@ -50,6 +50,24 @@ object SafeguardCatalog {
         // (SentinelInstallResultReceiver), nicht erst hier — s. SentinelUninstallProtectionSafeguard
         // -Klassendoc. Registrierung hier sorgt für Boot-Reconciliation + MasterSwitch-Abdeckung.
         SentinelUninstallProtectionSafeguard(context),
+        // "Netz-Sperre" (2026-08-27): NetLockdownAuthorizer ist bewusst NICHT hier registriert,
+        // obwohl es die "beides" (Standalone + DeviceLockdownBundle-Mitglied) genannte
+        // Nutzeranforderung zunächst nahelegt — anders als die simplen Boolean-Toggles um es herum
+        // braucht dessen *korrektes* apply() eine Lockdown-Allowlist (s. dessen Klassendoc), die
+        // der generische, no-arg-basierte RegistryReconciler/PersistentSafeguardRegistry-Pfad nicht
+        // liefern kann. Würde man es trotzdem hier registrieren, bekäme "net_lockdown" einen
+        // *zweiten*, unabhängigen Soll-Zustand in SafeguardRegistryStore (parallel zu
+        // NetLockdownController/NetLockdownStore) — und jeder MasterSwitch/Failsafe-Aufruf, der
+        // generisch registry.revert("net_lockdown") aufruft, würde diesen zweiten Soll-Zustand auf
+        // "false" persistieren. Ein späteres echtes NetLockdownController.arm() aktualisiert diesen
+        // zweiten Soll-Zustand nie — der nächste Boot sähe dann fälschlich "Soll=false, Ist=true"
+        // und würde die Netz-Sperre über den generischen RegistryReconciler wieder entschärfen,
+        // parallel zu (und im Widerspruch mit) reconcileNetLockdown()s eigener, korrekter
+        // Boot-Reconciliation. "Standalone" wird stattdessen wie im ConneXias-Framework-
+        // Quellprojekt gelöst: ein eigener Ein/Aus-Schalter in NetworkScreen, der direkt
+        // NetLockdownController.arm()/disarm() aufruft, ganz ohne den generischen Safeguard-
+        // Registry-Pfad — "DeviceLockdownBundle-Mitglied" bleibt trotzdem erfüllt, s. dortige
+        // members-Liste.
     )
 
     fun registerReversible(registry: PersistentSafeguardRegistry, context: Context) {

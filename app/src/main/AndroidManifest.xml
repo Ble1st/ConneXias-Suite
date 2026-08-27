@@ -56,6 +56,19 @@
         android:name="de.ble1st.warden.permission.SENTINEL_SIGNAL"
         android:protectionLevel="signature" />
 
+    <!-- "Netz-Sperre" (2026-08-27): WardenVpnService als Foreground-Service. FOREGROUND_SERVICE
+         selbst ist "normal"-Protection-Level (automatisch gewährt); FOREGROUND_SERVICE_SPECIAL_USE
+         ist ab API 34 für jeden foregroundServiceType="specialUse" Pflicht — es gibt keinen
+         eingebauten "vpn"-Foreground-Service-Typ, s. WardenVpnService-Deklaration unten für die
+         PROPERTY_SPECIAL_USE_FGS_SUBTYPE-Begründung. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- NetLockdownController.requestBatteryOptimizationExemptionOnce — ohne Akku-Ausnahme kann
+         Doze den Always-On-VPN-Prozess einschränken, obwohl Android Always-On-VPN-Apps offiziell
+         von den meisten Doze-Restriktionen ausnimmt; die Ausnahme ist ein zusätzliches,
+         Geräte-/OEM-abhängiges Sicherheitsnetz (z. B. gegen aggressive Hersteller-Task-Killer). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
         android:name=".WardenApplication"
         android:allowBackup="false"
@@ -222,6 +235,50 @@
         <receiver
             android:name=".appmanagement.SentinelInstallResultReceiver"
             android:exported="false" />
+
+        <!-- "Lockdown-Auslöse-Profil" — zweiter Schnell-Einstieg für LOCKDOWN_TASK_ENGAGE neben dem
+             Dashboard-Button, s. SentinelQuickTile-Klassendoc. exported="true" + BIND_QUICK_SETTINGS_TILE
+             ist für eine Kachel Pflicht (systemgeschützt, dieselbe Idiomatik wie
+             WardenDeviceAdminReceiver/BIND_DEVICE_ADMIN) — das System bindet diesen Dienst exklusiv selbst. -->
+        <!-- "Netz-Sperre" (2026-08-27): eigener VpnService, gebunden vom System nach
+             DevicePolicyManager.setAlwaysOnVpnPackage (s. NetLockdownAuthorizer-Klassendoc) —
+             BIND_VPN_SERVICE hält nur das System selbst. Kein eingebauter "vpn"-
+             foregroundServiceType (die feste API-34-Liste kennt ihn nicht) — specialUse +
+             PROPERTY_SPECIAL_USE_FGS_SUBTYPE ist der dafür vorgesehene Fallback. exported="false"
+             trotz System-Bind: der Intent-Filter android.net.VpnService ist Android-intern, kein
+             Cross-App-Aufrufer nötig (targetSdk 37 verlangt das Attribut ohnehin explizit). -->
+        <service
+            android:name=".netlock.WardenVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="vpn" />
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
+        <!-- "Netz-Sperre" (2026-08-27): presence-gated Ansicht der strukturierten
+             Netzwerk-Ereignis-Logs (NetworkEventLogStore) — identisches Gating-Muster wie
+             LogViewerActivity (Biometrie/PIN-Presence via ConcordBus.requestLogAccess-Äquivalent,
+             finishIfWardenLockSessionMissing()). exported="false", nie von außen gestartet. -->
+        <activity
+            android:name=".netlock.NetworkLogViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Warden" />
+
+        <service
+            android:name=".sentinelbridge.SentinelQuickTile"
+            android:exported="true"
+            android:icon="@drawable/ic_kiosk_tile"
+            android:label="Kiosk"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
     </application>
 

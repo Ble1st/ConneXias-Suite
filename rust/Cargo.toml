@@ -1,8 +1,10 @@
 [workspace]
 resolver = "3"
-# Nur "engine" — anders als im ConneXias-Framework-Quellprojekt (dort zusätzlich "archive" für
-# Steward und "barbican" für die VPN-Suite), beide bewusst nicht Teil dieses Projekts.
-members = ["engine"]
+# "engine" (Krypto) + "barbican" (Netz-Sperre, 2026-08-27) — anders als im ConneXias-Framework-
+# Quellprojekt bewusst als Warden-internes Feature statt eines zweiten APKs portiert (Warden ist
+# single-Gradle-module, kein Sinn für die Cross-APK-AIDL/Broadcast-Komplexität des Quellprojekts).
+# "archive" (Steward) bleibt weiterhin bewusst nicht Teil dieses Projekts.
+members = ["engine", "barbican"]
 
 [workspace.package]
 edition = "2024"

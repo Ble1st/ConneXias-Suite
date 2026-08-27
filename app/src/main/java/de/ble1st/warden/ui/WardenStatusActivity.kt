@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,9 +55,11 @@ import de.ble1st.warden.BuildConfig
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.admin.DeviceOwnerStatusReader
 import de.ble1st.warden.appmanagement.AppManagementInfo
+import de.ble1st.warden.appmanagement.InstalledAppEntry
 import de.ble1st.warden.appmanagement.InstalledAppLister
 import de.ble1st.warden.appmanagement.PermissionAuditInfo
 import de.ble1st.warden.appmanagement.PermissionAuditScanner
+import de.ble1st.warden.appmanagement.SentinelInstallStatus
 import de.ble1st.warden.appmanagement.SentinelInstallStatusReader
 import de.ble1st.warden.appmanagement.SentinelSilentInstaller
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
@@ -64,7 +68,11 @@ import de.ble1st.warden.bus.ConcordBus
 import de.ble1st.warden.domain.frp.FactoryResetProtectionAccounts
 import de.ble1st.warden.domain.frp.FactoryResetProtectionDecision
 import de.ble1st.warden.domain.performance.BatteryDrainDecision
+import de.ble1st.warden.domain.pin.LockdownTriggerProfile
+import de.ble1st.warden.domain.pin.LockdownTriggerProfilePolicy
 import de.ble1st.warden.domain.presence.DestructiveCommandGuard
+import de.ble1st.warden.domain.presence.SensitiveAction
+import de.ble1st.warden.domain.presence.SensitiveActionDecisionResult
 import de.ble1st.warden.domain.profile.WardenProfile
 import de.ble1st.warden.performance.AppUsageInfo
 import de.ble1st.warden.performance.AppUsageReader
@@ -76,13 +84,17 @@ import de.ble1st.warden.performance.DeviceMemorySnapshot
 import de.ble1st.warden.registry.FactoryResetProtectionSafeguard
 import de.ble1st.warden.failsafe.FailsafeActivity
 import de.ble1st.warden.integrity.DebuggableOsStatusReader
+import de.ble1st.warden.netlock.DomainBlocklistStore
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
+import de.ble1st.warden.pin.LockdownTriggerProfileStore
 import de.ble1st.warden.pin.WardenLockScreenTextStorage
 import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
+import de.ble1st.warden.pin.WardenLockTaskDrillFreshnessGate
 import de.ble1st.warden.pin.WardenLockTaskDrillStorage
 import de.ble1st.warden.pin.WardenLockTaskPendingEngageStore
 import de.ble1st.warden.registry.WardenLockTaskAuthorizer
 import de.ble1st.warden.sentinelbridge.SentinelLockdownEngager
+import de.ble1st.warden.presence.DestructiveActionExecutor
 import de.ble1st.warden.presence.SensitiveActionActivity
 import de.ble1st.warden.presence.WardenLockActivity
 import de.ble1st.warden.presence.WardenPinActivity
@@ -103,6 +115,7 @@ import de.ble1st.warden.registry.SecurityLoggingSafeguard
 import de.ble1st.warden.registry.SelfUninstallProtectionSafeguard
 import de.ble1st.warden.registry.SupportMessageManager
 import de.ble1st.warden.registry.SystemUpdatePolicySafeguard
+import de.ble1st.warden.registry.SentinelUninstallProtectionSafeguard
 import de.ble1st.warden.registry.UsbDataSignalingSafeguard
 import de.ble1st.warden.registry.UserRestrictionSafeguard
 import de.ble1st.warden.registry.WardenFactoryResetProtectionStorage
@@ -159,6 +172,12 @@ class WardenStatusActivity : ComponentActivity() {
     private var lockRequestInFlight = false
     private val wardenLockSession by lazy { (application as WardenApplication).wardenLockSession }
 
+    // "Lockdown-Auslöse-Profil" (2026-08-27) — hält den Grund einer per SentinelQuickTile
+    // vorgemerkten Anforderung mit `requiresConfirmation=true` (LockdownTriggerProfile.STANDARD),
+    // bis der Ja/Nein-Dialog unten in setContent { } beantwortet ist. `null` = kein offener
+    // Dialog.
+    private val pendingKioskConfirmation = mutableStateOf<String?>(null)
+
     private val lockLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         lockRequestInFlight = false
         if (result.resultCode == RESULT_OK) {
@@ -195,6 +214,22 @@ class WardenStatusActivity : ComponentActivity() {
         }
 
         val concordBus = (application as WardenApplication).concordBus
+        // "Lockdown-Auslöse-Profil" (2026-08-27) — eigener, wegwerfbarer Executor nur für den
+        // Dashboard-Button "Kiosk jetzt" (Zeile in WardenRoot unten), analog zu
+        // SensitiveActionActivity.buildExecutor(): frische Instanz, frischer Rate-Limit-Eimer, s.
+        // dortigen Kommentar zur "fresh instance"-Konvention. Die vier anderen performX-Lambdas
+        // bleiben auf ihren Defaults — dieser Executor wird nie mit einer anderen Aktion als
+        // LOCKDOWN_TASK_ENGAGE aufgerufen.
+        val kioskExecutor = DestructiveActionExecutor(
+            isDebugBuild = BuildConfig.DEBUG,
+            logStore = wardenAuditLog(applicationContext),
+            performLockTaskEngage = {
+                SentinelLockdownEngager.engage(
+                    context = applicationContext,
+                    emergencyCallDrillPassed = WardenLockTaskDrillFreshnessGate.effectiveEmergencyCallDrillPassed(applicationContext),
+                )
+            },
+        )
 
         setContent {
             // Nur die Wahl selbst lebt hier im Compose-State (reiner Anzeige-State, s.
@@ -234,6 +269,41 @@ class WardenStatusActivity : ComponentActivity() {
                 mutableStateOf(AutoRebootStorage.loadThresholdHours(applicationContext))
             }
             val isAuthenticated by authenticated
+            // "Lockdown-Auslöse-Profil" (2026-08-27) — Geschwister von WardenTheme(...) statt
+            // innerhalb (und damit außerhalb des `!isAuthenticated`-Kurzschlusses oben): eine per
+            // SentinelQuickTile vorgemerkte Bestätigungsanfrage (LockdownTriggerProfile.STANDARD)
+            // muss erscheinen können, sobald wieder authentifiziert ist, unabhängig davon, welcher
+            // WardenScreen-Unterbildschirm gerade offen ist.
+            val kioskConfirmReason by pendingKioskConfirmation
+            if (kioskConfirmReason != null) {
+                AlertDialog(
+                    onDismissRequest = {
+                        wardenAuditLog(applicationContext).append(
+                            Log.INFO,
+                            TAG,
+                            "Lock-Task-Anforderung abgebrochen: $kioskConfirmReason",
+                        )
+                        pendingKioskConfirmation.value = null
+                    },
+                    title = { Text("Kiosk jetzt aktivieren?") },
+                    text = {
+                        Text(
+                            "$kioskConfirmReason\n\nStartet sofort den Sentinel-Kiosk-Modus. " +
+                                "Ausstieg nur über Sentinels eigene PIN.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val reason = kioskConfirmReason!!
+                            pendingKioskConfirmation.value = null
+                            performPendingLockTaskEngage(reason)
+                        }) { Text("Ja") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingKioskConfirmation.value = null }) { Text("Nein") }
+                    },
+                )
+            }
             WardenTheme(accent = accent) {
                 if (!isAuthenticated) {
                     // WardenLockActivity läuft parallel (onResume() oben) — hier nur ein
@@ -255,6 +325,20 @@ class WardenStatusActivity : ComponentActivity() {
                     concordBus = concordBus,
                     onOpenFailsafe = { startActivity(Intent(this, FailsafeActivity::class.java)) },
                     onOpenSensitiveAction = { startActivity(Intent(this, SensitiveActionActivity::class.java)) },
+                    // "Lockdown-Auslöse-Profil" (2026-08-27) — Dashboard-Button "Kiosk jetzt"
+                    // (Zeile in WardenStatusScreen). `wardenLockSession.isAuthenticated()` live am
+                    // Klick gelesen statt hart `true` — dieselbe Defense-in-Depth wie
+                    // SensitiveActionActivity.onConfirmSession, auch wenn WardenStatusScreen
+                    // ohnehin erst nach isAuthenticated() gerendert wird (identische Begründung
+                    // wie beim bereits ungegateten onLockNow unten).
+                    onKioskNow = {
+                        val decision = kioskExecutor.executeWithSessionPresence(
+                            SensitiveAction.LOCKDOWN_TASK_ENGAGE,
+                            SensitiveAction.LOCKDOWN_TASK_ENGAGE.confirmationPhrase,
+                            sessionAuthenticated = wardenLockSession.isAuthenticated(),
+                        )
+                        describeKioskDashboardDecision(decision)
+                    },
                     // Kein EXTRA_PRESENCE_REQUEST — echte Ersteinrichtung/Verify/PIN-Änderung, im
                     // Presence-Request-Modus verweigert WardenPinActivity das bewusst (Klassendoc).
                     // Ohne diesen Einstiegspunkt gäbe es gar keinen Weg mehr, überhaupt eine PIN
@@ -355,7 +439,23 @@ class WardenStatusActivity : ComponentActivity() {
      * nichts aussteht — dieser Aufruf bei jedem Resume ist deshalb unkritisch billig.
      */
     private fun consumePendingLockTaskEngage() {
-        val reason = WardenLockTaskPendingEngageStore.consumeIfPending(applicationContext) ?: return
+        val pending = WardenLockTaskPendingEngageStore.consumeIfPending(applicationContext) ?: return
+        // "Lockdown-Auslöse-Profil" (2026-08-27): SentinelQuickTile markiert eine Anforderung
+        // unter LockdownTriggerProfile.STANDARD mit requiresConfirmation=true — statt sofort zu
+        // feuern, zeigt setContent { } unten erst den Ja/Nein-Dialog; der eigentliche Aufruf
+        // erfolgt dann über performPendingLockTaskEngage() aus dessen Bestätigen-Button.
+        if (pending.requiresConfirmation) {
+            pendingKioskConfirmation.value = pending.reason
+            return
+        }
+        performPendingLockTaskEngage(pending.reason)
+    }
+
+    /** Der eigentliche Ausführungs-Schritt, getrennt von [consumePendingLockTaskEngage] — wird
+     * entweder direkt von dort (kein Bestätigungsdialog nötig: kritischer Bedrohungsfund,
+     * `LockdownTriggerProfile.FAST`) oder erst nach "Ja" im Kachel-Bestätigungsdialog aufgerufen
+     * (`LockdownTriggerProfile.STANDARD`). */
+    private fun performPendingLockTaskEngage(reason: String) {
         // Derselbe unbedingte Debug-Build-Hardblock wie bei jeder anderen realen DPM-Aktion
         // dieses Projekts (DestructiveCommandGuard, F.4) — SentinelLockdownEngager prüft selbst
         // nur, ob Sentinel überhaupt installiert ist, nicht diesen Guard, muss also hier vom
@@ -365,7 +465,7 @@ class WardenStatusActivity : ComponentActivity() {
             runCatching {
                 SentinelLockdownEngager.engage(
                     context = applicationContext,
-                    emergencyCallDrillPassed = WardenLockTaskDrillStorage.isConfirmed(applicationContext),
+                    emergencyCallDrillPassed = WardenLockTaskDrillFreshnessGate.effectiveEmergencyCallDrillPassed(applicationContext),
                 )
             }.onFailure { Log.e(TAG, "Lock-Task-Auto-Engage fehlgeschlagen", it) }.getOrDefault(false)
         wardenAuditLog(applicationContext).append(
@@ -375,7 +475,7 @@ class WardenStatusActivity : ComponentActivity() {
                 "Lock-Task automatisch aktiviert: $reason"
             } else {
                 "Lock-Task-Auto-Engage angefordert, aber Gate verweigert (Debug-Build und/oder " +
-                    "Drill nicht bestätigt): $reason"
+                    "Drill nicht bestätigt/abgelaufen): $reason"
             },
         )
     }
@@ -393,6 +493,7 @@ private sealed class WardenScreen {
     data object Settings : WardenScreen()
     data object PermissionAudit : WardenScreen()
     data object PerformanceMonitor : WardenScreen()
+    data object Network : WardenScreen()
 }
 
 /** Architektur-Review 2026-08-24 (F-3) — `WardenScreen` selbst ist keine der sonst über
@@ -411,6 +512,7 @@ private val WardenScreenSaver: Saver<WardenScreen, String> = Saver(
             "Settings" -> WardenScreen.Settings
             "PermissionAudit" -> WardenScreen.PermissionAudit
             "PerformanceMonitor" -> WardenScreen.PerformanceMonitor
+            "Network" -> WardenScreen.Network
             else -> WardenScreen.Status
         }
     },
@@ -427,6 +529,7 @@ private fun WardenRoot(
     onOpenSensitiveAction: () -> Unit,
     onOpenPinManagement: () -> Unit,
     onOpenLog: () -> Unit,
+    onKioskNow: () -> String,
     accent: WardenAccent,
     onAccentChange: (WardenAccent) -> Unit,
     lockScreenText: String?,
@@ -473,6 +576,17 @@ private fun WardenRoot(
             LaunchedEffect(Unit) {
                 findingsResult = withContext(Dispatchers.IO) { loadFindingsSafely(concordBus) }
             }
+            // "Lockdown-Auslöse-Profil" (2026-08-27) — Sichtbarkeit des Dashboard-Buttons "Kiosk
+            // jetzt": nur bei Profil ≠ STRICT, installiertem Sentinel und bestätigtem Notruf-Drill.
+            // Frisch bei jedem Wieder-Betreten dieses Zweigs gelesen (dieselbe Begründung wie
+            // findingsResult oben), kein Cross-Activity-Refresh-Mechanismus nötig.
+            val statusContext = LocalContext.current.applicationContext
+            val lockdownTriggerProfile = remember { LockdownTriggerProfileStore.load(statusContext) }
+            val kioskQuickTriggerVisible = remember(lockdownTriggerProfile) {
+                LockdownTriggerProfilePolicy.quickTriggerEntryPointsEnabled(lockdownTriggerProfile) &&
+                    SentinelInstallStatusReader(statusContext).currentStatus() is SentinelInstallStatus.Installed &&
+                    WardenLockTaskDrillStorage.isConfirmed(statusContext)
+            }
             WardenStatusScreen(
                 isDeviceOwner = isDeviceOwner,
                 versionName = versionName,
@@ -492,8 +606,12 @@ private fun WardenRoot(
                     runCatching { concordBus.lockNow() }
                         .onFailure { Log.e("WardenStatus", "Jetzt-sperren fehlgeschlagen", it) }
                 },
+                kioskQuickTriggerVisible = kioskQuickTriggerVisible,
+                kioskTriggerProfile = lockdownTriggerProfile,
+                onKioskNow = onKioskNow,
                 onOpenPermissionAudit = { screen = WardenScreen.PermissionAudit },
                 onOpenPerformanceMonitor = { screen = WardenScreen.PerformanceMonitor },
+                onOpenNetwork = { screen = WardenScreen.Network },
             )
         }
         WardenScreen.AppManagement -> {
@@ -620,6 +738,9 @@ private fun WardenRoot(
             var autoEngageOnCriticalThreat by remember { mutableStateOf(WardenLockTaskAutoEngageStore.isEnabled(appContext)) }
             var sentinelLockTaskAuthorized by remember { mutableStateOf(loadSentinelLockTaskAuthorizedSafely(appContext)) }
             var sentinelInstallStatus by remember { mutableStateOf(SentinelInstallStatusReader(appContext).currentStatus()) }
+            // "Lockdown-Auslöse-Profil" (2026-08-27) — dieselbe Store-→-Compose-State-→-Write-
+            // through-Verkabelung wie autoEngageOnCriticalThreat direkt darüber.
+            var lockdownTriggerProfile by remember { mutableStateOf(LockdownTriggerProfileStore.load(appContext)) }
             key(catalogGeneration) {
                 SafeguardsScreen(
                     cameraLocked = rememberSafeguardToggle(concordBus, CameraSafeguard.ID),
@@ -642,6 +763,7 @@ private fun WardenRoot(
                     lockScreenPrivacy = rememberSafeguardToggle(concordBus, LockScreenPrivacySafeguard.ID),
                     usbAutoLock = rememberUsbAutoLockToggle(concordBus),
                     usbPermanentlyDisabled = rememberSafeguardToggle(concordBus, UsbDataSignalingSafeguard.ID),
+                    sentinelUninstallProtection = rememberSafeguardToggle(concordBus, SentinelUninstallProtectionSafeguard.ID),
                     installUnknownSourcesDisabled = rememberSafeguardToggle(
                         concordBus,
                         UserRestrictionSafeguard.INSTALL_UNKNOWN_SOURCES_DISABLED_ID,
@@ -752,6 +874,11 @@ private fun WardenRoot(
                     onRefreshSentinelInstallStatus = {
                         sentinelInstallStatus = SentinelInstallStatusReader(appContext).currentStatus()
                     },
+                    lockdownTriggerProfile = lockdownTriggerProfile,
+                    onLockdownTriggerProfileChange = { selected ->
+                        LockdownTriggerProfileStore.save(appContext, selected)
+                        lockdownTriggerProfile = selected
+                    },
                     onBack = { screen = WardenScreen.Status },
                 )
             }
@@ -858,6 +985,70 @@ private fun WardenRoot(
                         .onFailure { Log.e("WardenStatus", "Nutzungsdatenzugriff-Einstellungen nicht erreichbar", it) }
                 },
                 onRefresh = { refresh() },
+            )
+        }
+        WardenScreen.Network -> {
+            // "Netz-Sperre" (2026-08-27) — dieselbe Architektur-Review-2026-08-24-(F-2)-Vorsicht
+            // wie die übrigen Zweige hier: Envelope-Reads/DPM-Abfragen laufen auf Dispatchers.IO,
+            // nie synchron im Composition-Body. Controller lokal per applicationContext geholt
+            // statt als WardenRoot-Parameter durchgereicht — dasselbe ad-hoc-Muster wie
+            // AppUsageReader(appContext) im PerformanceMonitor-Zweig direkt darüber.
+            val networkContext = LocalContext.current.applicationContext as WardenApplication
+            val networkScope = rememberCoroutineScope()
+            val blocklistStore = remember { DomainBlocklistStore(DomainBlocklistStore.buildEnvelopeFile(networkContext)) }
+            var lockdownActive by remember { mutableStateOf<Boolean?>(null) }
+            var apps by remember { mutableStateOf<List<InstalledAppEntry>?>(null) }
+            var userBlocklistDomains by remember { mutableStateOf(emptySet<String>()) }
+
+            fun refreshNetwork() {
+                networkScope.launch {
+                    val (active, appList, domains) = withContext(Dispatchers.IO) {
+                        Triple(
+                            runCatching { networkContext.netLockdownController.isActive() }.getOrNull(),
+                            runCatching { networkContext.networkFirewallPolicyController.listApps() }.getOrNull(),
+                            runCatching { blocklistStore.loadUserDomains() }.getOrDefault(emptySet()),
+                        )
+                    }
+                    lockdownActive = active
+                    apps = appList
+                    userBlocklistDomains = domains
+                }
+            }
+            LaunchedEffect(Unit) { refreshNetwork() }
+
+            NetworkScreen(
+                lockdownActive = lockdownActive,
+                onToggleLockdown = { desired ->
+                    networkScope.launch {
+                        withContext(Dispatchers.IO) {
+                            if (desired) networkContext.netLockdownController.arm() else networkContext.netLockdownController.disarm()
+                        }
+                        refreshNetwork()
+                    }
+                },
+                apps = apps ?: emptyList(),
+                appsLoadFailed = apps == null,
+                modeFor = { packageName -> networkContext.networkFirewallPolicyController.modeFor(packageName) },
+                onSetMode = { packageName, mode ->
+                    networkScope.launch {
+                        withContext(Dispatchers.IO) { networkContext.networkFirewallPolicyController.setMode(packageName, mode) }
+                    }
+                },
+                userBlocklistDomains = userBlocklistDomains,
+                defaultBlocklistSize = DomainBlocklistStore.DEFAULT_TRACKER_DOMAINS.size,
+                onAddDomain = { domain ->
+                    networkScope.launch {
+                        withContext(Dispatchers.IO) { blocklistStore.addDomain(domain) }
+                        userBlocklistDomains = withContext(Dispatchers.IO) { blocklistStore.loadUserDomains() }
+                    }
+                },
+                onRemoveDomain = { domain ->
+                    networkScope.launch {
+                        withContext(Dispatchers.IO) { blocklistStore.removeDomain(domain) }
+                        userBlocklistDomains = withContext(Dispatchers.IO) { blocklistStore.loadUserDomains() }
+                    }
+                },
+                onBack = { screen = WardenScreen.Status },
             )
         }
     }
@@ -1001,6 +1192,17 @@ private fun loadSentinelLockTaskAuthorizedSafely(context: Context): Boolean? =
         .onFailure { Log.e("WardenStatus", "Sentinel-Lock-Task-Autorisierung nicht ladbar", it) }
         .getOrNull()
 
+/** "Lockdown-Auslöse-Profil" (2026-08-27) — Statuszeile für den Dashboard-Button "Kiosk jetzt",
+ * spiegelt `de.ble1st.warden.presence.SensitiveActionActivity`s privates `describeDecision` (nur
+ * für `LOCKDOWN_TASK_ENGAGE` aufgerufen, deshalb ohne dessen `WIPE_DATA`-Sonderfall). */
+private fun describeKioskDashboardDecision(decision: SensitiveActionDecisionResult): String = when (decision) {
+    SensitiveActionDecisionResult.Approved -> "✓ Bestätigt — real ausgeführt und protokolliert."
+    SensitiveActionDecisionResult.ExecutionBlocked -> "⚠ Debug-Build — destruktive Kommandos hart abgeschaltet (F.4)."
+    SensitiveActionDecisionResult.RateLimited -> "⚠ Zu viele Versuche — bitte kurz warten."
+    SensitiveActionDecisionResult.WrongConfirmationText -> "⚠ Interner Fehler: Bestätigungstext stimmte nicht."
+    SensitiveActionDecisionResult.PresenceNotProven -> "⚠ Presence-Nachweis fehlgeschlagen."
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WardenStatusScreen(
@@ -1019,8 +1221,12 @@ private fun WardenStatusScreen(
     onOpenSettings: () -> Unit,
     onOpenLog: () -> Unit,
     onLockNow: () -> Unit,
+    kioskQuickTriggerVisible: Boolean,
+    kioskTriggerProfile: LockdownTriggerProfile,
+    onKioskNow: () -> String,
     onOpenPermissionAudit: () -> Unit,
     onOpenPerformanceMonitor: () -> Unit,
+    onOpenNetwork: () -> Unit,
 ) {
     // Punkt 4 ("weitere App-UI-Verschönerungen", 2026-08-22) — haptisches Feedback für die einzige
     // sofort (ohne Bestätigungsschritt) ausgeführte Dashboard-Aktion, s. NumpadButton-Kommentar in
@@ -1080,6 +1286,12 @@ private fun WardenStatusScreen(
                 tag = "PM",
                 onClick = onOpenPerformanceMonitor,
             )
+            MenuRow(
+                title = "Netzwerk",
+                subtitle = "Netz-Sperre, App-Zugriff, Blockliste",
+                tag = "NW",
+                onClick = onOpenNetwork,
+            )
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 
             SectionLabel("Zugriff & Bestätigung")
@@ -1099,6 +1311,57 @@ private fun WardenStatusScreen(
                     onLockNow()
                 },
             )
+            // "Lockdown-Auslöse-Profil" (2026-08-27) — nur sichtbar bei Profil ≠ STRICT +
+            // installiertem Sentinel + bestätigtem Notruf-Drill (s. Sichtbarkeits-Berechnung in
+            // WardenRoot). Läuft weiterhin vollständig durch DestructiveActionExecutor
+            // (onKioskNow) — kein ungegateter Kurzschluss wie bei "Jetzt sperren" oben, da
+            // LOCKDOWN_TASK_ENGAGE anders als LOCK_NOW schwer rückgängig zu machen ist.
+            if (kioskQuickTriggerVisible) {
+                var showKioskConfirm by remember { mutableStateOf(false) }
+                var kioskStatusMessage by remember { mutableStateOf("") }
+                MenuRow(
+                    title = "Kiosk jetzt",
+                    subtitle = "Sentinel-Lock-Task sofort aktivieren",
+                    tag = "KIOSK",
+                    onClick = {
+                        if (LockdownTriggerProfilePolicy.requiresConfirmationDialog(kioskTriggerProfile)) {
+                            showKioskConfirm = true
+                        } else {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            kioskStatusMessage = onKioskNow()
+                        }
+                    },
+                )
+                if (kioskStatusMessage.isNotEmpty()) {
+                    Text(
+                        text = kioskStatusMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (showKioskConfirm) {
+                    AlertDialog(
+                        onDismissRequest = { showKioskConfirm = false },
+                        title = { Text("Kiosk jetzt aktivieren?") },
+                        text = {
+                            Text(
+                                "Startet sofort den Sentinel-Kiosk-Modus. Ausstieg nur über " +
+                                    "Sentinels eigene PIN.",
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showKioskConfirm = false
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                kioskStatusMessage = onKioskNow()
+                            }) { Text("Ja") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showKioskConfirm = false }) { Text("Nein") }
+                        },
+                    )
+                }
+            }
             MenuRow(title = "Sensible Aktion", tag = "SA", onClick = onOpenSensitiveAction)
             MenuRow(title = "Log-Einsicht", tag = "LOG", onClick = onOpenLog)
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
