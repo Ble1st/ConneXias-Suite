@@ -125,7 +125,7 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
             val blocklistStore = DomainBlocklistStore(DomainBlocklistStore.buildEnvelopeFile(this))
             BarbicanEngine.setBlocklist(blocklistStore.effectiveBlocklist())
             Log.i(TAG, "Calling startCapturedTunnel(fd=${pfd.fd}, ipv4=$TUNNEL_IPV4)")
-            BarbicanEngine.startCapturedTunnel(pfd.fd, TUNNEL_IPV4, this)
+            BarbicanEngine.startCapturedTunnel(pfd.fd, TUNNEL_IPV4, TUNNEL_DNS_IPV4, UPSTREAM_DNS_IPV4, this)
             Log.i(TAG, "startCapturedTunnel returned OK, running=${BarbicanEngine.isCapturedTunnelRunning()}")
         } catch (e: Exception) {
             Log.e(TAG, "Rust-Tunnel-Start fehlgeschlagen", e)
@@ -215,6 +215,21 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
          * eigentliche Zweck des ursprünglichen (fehlerhaften) Kommentars hier, jetzt mit der
          * korrekten Adresse umgesetzt. */
         const val TUNNEL_DNS_IPV4 = "10.64.0.2"
+        /** Echter Upstream-DNS-Resolver (2026-08-27, Bug-3-Folge-Fix), an den `engine.rs` jede
+         * Anfrage an [TUNNEL_DNS_IPV4] umschreibt, bevor sie über NAT relayt wird — die
+         * Sentinel-Adresse selbst ist außerhalb des Tunnels nicht erreichbar (s.
+         * `ensure_listener_for_packet`/`pump_udp_listeners`-Kommentare). Bewusst ein fest
+         * verdrahteter, öffentlicher Resolver statt eines Versuchs, den echten DNS-Server des
+         * zugrundeliegenden Netzwerks zur Laufzeit zu ermitteln (z. B. über
+         * `ConnectivityManager.getLinkProperties()`) — das zugrundeliegende Netzwerk eines
+         * Always-On-VPN ist zur Laufzeit nicht zuverlässig ohne `setUnderlyingNetworks()`-
+         * Buchführung greifbar, und dieser Aufwand steht in keinem Verhältnis zum Nutzen: der
+         * eigentliche Zweck der Netz-Sperre (Kill-Switch + Blockliste) funktioniert unabhängig
+         * davon bereits vollständig über den DNS-Fastpath in `try_fast_path_dns_reply` (der
+         * NIEMALS einen echten Upstream-Server braucht). Cloudflares `1.1.1.1` ist ein
+         * datenschutzorientierter, öffentlich dokumentierter Resolver ohne Anmeldepflicht — ein
+         * bewusster, dokumentierter Kompromiss, keine versteckte Traffic-Umleitung. */
+        const val UPSTREAM_DNS_IPV4 = "1.1.1.1"
         const val ACTION_STOP_TUNNEL = "de.ble1st.warden.netlock.action.STOP_TUNNEL"
         const val ACTION_RELOAD_TUNNEL = "de.ble1st.warden.netlock.action.RELOAD_TUNNEL"
     }

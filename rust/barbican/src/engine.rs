@@ -18,6 +18,15 @@
 //! kein neues Tunnel-Paket eintrifft. Ein einzelner Thread mit nur blockierendem `read()` könnte
 //! das nicht — der Kanal entkoppelt "auf Paket warten" von "regelmäßig nach dem Rechten sehen".
 //!
+//! **Der Engine-Loop-Thread ruft `ProtectedSocketFactory::open_tcp`/`open_udp` NIE synchron auf**
+//! (Live-Fund 2026-08-27, s. [[warden-netzsperre-feature-2026-08-27]]) — jeder neue Flow (TCP wie
+//! UDP) beschafft seinen externen Socket auf einem eigenen, kurzlebigen Thread
+//! (`spawn_tcp_connect`/`spawn_udp_connect`), das Ergebnis kommt über einen gemeinsamen, gesperrten
+//! Zwischenspeicher (`PENDING_TCP_FDS`/`PENDING_UDP_FDS`) zurück, den der Loop an seinem eigenen
+//! Tick-Rhythmus abholt. Ein hängender/langsamer Callback (Kotlin-seitiger `protect()`/`connect()`)
+//! blockiert dadurch höchstens den einzelnen betroffenen Flow, nie den gesamten Tunnel — das war
+//! live reproduzierbar der Fall, als UDP das noch synchron machte.
+//!
 //! **Warum smoltcp trotz "beliebiger Zielport" nicht durch die Socket-Abstraktion ausgebremst
 //! wird:** smoltcps `Interface` akzeptiert mit `set_any_ip(true)` + einer auf die eigene
 //! Tunnel-Adresse zeigenden Default-Route bereits Pakete für *beliebige* Ziel-IP (verifiziert
@@ -74,6 +83,7 @@ pub enum TunnelError {
     AlreadyRunning,
     InvalidTunFd,
     InvalidTunAddress,
+    InvalidDnsAddress,
     Io { detail: String },
 }
 
@@ -83,6 +93,7 @@ impl fmt::Display for TunnelError {
             TunnelError::AlreadyRunning => write!(f, "captured tunnel already running"),
             TunnelError::InvalidTunFd => write!(f, "invalid tun file descriptor"),
             TunnelError::InvalidTunAddress => write!(f, "invalid tunnel ipv4 address"),
+            TunnelError::InvalidDnsAddress => write!(f, "invalid dns sentinel/upstream ipv4 address"),
             TunnelError::Io { detail } => write!(f, "io error: {detail}"),
         }
     }
@@ -160,12 +171,22 @@ fn current_blocklist() -> std::collections::HashSet<String> {
 pub fn start_captured_tunnel(
     tun_fd: i32,
     tun_ipv4: String,
+    dns_sentinel_ipv4: String,
+    upstream_dns_ipv4: String,
     socket_factory: Arc<dyn ProtectedSocketFactory>,
 ) -> Result<(), TunnelError> {
     if tun_fd < 0 {
         return Err(TunnelError::InvalidTunFd);
     }
     let tun_addr = Ipv4Addr::from_str(&tun_ipv4).map_err(|_| TunnelError::InvalidTunAddress)?;
+    // s. `ensure_listener_for_packet`/`pump_udp_listeners` für die volle Begründung: `dns_sentinel`
+    // ist die von `WardenVpnService.addDnsServer(...)` vergebene, nur tunnelintern gültige
+    // "DNS-Server"-Adresse — jede Anfrage dorthin wird beim NAT-Relay auf `upstream_dns`
+    // umgeschrieben, weil die Sentinel-Adresse selbst außerhalb des Tunnels nicht erreichbar ist.
+    let dns_sentinel =
+        Ipv4Addr::from_str(&dns_sentinel_ipv4).map_err(|_| TunnelError::InvalidDnsAddress)?;
+    let upstream_dns =
+        Ipv4Addr::from_str(&upstream_dns_ipv4).map_err(|_| TunnelError::InvalidDnsAddress)?;
 
     let mut guard = ENGINE.lock().map_err(|_| TunnelError::AlreadyRunning)?;
     if guard.is_some() {
@@ -220,6 +241,8 @@ pub fn start_captured_tunnel(
                 writer_file,
                 rx,
                 tun_addr,
+                dns_sentinel,
+                upstream_dns,
                 socket_factory,
                 engine_stop,
                 engine_stats,
@@ -340,6 +363,8 @@ fn run_engine_loop(
     writer_file: ManuallyDrop<File>,
     rx: mpsc::Receiver<Vec<u8>>,
     tun_addr: Ipv4Addr,
+    dns_sentinel: Ipv4Addr,
+    upstream_dns: Ipv4Addr,
     socket_factory: Arc<dyn ProtectedSocketFactory>,
     stop: Arc<AtomicBool>,
     stats: Arc<StatsInner>,
@@ -392,7 +417,15 @@ fn run_engine_loop(
 
         reap_completed_listeners(&mut sockets, &mut tcp_listeners, &mut flow_sockets, &socket_factory);
         pump_established_sessions(&mut sockets, &mut nat, &mut flow_sockets, &stats);
-        pump_udp_listeners(&mut sockets, &udp_listeners, &mut nat, &socket_factory, &mut flow_sockets);
+        pump_udp_listeners(
+            &mut sockets,
+            &udp_listeners,
+            &mut nat,
+            &socket_factory,
+            &mut flow_sockets,
+            dns_sentinel,
+            upstream_dns,
+        );
         pump_udp_responses(&mut sockets, &nat, &flow_sockets, &stats);
 
         if last_housekeeping.elapsed() >= Duration::from_secs(5) {
@@ -496,30 +529,18 @@ fn ensure_listener_for_packet(
                 return;
             };
             let port = udp_packet.dst_port();
-            // ANGEHALTEN (2026-08-27 Live-Fund #3/#4, s. [[warden-netzsperre-feature-2026-08-27]]):
-            // Port 53 wird hier bewusst weiterhin übersprungen, trotz eines **bekannten**
-            // Design-Lochs — eine nicht blockierte DNS-Anfrage bekommt dadurch keine echte
-            // Weiterleitung/Antwort (bleibt unauflösbar) statt korrekt über NAT zu laufen. Ein
-            // Versuch, das zu beheben (Port 53 denselben Weg wie jeden anderen UDP-Port nehmen zu
-            // lassen), deckte live einen SCHWERWIEGENDEREN Bug auf: `pump_udp_listeners` ruft
-            // `socket_factory.open_udp(...)` **synchron im Engine-Loop-Thread** auf (anders als
-            // TCP, das dafür bewusst einen eigenen Thread nutzt, s. `spawn_tcp_connect`s Moduldoc-
-            // Begründung) — UND übergibt dabei mit `meta.endpoint.addr` die falsche Adresse (die
-            // des anfragenden Peers, nicht die eines echten Ziel-/Upstream-Servers). Ein blockierter
-            // `open_udp`-Aufruf friert den GESAMTEN Engine-Loop dauerhaft ein — auch den bereits
-            // funktionierenden Blocklisten-Fast-Path für alle künftigen Pakete. Da dieselbe
-            // synchrone-Callback-Schwäche jeden neuen UDP-Flow betrifft, nicht nur Port 53 (jede
-            // reale App würde das bei jeglichem UDP-Traffic — inkl. weit verbreitetem QUIC/HTTP3 —
-            // auslösen), bleibt Port 53 hier vorerst ausgenommen, um wenigstens den häufigsten
-            // Auslöser (jede DNS-Anfrage) nicht zusätzlich zu triggern. Echte Behebung braucht: (1)
-            // `open_udp` auf einen eigenen Thread auslagern (analog `spawn_tcp_connect`/
-            // `PENDING_TCP_FDS`), (2) die richtige Zieladresse durchreichen (Original-Paket-Ziel,
-            // nicht `meta.endpoint.addr`), (3) eine echte Entscheidung, welcher Upstream-DNS-Server
-            // für nicht blockierte Anfragen angefragt wird. Bis dahin: NAT-Relay für UDP ist generell
-            // als ungetestet/riskant zu behandeln, nicht nur für DNS.
-            if port == 53 {
-                return;
-            }
+            // BEHOBEN (2026-08-27, Folge-Session zu Live-Fund #3/#4, s.
+            // [[warden-netzsperre-feature-2026-08-27]]): Port 53 lief hier eine Zeit lang bewusst
+            // NICHT über NAT, weil `pump_udp_listeners` den `socket_factory.open_udp(...)`-Callback
+            // synchron im Engine-Loop-Thread aufrief und dabei zudem die falsche Zieladresse
+            // (`meta.endpoint.addr`, die des anfragenden Peers) übergab — ein hängender Aufruf
+            // fror den gesamten Engine-Loop dauerhaft ein, nicht nur für DNS, sondern für jeden
+            // neuen UDP-Flow. Echte Behebung (s. `pump_udp_listeners`/`spawn_udp_connect`): die
+            // Socket-Beschaffung läuft jetzt auf einem eigenen Thread, exakt wie
+            // `spawn_tcp_connect`/`PENDING_TCP_FDS` es für TCP bereits vormachte, und die
+            // Zieladresse kommt aus `UdpMetadata::local_address` (das tatsächliche Paket-Ziel,
+            // von smoltcp aus `Ipv4Repr::dst_addr` gesetzt) statt aus der Peer-Adresse. Port 53
+            // braucht deshalb keine Sonderbehandlung mehr.
             if udp_listeners.contains_key(&port) {
                 return;
             }
@@ -699,45 +720,100 @@ fn pump_established_sessions(
 
 /// UDP ist verbindungslos: ein einzelner gebundener smoltcp-Socket pro Port bedient beliebig viele
 /// Gegenstellen über die pro Datagramm mitgelieferte Absenderadresse — kein Ersatz-Listener-Bedarf
-/// wie bei TCP (s. Moduldoc). Jede noch nicht bekannte Absenderadresse bekommt sofort synchron
-/// einen externen Socket (UDP-`connect()`/`sendto()` blockiert praktisch nie, anders als TCP-
-/// Handshake — daher hier bewusst kein eigener Thread wie bei TCP).
+/// wie bei TCP (s. Moduldoc). Anders als eine frühere Fassung dieser Funktion (s.
+/// [[warden-netzsperre-feature-2026-08-27]], Live-Fund #3) wird der externe Socket **nicht mehr
+/// synchron** hier im Engine-Loop beschafft — `socket_factory.open_udp(...)` lief live in einen
+/// Fall, der den gesamten Loop dauerhaft einfror. Stattdessen exakt dasselbe Muster wie TCPs
+/// `spawn_tcp_connect`/`PENDING_TCP_FDS`: ein neuer Flow löst [spawn_udp_connect] auf einem eigenen
+/// Thread aus, das aktuelle Datagramm wird dabei verworfen (kein Puffer für "Socket kommt gleich")
+/// — DNS-Resolver und die meisten UDP-Protokolle (QUIC eingeschlossen) retransmittieren ihre erste
+/// Anfrage ohnehin nach kurzer Zeit selbst, ein einzelnes verlorenes erstes Datagramm ist der
+/// bewusst in Kauf genommene Preis für einen nie blockierenden Paket-Pfad. Erst ab dem zweiten
+/// Datagramm eines Flows (Socket dann bereits in [NatTable]) wird tatsächlich gesendet.
+#[allow(clippy::too_many_arguments)]
 fn pump_udp_listeners(
     sockets: &mut SocketSet<'static>,
     udp_listeners: &HashMap<u16, smoltcp::iface::SocketHandle>,
     nat: &mut NatTable,
     socket_factory: &Arc<dyn ProtectedSocketFactory>,
     flow_sockets: &mut HashMap<FlowKey, smoltcp::iface::SocketHandle>,
+    dns_sentinel: Ipv4Addr,
+    upstream_dns: Ipv4Addr,
 ) {
+    drain_pending_udp_fds(nat, flow_sockets);
+
     for (&port, &handle) in udp_listeners.iter() {
         let socket = sockets.get_mut::<udp::Socket>(handle);
         while let Ok((data, meta)) = socket.recv() {
+            // Das tatsächliche Paket-Ziel (nicht die Absenderadresse `meta.endpoint.addr` — das ist
+            // die anfragende App selbst) — smoltcp setzt das bei jedem eingehenden Datagramm laut
+            // eigener Doku immer, s. `pump_udp_listeners`-Klassendoc-Verweis oben.
+            let Some(IpAddress::Ipv4(dst_addr)) = meta.local_address else {
+                continue;
+            };
+            // `WardenVpnService.addDnsServer(...)` vergibt eine rein tunnelinterne Adresse
+            // (s. `dns_sentinel`-Parameterdoc an `start_captured_tunnel`) — außerhalb des Tunnels
+            // nicht erreichbar, deshalb hier auf einen echten Upstream-Resolver umgeschrieben.
+            let real_dst = if dst_addr == dns_sentinel { upstream_dns } else { dst_addr };
             let key = FlowKey {
                 proto: Proto::Udp,
                 src_ip: meta.endpoint.addr.to_string(),
                 src_port: meta.endpoint.port,
-                dst_ip: String::new(), // bei UDP nicht zur Identifikation nötig (ein Socket pro lokalem Port).
+                dst_ip: real_dst.to_string(),
                 dst_port: port,
             };
             flow_sockets.entry(key.clone()).or_insert(handle);
-            let external_fd = match nat.get(&key) {
-                Some(session) => Some(session.external_fd),
-                None => socket_factory.open_udp(meta.endpoint.addr.to_string(), port).ok(),
-            };
-            if let Some(fd) = external_fd {
-                let stream = ManuallyDrop::new(unsafe { UdpSocket::from_raw_fd(fd) });
-                let _ = stream.send(data);
-                if nat.get(&key).is_none() {
-                    nat.insert(
-                        key,
-                        NatSession {
-                            external_fd: fd,
-                            smoltcp_handle: 0,
-                            last_active: Instant::now(),
-                        },
-                    );
-                } else {
+            match nat.get(&key) {
+                Some(session) => {
+                    let stream = ManuallyDrop::new(unsafe { UdpSocket::from_raw_fd(session.external_fd) });
+                    let _ = stream.send(data);
                     nat.touch(&key, Instant::now());
+                }
+                None => spawn_udp_connect(key, Arc::clone(socket_factory)),
+            }
+        }
+    }
+}
+
+/// Beschafft auf einem eigenen, kurzlebigen Thread den echten `VpnService.protect()`-Socket für
+/// einen neuen UDP-Flow — bewusst nie synchron im Engine-Loop, s. `pump_udp_listeners`-Klassendoc
+/// und Moduldoc. Exaktes Gegenstück zu `spawn_tcp_connect`/[PENDING_TCP_FDS].
+fn spawn_udp_connect(key: FlowKey, socket_factory: Arc<dyn ProtectedSocketFactory>) {
+    thread::spawn(move || {
+        let result = socket_factory.open_udp(key.dst_ip.clone(), key.dst_port);
+        if let Ok(fd) = result
+            && let Ok(mut pending) = PENDING_UDP_FDS.lock() {
+                pending.push((key, fd));
+            }
+    });
+}
+
+/// Von [spawn_udp_connect]-Threads befüllt, von [pump_udp_listeners] (über [drain_pending_udp_fds])
+/// geleert — exaktes Gegenstück zu [PENDING_TCP_FDS].
+static PENDING_UDP_FDS: Mutex<Vec<(FlowKey, i32)>> = Mutex::new(Vec::new());
+
+/// Übernimmt frisch aus [PENDING_UDP_FDS] eingetroffene Sockets in die [NatTable] — exaktes
+/// Gegenstück zum `PENDING_TCP_FDS`-Drain-Schritt in `pump_established_sessions`.
+fn drain_pending_udp_fds(
+    nat: &mut NatTable,
+    flow_sockets: &HashMap<FlowKey, smoltcp::iface::SocketHandle>,
+) {
+    if let Ok(mut pending) = PENDING_UDP_FDS.lock() {
+        for (key, fd) in pending.drain(..) {
+            if flow_sockets.contains_key(&key) {
+                nat.insert(
+                    key,
+                    NatSession {
+                        external_fd: fd,
+                        smoltcp_handle: 0,
+                        last_active: Instant::now(),
+                    },
+                );
+            } else {
+                // Zugehöriger smoltcp-Socket wurde inzwischen geräumt — fd wäre verwaist, sauber
+                // schließen statt leaken (identische Begründung wie in `pump_established_sessions`).
+                unsafe {
+                    let _ = UdpSocket::from_raw_fd(fd);
                 }
             }
         }

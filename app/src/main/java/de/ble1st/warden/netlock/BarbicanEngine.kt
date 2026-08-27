@@ -19,8 +19,13 @@ import uniffi.connexias_barbican.tunnelStats as barbicanTunnelStats
  */
 object BarbicanEngine {
 
-    fun startCapturedTunnel(tunFd: Int, tunIpv4: String, socketFactory: ProtectedSocketFactory) =
-        barbicanStartCapturedTunnel(tunFd, tunIpv4, socketFactory)
+    fun startCapturedTunnel(
+        tunFd: Int,
+        tunIpv4: String,
+        dnsSentinelIpv4: String,
+        upstreamDnsIpv4: String,
+        socketFactory: ProtectedSocketFactory,
+    ) = barbicanStartCapturedTunnel(tunFd, tunIpv4, dnsSentinelIpv4, upstreamDnsIpv4, socketFactory)
 
     fun stopCapturedTunnel() = barbicanStopCapturedTunnel()
 

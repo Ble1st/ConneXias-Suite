@@ -754,7 +754,7 @@ internal object UniffiLib {
     ): Byte
     external fun uniffi_connexias_barbican_fn_func_set_blocklist(`domains`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    external fun uniffi_connexias_barbican_fn_func_start_captured_tunnel(`tunFd`: Int,`tunIpv4`: RustBuffer.ByValue,`socketFactory`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_connexias_barbican_fn_func_start_captured_tunnel(`tunFd`: Int,`tunIpv4`: RustBuffer.ByValue,`dnsSentinelIpv4`: RustBuffer.ByValue,`upstreamDnsIpv4`: RustBuffer.ByValue,`socketFactory`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_connexias_barbican_fn_func_stop_captured_tunnel(uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -891,7 +891,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_connexias_barbican_checksum_func_set_blocklist() != 4018) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_connexias_barbican_checksum_func_start_captured_tunnel() != 53305) {
+    if (lib.uniffi_connexias_barbican_checksum_func_start_captured_tunnel() != 34444) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_connexias_barbican_checksum_func_stop_captured_tunnel() != 52936) {
@@ -1875,6 +1875,12 @@ sealed class TunnelException: kotlin.Exception() {
             get() = ""
     }
     
+    class InvalidDnsAddress(
+        ) : TunnelException() {
+        override val message
+            get() = ""
+    }
+    
     class Io(
         
         val `detail`: kotlin.String
@@ -1905,7 +1911,8 @@ public object FfiConverterTypeTunnelError : FfiConverterRustBuffer<TunnelExcepti
             1 -> TunnelException.AlreadyRunning()
             2 -> TunnelException.InvalidTunFd()
             3 -> TunnelException.InvalidTunAddress()
-            4 -> TunnelException.Io(
+            4 -> TunnelException.InvalidDnsAddress()
+            5 -> TunnelException.Io(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -1923,6 +1930,10 @@ public object FfiConverterTypeTunnelError : FfiConverterRustBuffer<TunnelExcepti
                 4UL
             )
             is TunnelException.InvalidTunAddress -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TunnelException.InvalidDnsAddress -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
             )
@@ -1948,8 +1959,12 @@ public object FfiConverterTypeTunnelError : FfiConverterRustBuffer<TunnelExcepti
                 buf.putInt(3)
                 Unit
             }
-            is TunnelException.Io -> {
+            is TunnelException.InvalidDnsAddress -> {
                 buf.putInt(4)
+                Unit
+            }
+            is TunnelException.Io -> {
+                buf.putInt(5)
                 FfiConverterString.write(value.`detail`, buf)
                 Unit
             }
@@ -2005,7 +2020,7 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
     
     
 
-    @Throws(TunnelException::class) fun `startCapturedTunnel`(`tunFd`: kotlin.Int, `tunIpv4`: kotlin.String, `socketFactory`: ProtectedSocketFactory)
+    @Throws(TunnelException::class) fun `startCapturedTunnel`(`tunFd`: kotlin.Int, `tunIpv4`: kotlin.String, `dnsSentinelIpv4`: kotlin.String, `upstreamDnsIpv4`: kotlin.String, `socketFactory`: ProtectedSocketFactory)
         = 
     uniffiRustCallWithError(TunnelException) { _status ->
     UniffiLib.uniffi_connexias_barbican_fn_func_start_captured_tunnel(
@@ -2013,6 +2028,8 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
         
         FfiConverterInt.lower(`tunFd`),
         FfiConverterString.lower(`tunIpv4`),
+        FfiConverterString.lower(`dnsSentinelIpv4`),
+        FfiConverterString.lower(`upstreamDnsIpv4`),
         FfiConverterTypeProtectedSocketFactory.lower(`socketFactory`),_status)
 }
     
