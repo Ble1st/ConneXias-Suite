@@ -56,30 +56,13 @@
         android:name="de.ble1st.warden.permission.SENTINEL_SIGNAL"
         android:protectionLevel="signature" />
 
-    <!-- "Netz-Sperre" (2026-08-27): WardenVpnService als Foreground-Service. FOREGROUND_SERVICE
-         selbst ist "normal"-Protection-Level (automatisch gewährt); FOREGROUND_SERVICE_SPECIAL_USE
-         ist ab API 34 für jeden foregroundServiceType="specialUse" Pflicht — es gibt keinen
-         eingebauten "vpn"-Foreground-Service-Typ, s. WardenVpnService-Deklaration unten für die
-         PROPERTY_SPECIAL_USE_FGS_SUBTYPE-Begründung. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <!-- "Netz-Sperre" Bug-3-Folge-Fund (2026-08-27, live entdeckt): Warden hatte vor Netz-Sperre nie
-         eine Netzwerk-Permission gebraucht (reines DPM/On-Device-Feature-Set) — ohne INTERNET fehlt
-         dem Prozess die `inet`-Supplementary-GID, jeder rohe `socket()`-Aufruf schlägt mit EPERM
-         fehl. Der TUN-fd selbst (Builder.establish()/read()/write()) braucht das nicht — deshalb
-         funktionierten Tunnelaufbau und der reine DNS-Blocklisten-Fastpath (kein externer Socket
-         nötig) die ganze Zeit über täuschend normal, während JEDE echte NAT-Relay-Verbindung
-         (ProtectedSocketFactory.openTcp/openUdp — der eigentliche Nicht-Blocklisten-Traffic) am
-         fehlenden `inet`-GID scheiterte. ACCESS_NETWORK_STATE für die spätere Ermittlung des
-         zugrundeliegenden Netzwerks/dessen Erreichbarkeit (z. B. eine künftige echte Upstream-DNS-
-         Server-Ermittlung statt des aktuell fest verdrahteten `WardenVpnService.UPSTREAM_DNS_IPV4`). -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- NetLockdownController.requestBatteryOptimizationExemptionOnce — ohne Akku-Ausnahme kann
-         Doze den Always-On-VPN-Prozess einschränken, obwohl Android Always-On-VPN-Apps offiziell
-         von den meisten Doze-Restriktionen ausnimmt; die Ausnahme ist ein zusätzliches,
-         Geräte-/OEM-abhängiges Sicherheitsnetz (z. B. gegen aggressive Hersteller-Task-Killer). -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- ⏸ "Netz-Sperre" PAUSIERT (2026-08-27, s. WardenApplication-Klassendoc + app/netlock-
+         disabled/README.md): die folgenden fünf Permissions (FOREGROUND_SERVICE,
+         FOREGROUND_SERVICE_SPECIAL_USE, INTERNET, ACCESS_NETWORK_STATE,
+         REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) wurden ausschließlich für WardenVpnService/
+         NetLockdownController gebraucht — kein anderes Feature nutzt sie. Deshalb komplett
+         entfernt statt nur die Service-/Activity-Deklarationen unten; bei Reaktivierung aus dem
+         Deaktivierungs-Commit wiederherstellen. -->
 
     <application
         android:name=".WardenApplication"
@@ -252,34 +235,11 @@
              Dashboard-Button, s. SentinelQuickTile-Klassendoc. exported="true" + BIND_QUICK_SETTINGS_TILE
              ist für eine Kachel Pflicht (systemgeschützt, dieselbe Idiomatik wie
              WardenDeviceAdminReceiver/BIND_DEVICE_ADMIN) — das System bindet diesen Dienst exklusiv selbst. -->
-        <!-- "Netz-Sperre" (2026-08-27): eigener VpnService, gebunden vom System nach
-             DevicePolicyManager.setAlwaysOnVpnPackage (s. NetLockdownAuthorizer-Klassendoc) —
-             BIND_VPN_SERVICE hält nur das System selbst. Kein eingebauter "vpn"-
-             foregroundServiceType (die feste API-34-Liste kennt ihn nicht) — specialUse +
-             PROPERTY_SPECIAL_USE_FGS_SUBTYPE ist der dafür vorgesehene Fallback. exported="false"
-             trotz System-Bind: der Intent-Filter android.net.VpnService ist Android-intern, kein
-             Cross-App-Aufrufer nötig (targetSdk 37 verlangt das Attribut ohnehin explizit). -->
-        <service
-            android:name=".netlock.WardenVpnService"
-            android:exported="false"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="vpn" />
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
-
-        <!-- "Netz-Sperre" (2026-08-27): presence-gated Ansicht der strukturierten
-             Netzwerk-Ereignis-Logs (NetworkEventLogStore) — identisches Gating-Muster wie
-             LogViewerActivity (Biometrie/PIN-Presence via ConcordBus.requestLogAccess-Äquivalent,
-             finishIfWardenLockSessionMissing()). exported="false", nie von außen gestartet. -->
-        <activity
-            android:name=".netlock.NetworkLogViewerActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Warden" />
+        <!-- ⏸ "Netz-Sperre" PAUSIERT (2026-08-27, s. WardenApplication-Klassendoc +
+             app/netlock-disabled/README.md): WardenVpnService- und NetworkLogViewerActivity-
+             Deklarationen hier entfernt — Code liegt geparkt unter app/netlock-disabled/, nicht
+             mitkompiliert. Bei Reaktivierung beide Deklarationen aus dem Deaktivierungs-Commit
+             wiederherstellen. -->
 
         <service
             android:name=".sentinelbridge.SentinelQuickTile"

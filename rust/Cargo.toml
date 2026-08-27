@@ -1,10 +1,14 @@
 [workspace]
 resolver = "3"
-# "engine" (Krypto) + "barbican" (Netz-Sperre, 2026-08-27) — anders als im ConneXias-Framework-
-# Quellprojekt bewusst als Warden-internes Feature statt eines zweiten APKs portiert (Warden ist
-# single-Gradle-module, kein Sinn für die Cross-APK-AIDL/Broadcast-Komplexität des Quellprojekts).
-# "archive" (Steward) bleibt weiterhin bewusst nicht Teil dieses Projekts.
-members = ["engine", "barbican"]
+# "engine" (Krypto) bleibt Workspace-Mitglied. "barbican" ("Netz-Sperre", 2026-08-27) war
+# kurzzeitig auch Mitglied, ist aber seit demselben Tag wieder entfernt: Live-Test fand nach
+# mehreren echten Bugfixes (s. app-seitigen Commit 7252396 und das Memo
+# warden-netzsperre-feature-2026-08-27) einen ungeklärten Kernfehler (DNS-Blockliste/NAT-Relay
+# verarbeitet auf einem frisch aufgebauten Tunnel keinen Traffic mehr). Die Crate selbst bleibt
+# unter rust/barbican/ liegen (jede Quelldatei dort trägt einen eigenen Pausiert-Banner-Kommentar),
+# ist aber dadurch nicht mehr Teil von `cargo build`/`cargo test` von hier aus. "archive" (Steward)
+# bleibt weiterhin bewusst nicht Teil dieses Projekts.
+members = ["engine"]
 
 [workspace.package]
 edition = "2024"

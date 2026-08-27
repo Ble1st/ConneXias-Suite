@@ -1,16 +1,11 @@
 package de.ble1st.warden.admin
 
-import android.app.admin.ConnectEvent
 import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
-import android.app.admin.DnsEvent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import de.ble1st.warden.netlock.NetworkEventLogStore
-import de.ble1st.warden.netlock.NetworkLogEntry
-import de.ble1st.warden.netlock.NetworkLogEventKind
 import de.ble1st.warden.wardenAuditLog
 
 /**
@@ -33,12 +28,12 @@ import de.ble1st.warden.wardenAuditLog
  * verkabelt (anders als der A.2-Stand oben) — der Audit-Log bekommt weiterhin nur die
  * Ereigniszahl pro Batch, nicht jedes `SecurityEvent`-Feld (würde den Hash-Chain-Log aufblähen).
  *
- * **"Netz-Sperre" (2026-08-27) — `onNetworkLogsAvailable` parst zusätzlich strukturiert:**
- * jedes `DnsEvent`/`ConnectEvent` aus dem Batch landet vollständig geparst in
- * [de.ble1st.warden.netlock.NetworkEventLogStore] (eigener, von der Audit-Hash-Kette getrennter
- * Ringpuffer — s. dortiges Klassendoc für die Begründung der Trennung). `onSecurityLogsAvailable`
- * bleibt bewusst bei der reinen Ereigniszahl — für `SecurityEvent` gibt es (noch) keine eigene
- * Auswertungs-UI, die die strukturierten Felder bräuchte.
+ * **"Netz-Sperre" (2026-08-27) — strukturiertes Parsing pausiert:** `onNetworkLogsAvailable`
+ * parste zwischenzeitlich jedes `DnsEvent`/`ConnectEvent` zusätzlich strukturiert in einen eigenen
+ * `NetworkEventLogStore`-Ringpuffer; seit demselben Tag wieder entfernt, weil "Netz-Sperre" als
+ * Ganzes einen ungeklärten Kernfehler im Live-Test hatte (s. `WardenApplication`-Klassendoc) — der
+ * Code liegt geparkt unter `app/netlock-disabled/`. `onNetworkLogsAvailable` protokolliert bis zur
+ * Reaktivierung wieder nur die reine Ereigniszahl, wie `onSecurityLogsAvailable`.
  */
 class WardenDeviceAdminReceiver : DeviceAdminReceiver() {
 
@@ -79,33 +74,11 @@ class WardenDeviceAdminReceiver : DeviceAdminReceiver() {
                 TAG,
                 "Netzwerk-Log-Batch verfügbar: ${events?.size ?: networkLogsCount} Ereignisse (token=$batchToken)",
             )
-            if (!events.isNullOrEmpty()) {
-                val parsed = events.mapNotNull(::parseNetworkEvent)
-                NetworkEventLogStore(NetworkEventLogStore.buildEnvelopeFile(context)).append(parsed)
-            }
+            // "Netz-Sperre" (2026-08-27): strukturiertes Parsing/Speichern in NetworkEventLogStore
+            // hier entfernt — Feature pausiert, s. Klassendoc oben.
         } catch (e: Exception) {
             Log.e(TAG, "Netzwerk-Log-Abruf fehlgeschlagen", e)
         }
-    }
-
-    /** `null` für jeden Event-Typ jenseits `DnsEvent`/`ConnectEvent` (die DPM-API deklariert
-     * `NetworkEvent` offen für künftige Erweiterung) — fail-open auf der Parse-Ebene, derselbe
-     * Grundsatz wie `dns_filter::parse_query_name` (Rust-Seite): ein nicht erkannter Event-Typ
-     * wird stillschweigend übersprungen statt den ganzen Batch abzubrechen. */
-    private fun parseNetworkEvent(event: android.app.admin.NetworkEvent): NetworkLogEntry? = when (event) {
-        is DnsEvent -> NetworkLogEntry(
-            timestampMillis = event.timestamp,
-            packageName = event.packageName,
-            kind = NetworkLogEventKind.DNS,
-            detail = event.hostname ?: "?",
-        )
-        is ConnectEvent -> NetworkLogEntry(
-            timestampMillis = event.timestamp,
-            packageName = event.packageName,
-            kind = NetworkLogEventKind.CONNECT,
-            detail = "${event.inetAddress?.hostAddress ?: "?"}:${event.port}",
-        )
-        else -> null
     }
 
     private companion object {

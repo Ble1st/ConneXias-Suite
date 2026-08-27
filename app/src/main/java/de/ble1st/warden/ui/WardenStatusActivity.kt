@@ -84,7 +84,6 @@ import de.ble1st.warden.performance.DeviceMemorySnapshot
 import de.ble1st.warden.registry.FactoryResetProtectionSafeguard
 import de.ble1st.warden.failsafe.FailsafeActivity
 import de.ble1st.warden.integrity.DebuggableOsStatusReader
-import de.ble1st.warden.netlock.DomainBlocklistStore
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.pin.LockdownTriggerProfileStore
 import de.ble1st.warden.pin.WardenLockScreenTextStorage
@@ -493,7 +492,9 @@ private sealed class WardenScreen {
     data object Settings : WardenScreen()
     data object PermissionAudit : WardenScreen()
     data object PerformanceMonitor : WardenScreen()
-    data object Network : WardenScreen()
+    // "Netz-Sperre" (2026-08-27): WardenScreen.Network hier entfernt — Feature pausiert, s.
+    // WardenApplication-Klassendoc. Code (inkl. NetworkScreen-Composable) geparkt unter
+    // app/netlock-disabled/.
 }
 
 /** Architektur-Review 2026-08-24 (F-3) — `WardenScreen` selbst ist keine der sonst über
@@ -512,7 +513,6 @@ private val WardenScreenSaver: Saver<WardenScreen, String> = Saver(
             "Settings" -> WardenScreen.Settings
             "PermissionAudit" -> WardenScreen.PermissionAudit
             "PerformanceMonitor" -> WardenScreen.PerformanceMonitor
-            "Network" -> WardenScreen.Network
             else -> WardenScreen.Status
         }
     },
@@ -611,7 +611,6 @@ private fun WardenRoot(
                 onKioskNow = onKioskNow,
                 onOpenPermissionAudit = { screen = WardenScreen.PermissionAudit },
                 onOpenPerformanceMonitor = { screen = WardenScreen.PerformanceMonitor },
-                onOpenNetwork = { screen = WardenScreen.Network },
             )
         }
         WardenScreen.AppManagement -> {
@@ -987,70 +986,9 @@ private fun WardenRoot(
                 onRefresh = { refresh() },
             )
         }
-        WardenScreen.Network -> {
-            // "Netz-Sperre" (2026-08-27) — dieselbe Architektur-Review-2026-08-24-(F-2)-Vorsicht
-            // wie die übrigen Zweige hier: Envelope-Reads/DPM-Abfragen laufen auf Dispatchers.IO,
-            // nie synchron im Composition-Body. Controller lokal per applicationContext geholt
-            // statt als WardenRoot-Parameter durchgereicht — dasselbe ad-hoc-Muster wie
-            // AppUsageReader(appContext) im PerformanceMonitor-Zweig direkt darüber.
-            val networkContext = LocalContext.current.applicationContext as WardenApplication
-            val networkScope = rememberCoroutineScope()
-            val blocklistStore = remember { DomainBlocklistStore(DomainBlocklistStore.buildEnvelopeFile(networkContext)) }
-            var lockdownActive by remember { mutableStateOf<Boolean?>(null) }
-            var apps by remember { mutableStateOf<List<InstalledAppEntry>?>(null) }
-            var userBlocklistDomains by remember { mutableStateOf(emptySet<String>()) }
-
-            fun refreshNetwork() {
-                networkScope.launch {
-                    val (active, appList, domains) = withContext(Dispatchers.IO) {
-                        Triple(
-                            runCatching { networkContext.netLockdownController.isActive() }.getOrNull(),
-                            runCatching { networkContext.networkFirewallPolicyController.listApps() }.getOrNull(),
-                            runCatching { blocklistStore.loadUserDomains() }.getOrDefault(emptySet()),
-                        )
-                    }
-                    lockdownActive = active
-                    apps = appList
-                    userBlocklistDomains = domains
-                }
-            }
-            LaunchedEffect(Unit) { refreshNetwork() }
-
-            NetworkScreen(
-                lockdownActive = lockdownActive,
-                onToggleLockdown = { desired ->
-                    networkScope.launch {
-                        withContext(Dispatchers.IO) {
-                            if (desired) networkContext.netLockdownController.arm() else networkContext.netLockdownController.disarm()
-                        }
-                        refreshNetwork()
-                    }
-                },
-                apps = apps ?: emptyList(),
-                appsLoadFailed = apps == null,
-                modeFor = { packageName -> networkContext.networkFirewallPolicyController.modeFor(packageName) },
-                onSetMode = { packageName, mode ->
-                    networkScope.launch {
-                        withContext(Dispatchers.IO) { networkContext.networkFirewallPolicyController.setMode(packageName, mode) }
-                    }
-                },
-                userBlocklistDomains = userBlocklistDomains,
-                defaultBlocklistSize = DomainBlocklistStore.DEFAULT_TRACKER_DOMAINS.size,
-                onAddDomain = { domain ->
-                    networkScope.launch {
-                        withContext(Dispatchers.IO) { blocklistStore.addDomain(domain) }
-                        userBlocklistDomains = withContext(Dispatchers.IO) { blocklistStore.loadUserDomains() }
-                    }
-                },
-                onRemoveDomain = { domain ->
-                    networkScope.launch {
-                        withContext(Dispatchers.IO) { blocklistStore.removeDomain(domain) }
-                        userBlocklistDomains = withContext(Dispatchers.IO) { blocklistStore.loadUserDomains() }
-                    }
-                },
-                onBack = { screen = WardenScreen.Status },
-            )
-        }
+        // "Netz-Sperre" (2026-08-27): WardenScreen.Network-Zweig hier entfernt — Feature
+        // pausiert, s. WardenApplication-Klassendoc. NetworkScreen-Composable + der komplette
+        // Controller/Store-Code liegen geparkt unter app/netlock-disabled/.
     }
 }
 
@@ -1226,7 +1164,7 @@ private fun WardenStatusScreen(
     onKioskNow: () -> String,
     onOpenPermissionAudit: () -> Unit,
     onOpenPerformanceMonitor: () -> Unit,
-    onOpenNetwork: () -> Unit,
+    // "Netz-Sperre" (2026-08-27): onOpenNetwork-Parameter hier entfernt — Feature pausiert.
 ) {
     // Punkt 4 ("weitere App-UI-Verschönerungen", 2026-08-22) — haptisches Feedback für die einzige
     // sofort (ohne Bestätigungsschritt) ausgeführte Dashboard-Aktion, s. NumpadButton-Kommentar in
@@ -1286,12 +1224,8 @@ private fun WardenStatusScreen(
                 tag = "PM",
                 onClick = onOpenPerformanceMonitor,
             )
-            MenuRow(
-                title = "Netzwerk",
-                subtitle = "Netz-Sperre, App-Zugriff, Blockliste",
-                tag = "NW",
-                onClick = onOpenNetwork,
-            )
+            // "Netz-Sperre" (2026-08-27): "Netzwerk"-MenuRow hier entfernt — Feature pausiert,
+            // s. WardenApplication-Klassendoc. Code geparkt unter app/netlock-disabled/.
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 
             SectionLabel("Zugriff & Bestätigung")

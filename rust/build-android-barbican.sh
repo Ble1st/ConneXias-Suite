@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# ⏸ PAUSIERT (2026-08-27): "Netz-Sperre" ist deaktiviert (s. rust/Cargo.toml-Kommentar,
+# app/netlock-disabled/README.md) — dieses Skript würde nach app/src/main/jniLibs/ und
+# app/src/main/java/uniffi/connexias_barbican/ schreiben, die aktuell nicht Teil des Builds sind
+# (Gegenstücke liegen geparkt unter app/netlock-disabled/). Vor erneutem Ausführen: Feature
+# reaktivieren (s. dortige README), sonst produziert dieses Skript verwaiste Artefakte.
+#
 # Baut connexias-barbican ("Netz-Sperre", 2026-08-27) für alle vier Android-ABIs und aktualisiert
 # die generierten Artefakte in app/src/main/ — anders als build-android.sh (connexias-engine) OHNE
 # Sentinel-Duplikat: Sentinel hat keinerlei Netzwerk-Rolle (s. rust/Cargo.toml-Kommentar). Manueller/

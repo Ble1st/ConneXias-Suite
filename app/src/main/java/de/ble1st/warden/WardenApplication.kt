@@ -34,8 +34,6 @@ import de.ble1st.warden.appmanagement.SuspiciousAppScanStorage
 import de.ble1st.warden.appmanagement.SuspiciousAppScanStore
 import de.ble1st.warden.appmanagement.SuspiciousAppScanWorker
 import de.ble1st.warden.bus.ConcordBus
-import de.ble1st.warden.netlock.NetLockdownController
-import de.ble1st.warden.netlock.NetworkFirewallPolicyController
 import de.ble1st.warden.performance.BatterySamplingWorker
 import de.ble1st.warden.presence.WardenLockSession
 import de.ble1st.warden.sentinelbridge.SentinelWatchdogController
@@ -50,10 +48,12 @@ import androidx.lifecycle.ProcessLifecycleOwner
  * mehrere dort vorhandene Cross-APK-Komponenten — `SuiteMembershipReconciliationWorker`
  * (Mitgliedschafts-Abgleich zwischen mehreren Geschwister-APKs, entfällt: nur noch zwei APKs,
  * Warden+Sentinel, kein Mehrparteien-Abgleich nötig). **`NetLockdownController`/
- * `FirewallPolicyController` (VPN/Barbican) sind seit "Netz-Sperre" (2026-08-27) wieder da** —
- * anders als in einer früheren Zwischenphase dieses Ports laufen sie nicht als zweites APK
- * (kein `de.ble1st.warden.netlock.WardenVpnService`-Cross-Prozess-Bind nötig, alles im eigenen
- * Prozess) — s. [netLockdownController]. `TrustedCallerAllowlist`
+ * `FirewallPolicyController` (VPN/Barbican, "Netz-Sperre") sind seit 2026-08-27 kurzzeitig wieder
+ * dagewesen, aber seit demselben Tag erneut pausiert** — ein im Live-Test gefundener, ungeklärter
+ * Kernfehler (DNS-Blockliste/NAT-Relay verarbeitet auf einem frisch aufgebauten Tunnel keinen
+ * Traffic mehr) machte die Feature-Verkabelung wieder rückgängig; der komplette Code liegt jetzt
+ * unkompiliert geparkt unter `app/netlock-disabled/` (s. dortige README für Status/Reaktivierung).
+ * `TrustedCallerAllowlist`
  * (Cross-APK-Zertifikatsprüfung via Userspace-Bus, entfällt: die neue Warden↔Sentinel-Kopplung
  * nutzt stattdessen von Android selbst durchgesetzte `signature`-Permissions, s.
  * [de.ble1st.warden.sentinelbridge.SentinelLockdownEngager]-Klassendoc "Warum kein AIDL-Bus").
@@ -141,12 +141,9 @@ class WardenApplication : Application() {
      * [SentinelWatchdogController]-Klassendoc. */
     val sentinelWatchdogController: SentinelWatchdogController by lazy { SentinelWatchdogController(this) }
 
-    /** "Netz-Sperre" (2026-08-27) — `by lazy` wie die übrigen App-weiten Instanzen; s. Klassendoc
-     * oben für die Portierungs-Begründung. [networkFirewallPolicyController] hält selbst eine
-     * `NetLockdownController`-Instanz für `resyncLockdownAllowlist` (kein Zirkelbezug — beide
-     * Properties dürfen unabhängig voneinander lazy konstruiert werden). */
-    val netLockdownController: NetLockdownController by lazy { NetLockdownController(this) }
-    val networkFirewallPolicyController: NetworkFirewallPolicyController by lazy { NetworkFirewallPolicyController(this) }
+    // "Netz-Sperre" (2026-08-27) — pausiert, s. Klassendoc oben: netLockdownController/
+    // networkFirewallPolicyController-Properties entfernt, Code geparkt unter
+    // app/netlock-disabled/.
 
     override fun onCreate() {
         super.onCreate()

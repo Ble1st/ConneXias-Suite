@@ -1,3 +1,6 @@
+# ⏸ PAUSIERT (2026-08-27): s. Banner-Kommentar in src/*.rs bzw. rust/Cargo.tomls members-Kommentar
+# für den vollen Kontext. Diese Crate ist aktuell nicht Mitglied des rust/-Workspace.
+
 [package]
 name = "connexias-barbican"
 version = "0.1.0"
