@@ -64,7 +64,7 @@ class DestructiveActionExecutor(
     private val performMasterSwitchRevert: () -> List<MasterSwitchResult> = { emptyList() },
     private val performLockNow: () -> Unit = {},
     private val performLockdownArm: () -> Unit = {},
-    private val performLockTaskEngage: () -> Unit = {},
+    private val performLockTaskEngage: () -> Boolean = { false },
 ) {
     fun execute(action: SensitiveAction, confirmationText: String, proof: PresenceProof): SensitiveActionDecisionResult =
         executeInternal(action, confirmationText, presenceConsumed = proof.consume())
@@ -177,14 +177,19 @@ class DestructiveActionExecutor(
                 )
             }
             SensitiveAction.LOCKDOWN_TASK_ENGAGE -> {
+                // "Lockdown-Auslöse-Profil" (2026-08-27, Bug-Fix): performLockTaskEngage lieferte
+                // vorher () -> Unit — ein false-Rückgabewert von SentinelLockdownEngager.engage()
+                // (Sentinel nicht installiert, intern per ActivityNotFoundException abgefangen,
+                // nicht geworfen) wurde dadurch stillschweigend verworfen und als Erfolg
+                // protokolliert. Jetzt () -> Boolean, drei statt zwei Log-Fälle.
                 val outcome = runCatching { performLockTaskEngage() }
                 logStore.append(
                     priority = Log.WARN,
                     tag = TAG,
-                    message = if (outcome.isSuccess) {
-                        "SentinelLockdownEngager.engage() real angestoßen"
-                    } else {
-                        "SentinelLockdownEngager.engage() fehlgeschlagen: ${outcome.exceptionOrNull()}"
+                    message = when {
+                        outcome.isFailure -> "SentinelLockdownEngager.engage() fehlgeschlagen: ${outcome.exceptionOrNull()}"
+                        outcome.getOrThrow() -> "SentinelLockdownEngager.engage() real angestoßen"
+                        else -> "SentinelLockdownEngager.engage() abgelehnt: Sentinel nicht installiert"
                     },
                 )
             }
