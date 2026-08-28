@@ -26,6 +26,14 @@
          DPM-Selbstfreigabe fehl. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- "SIM-Wechsel-Erkennung" (2026-08-28): SubscriptionManager.getActiveSubscriptionInfoList()
+         braucht READ_PHONE_STATE. Als Device Owner gewährt Warden sich das Recht selbst
+         (setPermissionGrantState, s. SimFingerprintReader) — ohne Nutzerdialog, aber auch ohne
+         stillen Zwang: fehlt die Berechtigung, liefert der Reader bewusst "nicht lesbar" statt
+         eines Messwerts, aus dem eine Reaktion folgen könnte. Kein Zugriff auf Telefonnummer,
+         Anrufliste oder Standort. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
     <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": PackageInstaller.uninstall() für die
          "Deinstallieren"-Aktion (AppUninstaller). Für eine normale App würde das nur einen
          Bestätigungsdialog freischalten — als Device Owner läuft die Deinstallation damit still,

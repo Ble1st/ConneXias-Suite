@@ -65,7 +65,10 @@ import de.ble1st.warden.appmanagement.SentinelInstallStatusReader
 import de.ble1st.warden.appmanagement.SentinelSilentInstaller
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.autoreboot.AutoRebootStorage
+import de.ble1st.warden.domain.sim.SimChangeReaction
 import de.ble1st.warden.failedattempts.FailedAttemptsRebootStorage
+import de.ble1st.warden.sim.SimChangeController
+import de.ble1st.warden.sim.SimChangeStorage
 import de.ble1st.warden.bus.ConcordBus
 import de.ble1st.warden.domain.frp.FactoryResetProtectionAccounts
 import de.ble1st.warden.domain.frp.FactoryResetProtectionDecision
@@ -276,6 +279,10 @@ class WardenStatusActivity : ComponentActivity() {
             var failedAttemptsRebootThreshold by remember {
                 mutableStateOf(FailedAttemptsRebootStorage.loadThreshold(applicationContext))
             }
+            // "SIM-Wechsel-Erkennung" (2026-08-28) — reiner Soll-Wert wie die beiden darüber.
+            var simChangeReaction by remember {
+                mutableStateOf(SimChangeStorage.loadReaction(applicationContext))
+            }
             val secureLockScreenConfigured = remember {
                 runCatching {
                     applicationContext.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
@@ -401,6 +408,22 @@ class WardenStatusActivity : ComponentActivity() {
                             SupportMessageManager(applicationContext).apply(updated)
                         } catch (e: SecurityException) {
                             Log.e(TAG, "Support-Hinweis setzen fehlgeschlagen (kein Device Owner mehr?)", e)
+                        }
+                    },
+                    simChangeReaction = simChangeReaction,
+                    onSimChangeReactionChange = { updated ->
+                        // Ausschalten verwirft die Baseline: sonst gälte beim Wiedereinschalten
+                        // jeder Tausch aus der unbeobachteten Zwischenzeit sofort als Wechsel.
+                        if (updated == null) {
+                            SimChangeStorage.clearBaseline(applicationContext)
+                        }
+                        simChangeReaction = updated
+                        SimChangeStorage.saveReaction(applicationContext, updated)
+                        // Erste Messung sofort holen, damit die Baseline steht, solange das Gerät
+                        // nachweislich noch in der richtigen Hand ist.
+                        if (updated != null) {
+                            runCatching { SimChangeController(applicationContext).checkAndMaybeReact(BuildConfig.DEBUG) }
+                                .onFailure { Log.w(TAG, "SIM-Baseline konnte nicht sofort gesetzt werden", it) }
                         }
                     },
                     failedAttemptsRebootThreshold = failedAttemptsRebootThreshold,
@@ -566,6 +589,8 @@ private fun WardenRoot(
     failedAttemptsRebootThreshold: Int?,
     secureLockScreenConfigured: Boolean,
     onFailedAttemptsRebootThresholdChange: (Int?) -> Unit,
+    simChangeReaction: SimChangeReaction?,
+    onSimChangeReactionChange: (SimChangeReaction?) -> Unit,
 ) {
     // rememberSaveable statt remember (Architektur-Review 2026-08-24, F-3): ohne das landete man
     // nach jeder Konfigurationsänderung (Rotation, Falt-/Split-Screen-Vorgang) unabhängig vom
@@ -949,6 +974,8 @@ private fun WardenRoot(
                 failedAttemptsRebootThreshold = failedAttemptsRebootThreshold,
                 secureLockScreenConfigured = secureLockScreenConfigured,
                 onFailedAttemptsRebootThresholdChange = onFailedAttemptsRebootThresholdChange,
+                simChangeReaction = simChangeReaction,
+                onSimChangeReactionChange = onSimChangeReactionChange,
                 onBack = { screen = WardenScreen.Status },
             )
         }

@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.domain.sim.SimChangeReaction
 import de.ble1st.warden.ui.theme.WardenAccent
 
 /**
@@ -61,6 +62,8 @@ fun SettingsScreen(
     failedAttemptsRebootThreshold: Int?,
     secureLockScreenConfigured: Boolean,
     onFailedAttemptsRebootThresholdChange: (Int?) -> Unit,
+    simChangeReaction: SimChangeReaction?,
+    onSimChangeReactionChange: (SimChangeReaction?) -> Unit,
     onBack: () -> Unit,
 ) {
     var showNamingSettings by remember { mutableStateOf(false) }
@@ -128,6 +131,11 @@ fun SettingsScreen(
                 selectedThreshold = failedAttemptsRebootThreshold,
                 secureLockScreenConfigured = secureLockScreenConfigured,
                 onSelect = onFailedAttemptsRebootThresholdChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            SimChangeField(
+                selectedReaction = simChangeReaction,
+                onSelect = onSimChangeReactionChange,
                 modifier = Modifier.padding(top = 16.dp),
             )
 

@@ -7,6 +7,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.util.Log
 import de.ble1st.warden.logging.HashChainLogStore
+import de.ble1st.warden.sim.SimChangeController
+import de.ble1st.warden.sim.SimChangeWorker
 import de.ble1st.warden.logging.LogStorage
 import de.ble1st.warden.admin.WardenDeviceAdminReceiver
 import de.ble1st.warden.autoreboot.AutoRebootWorker
@@ -246,6 +248,17 @@ class WardenApplication : Application() {
                     "WorkManager noch nicht bereit (vermutlich frühes Direct-Boot-Fenster)",
                 e,
             )
+        }
+        try {
+            // "SIM-Wechsel-Erkennung" (2026-08-28) — anders als die übrigen Worker zusätzlich ein
+            // sofortiger Prüflauf beim Prozessstart: nach einem Neustart (und genau darum geht es
+            // hier — SIM tauschen setzt in aller Regel einen Neustart voraus) läge der erste
+            // periodische Lauf sonst bis zu 15 Minuten später. Der Aufruf ist billig und tut ohne
+            // eingeschaltete Funktion gar nichts.
+            SimChangeWorker.schedule(this)
+            SimChangeController(this).checkAndMaybeReact(BuildConfig.DEBUG)
+        } catch (e: Exception) {
+            Log.w("WardenApplication", "SIM-Wechsel-Prüfung beim Start übersprungen", e)
         }
     }
 }
