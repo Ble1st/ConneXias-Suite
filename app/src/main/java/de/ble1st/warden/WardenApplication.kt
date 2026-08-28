@@ -9,6 +9,7 @@ import android.util.Log
 import de.ble1st.warden.logging.HashChainLogStore
 import de.ble1st.warden.logging.SecurityEventStorage
 import de.ble1st.warden.logging.SecurityEventStore
+import de.ble1st.warden.profile.AutoProfileWorker
 import de.ble1st.warden.sim.SimChangeController
 import de.ble1st.warden.sim.SimChangeWorker
 import de.ble1st.warden.logging.LogStorage
@@ -268,6 +269,19 @@ class WardenApplication : Application() {
             SimChangeController(this).checkAndMaybeReact(BuildConfig.DEBUG)
         } catch (e: Exception) {
             Log.w("WardenApplication", "SIM-Wechsel-Prüfung beim Start übersprungen", e)
+        }
+        try {
+            // "Automatische Profilumschaltung" (2026-08-28) — nur planen, nicht sofort ausführen:
+            // ein Profilwechsel schaltet bis zu 26 Safeguards um, das gehört nicht in den
+            // Prozessstart-Pfad, sondern in den ohnehin laufenden periodischen Lauf.
+            AutoProfileWorker.schedule(this)
+        } catch (e: IllegalStateException) {
+            Log.w(
+                "WardenApplication",
+                "AutoProfileWorker.schedule() übersprungen — " +
+                    "WorkManager noch nicht bereit (vermutlich frühes Direct-Boot-Fenster)",
+                e,
+            )
         }
     }
 }

@@ -66,6 +66,8 @@ import de.ble1st.warden.appmanagement.SentinelSilentInstaller
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.autoreboot.AutoRebootStorage
 import de.ble1st.warden.domain.sim.SimChangeReaction
+import de.ble1st.warden.domain.profile.AutoProfileConfig
+import de.ble1st.warden.profile.AutoProfileStorage
 import de.ble1st.warden.failedattempts.FailedAttemptsRebootStorage
 import de.ble1st.warden.sim.SimChangeController
 import de.ble1st.warden.sim.SimChangeStorage
@@ -283,6 +285,11 @@ class WardenStatusActivity : ComponentActivity() {
             var simChangeReaction by remember {
                 mutableStateOf(SimChangeStorage.loadReaction(applicationContext))
             }
+            // "Automatische Profilumschaltung" (2026-08-28) — reiner Soll-Wert wie die übrigen
+            // Härtungs-Felder; angewendet wird ausschließlich vom periodischen Worker.
+            var autoProfileConfig by remember {
+                mutableStateOf(AutoProfileStorage.load(applicationContext))
+            }
             val secureLockScreenConfigured = remember {
                 runCatching {
                     applicationContext.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
@@ -409,6 +416,16 @@ class WardenStatusActivity : ComponentActivity() {
                         } catch (e: SecurityException) {
                             Log.e(TAG, "Support-Hinweis setzen fehlgeschlagen (kein Device Owner mehr?)", e)
                         }
+                    },
+                    autoProfileConfig = autoProfileConfig,
+                    onAutoProfileConfigChange = { updated ->
+                        // Vollständig abgeschaltet: den Merker "zuletzt automatisch gesetzt"
+                        // verwerfen, sonst täte der erste Lauf nach dem Wiedereinschalten nichts.
+                        if (!updated.isEnabled) {
+                            AutoProfileStorage.clearLastApplied(applicationContext)
+                        }
+                        autoProfileConfig = updated
+                        AutoProfileStorage.save(applicationContext, updated)
                     },
                     simChangeReaction = simChangeReaction,
                     onSimChangeReactionChange = { updated ->
@@ -591,6 +608,8 @@ private fun WardenRoot(
     onFailedAttemptsRebootThresholdChange: (Int?) -> Unit,
     simChangeReaction: SimChangeReaction?,
     onSimChangeReactionChange: (SimChangeReaction?) -> Unit,
+    autoProfileConfig: AutoProfileConfig,
+    onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
 ) {
     // rememberSaveable statt remember (Architektur-Review 2026-08-24, F-3): ohne das landete man
     // nach jeder Konfigurationsänderung (Rotation, Falt-/Split-Screen-Vorgang) unabhängig vom
@@ -976,6 +995,8 @@ private fun WardenRoot(
                 onFailedAttemptsRebootThresholdChange = onFailedAttemptsRebootThresholdChange,
                 simChangeReaction = simChangeReaction,
                 onSimChangeReactionChange = onSimChangeReactionChange,
+                autoProfileConfig = autoProfileConfig,
+                onAutoProfileConfigChange = onAutoProfileConfigChange,
                 onBack = { screen = WardenScreen.Status },
             )
         }

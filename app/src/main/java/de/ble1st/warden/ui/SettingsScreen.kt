@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import de.ble1st.warden.domain.sim.SimChangeReaction
+import de.ble1st.warden.domain.profile.AutoProfileConfig
 import de.ble1st.warden.ui.theme.WardenAccent
 
 /**
@@ -64,6 +65,8 @@ fun SettingsScreen(
     onFailedAttemptsRebootThresholdChange: (Int?) -> Unit,
     simChangeReaction: SimChangeReaction?,
     onSimChangeReactionChange: (SimChangeReaction?) -> Unit,
+    autoProfileConfig: AutoProfileConfig,
+    onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
     onBack: () -> Unit,
 ) {
     var showNamingSettings by remember { mutableStateOf(false) }
@@ -136,6 +139,11 @@ fun SettingsScreen(
             SimChangeField(
                 selectedReaction = simChangeReaction,
                 onSelect = onSimChangeReactionChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            AutoProfileField(
+                config = autoProfileConfig,
+                onChange = onAutoProfileConfigChange,
                 modifier = Modifier.padding(top = 16.dp),
             )
 
