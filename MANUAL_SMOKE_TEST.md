@@ -113,6 +113,106 @@ Danach `WardenStatusActivity` (Launcher-Icon "Warden") öffnen und prüfen:
     Entwickleroptionen zurücknehmen). Auf dem Haupt-Testgerät nur den Bestätigungsdialog bis zum
     Abbrechen durchspielen, nicht tatsächlich bestätigen.
 
+## Offene Prüfprozeduren (vorbereitet 2026-08-28, noch nicht durchgeführt)
+
+Drei Pfade sind gebaut und unit-getestet, aber nie real ausgelöst worden. Jeder Abschnitt nennt
+die Vorbedingungen, die konkreten Schritte und — wo es schon Fehlversuche gab — was **nicht**
+funktioniert, damit derselbe Weg nicht zweimal probiert wird.
+
+### P-1 — Watchdog-Eskalation: 3 Sentinel-Prozesstode in 60 s
+
+Prüft `SentinelWatchdogController`/`SentinelDeathWatchdog` → `SentinelWatchdogDecision.escalate()`.
+Die reine Entscheidungslogik ist JVM-unit-getestet; ungeprüft ist, ob drei echte Prozesstode am
+Gerät auch drei `binderDied()`-Aufrufe erzeugen und die Eskalation real auslösen.
+
+**Vorbedingungen:** Non-Debug-Build (`DestructiveCommandGuard` blockiert `engage()` auf jedem
+Debug-Build), bestätigter Notruf-Drill, Sentinel installiert, Kiosk per `LOCKDOWN_TASK_ENGAGE`
+scharf. `adb` als Rettungsleine angeschlossen lassen.
+
+**Bereits gescheitert — nicht erneut probieren (2026-08-26):**
+- `am force-stop de.ble1st.warden.sentinel` — versetzt das Paket in den dauerhaften
+  Stopped-State; ein Rebind ist danach überhaupt nicht mehr möglich, der Zähler kommt nie über 1.
+- `am crash de.ble1st.warden.sentinel` — nur der erste Aufruf tötet den Prozess wirklich, danach
+  greift Androids eigene Crash-Loop-Drosselung und die Aufrufe verpuffen still.
+- `kill -9` aus der Shell — `Operation not permitted` (fremde UID).
+
+**Empfohlener Weg stattdessen:** einen temporären, `de.ble1st.warden.sentinel.permission.ENGAGE`-
+geschützten Debug-Auslöser in `SentinelActivity` einbauen, der `Process.killProcess(Process.myPid())`
+aufruft, und ihn dreimal per `adb shell run-as de.ble1st.warden.sentinel am start --user 0 -a
+<action> -n de.ble1st.warden.sentinel/.SentinelActivity` feuern (`run-as` + `--user 0` ist der
+Weg, der bei den Netz-Sperre-Tests als einziger gegen einen permission-geschützten Einstieg
+funktioniert hat). Zwischen den Aufrufen jeweils warten, bis der Watchdog neu gebunden hat —
+sonst zählt Warden weniger Tode als ausgelöst. Der Auslöser muss danach wieder raus, wie die
+temporäre Instrumentierung der Netz-Sperre auch.
+
+**Erwartetes Ergebnis:** nach dem dritten Tod innerhalb von 60 s zieht Warden die Lock-Task-
+Autorisierung zurück — `adb shell dumpsys device_policy` zeigt keine `LockTaskPolicy` für
+`de.ble1st.warden.sentinel` mehr, und die Log-Einsicht in Warden enthält den Eskalationseintrag.
+
+### P-2 — Quick-Settings-Kachel und STRICT-Drill-Frische
+
+**Kachel** (`SentinelQuickTile`, alle drei Auslöse-Profile): Kachel einmal aus der
+Schnelleinstellungen-Bearbeitung hinzufügen, dann je Profil (Safeguards ▸ App-Lock) antippen —
+- STRICT: Kachel darf **nie** direkt auslösen, sondern muss `SensitiveActionActivity` mit
+  vorausgewählter Aktion öffnen (dort zusätzlich voller Biometrie-/PIN-Pfad plus Kühlzeit).
+- STANDARD: Ja/Nein-Dialog unmittelbar vor dem Scharfschalten.
+- FAST: löst sofort aus, nur haptisches Feedback.
+Ungeprüft ist bisher ausschließlich die Kachel-eigene Verdrahtung (`unlockAndRun`/
+`startActivityAndCollapse`) — deshalb einmal ausdrücklich **bei gesperrtem Bildschirm** antippen,
+nicht nur bei entsperrtem Gerät. Der dahinterliegende Pfad
+(`WardenLockTaskPendingEngageStore` → `WardenStatusActivity.performPendingLockTaskEngage()` →
+`DestructiveCommandGuard`) ist derselbe wie beim Dashboard-Button und bereits live verifiziert.
+
+**Drill-Frische unter STRICT** (`WardenLockTaskDrillFreshnessDecision`, 30-Tage-Grenze): Bit und
+Zeitstempel liegen in den SharedPreferences `warden_lock_task_drill`
+(`confirmed`/`confirmed_at_millis`). Zwei Wege, den Ablauf zu erzwingen:
+1. Debug-Build: `adb shell run-as de.ble1st.warden --user 0 cat
+   /data/data/de.ble1st.warden/shared_prefs/warden_lock_task_drill.xml`, `confirmed_at_millis` auf
+   einen über 30 Tage alten Wert setzen, danach das Gerät neu starten — SharedPreferences werden
+   im Prozess gecacht, ein bloßes Zurückwechseln in die App liest die Datei nicht neu.
+2. Non-Debug-Build: Systemzeit um 31 Tage vorstellen. Vorher den Safeguard "Datum/Uhrzeit nicht
+   ändern lassen" (`UserRestrictionSafeguard.configDateTimeDisabled`) deaktivieren, sonst lässt
+   das Gerät die Änderung gar nicht zu — und hinterher beides zurücksetzen.
+
+**Erwartetes Ergebnis:** unter STRICT verweigert der Auslöser den Start und verlangt eine erneute
+Drill-Bestätigung; unter STANDARD/FAST bleibt die alte Bestätigung unverändert gültig (dort wird
+die Frische bewusst nicht geprüft).
+
+### P-3 — Factory Reset Protection erneut verifizieren
+
+Der bisher einzige echte Test (2026-08-25, SM-A156B) ist **fehlgeschlagen**: Policy war laut
+`dumpsys device_policy` korrekt gesetzt (`factoryResetProtectionEnabled=true`, Konto vorhanden),
+der Recovery-Wipe lief bei gesperrtem Bootloader — und die Ersteinrichtung fragte trotzdem kein
+Konto ab. Bis zu einer erfolgreichen Wiederholung gilt dieser Safeguard nicht als Diebstahlschutz.
+
+**⚠ Dieser Test zerstört den Gerätezustand vollständig** (Werksreset, Device Owner und Warden-PIN
+weg, danach volle Neuprovisionierung nötig) — nicht nebenbei einplanen.
+
+**Zum Google-Konto — der Teil, an dem dieser Test scheitern kann, bevor er etwas aussagt:**
+- Es muss ein **echtes Google-Konto** sein; Samsung- oder andere Herstellerkonten akzeptiert der
+  FRP-Agent nicht.
+- Passwort **und** zweiter Faktor müssen außerhalb dieses Geräts verfügbar sein. Liegt der zweite
+  Faktor nur auf dem Testgerät, ist es nach dem Wipe genau so gesperrt, wie es der Test beweisen
+  sollte — nur eben dauerhaft.
+- Das Konto muss zum Zeitpunkt des Wipes noch existieren; ein zwischenzeitlich gelöschtes Konto
+  macht das Gerät nicht frei, sondern unbrauchbar.
+- Google-Play-Dienste müssen installiert sein (die UI warnt sonst bereits) — ohne FRP-Agent wird
+  die Policy zwar gesetzt, aber niemand setzt sie durch.
+
+**Schritte:** Konto unter Safeguards ▸ "Entsperrkonto nach Wipe" eintragen und **"Speichern"
+antippen** (Texteingabe allein persistiert nichts, der abhängige Schalter bleibt sonst
+deaktiviert) → Schalter "Nach Recovery-Wipe Konto verlangen" aktivieren → per
+`adb shell dumpsys device_policy | grep -A5 FactoryResetProtection` bestätigen, dass Policy und
+Konto wirklich gesetzt sind → **danach mehrere Stunden, besser einen Tag warten und das Gerät
+zwischendurch neu starten** (die Durchsetzung hängt an einem asynchronen GMS-Round-Trip, den
+`isActive()` von außen nicht bestätigen kann — beim Fehlversuch 2026-08-25 lag zwischen Setzen und
+Wipe nur wenig Zeit, das ist der plausibelste Unterschied für einen zweiten Anlauf) → erst dann
+den Recovery-Wipe auslösen.
+
+**Erwartetes Ergebnis:** die Ersteinrichtung nach dem Wipe verlangt genau dieses Google-Konto.
+Tut sie es wieder nicht, ist der Befund bestätigt und der Safeguard sollte in der UI dauerhaft als
+"auf dieser Hardware wirkungslos" markiert bleiben statt weiter als Schutz zu gelten.
+
 ## Bewusst nicht scharf geschaltet
 
 **Seit "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26) gibt es einen echten, zweistufigen
@@ -126,17 +226,23 @@ auf dem aktuellen Testgerät trotzdem nirgends: `emergencyCallDrillPassed` bleib
 automatisch gesetztes Bit, von Warden bei jedem Aufruf frisch an Sentinel weitergereicht — Sentinel
 speichert/errät diesen Wert nie selbst) UND `DestructiveCommandGuard` blockiert reale Aufrufe
 weiterhin hart, solange es sich um einen Debug-Build handelt — das Testgerät läuft ausnahmslos
-Debug-Builds. **Ein echter, manuell durchgeführter Notruf-Drill auf einem Non-Debug-Build bleibt
-für diese Runde bewusst nicht durchgeführt** (Risiko: hängt das Testgerät im Lock-Task-Modus fest,
+Debug-Builds. **Nachtrag 2026-08-26/27: inzwischen überholt** — auf einem eigens gebauten, nicht als Debug
+markierten Wegwerf-Build (`1.0-livedrill`) wurden Drill-Bestätigung, echtes Kiosk-Engage und der
+Ausstieg über Sentinels eigene PIN real durchgeführt, ebenso `REBOOT` und `MASTER_SWITCH_REVERT`.
+Für Debug-Builds gilt der Absatz unverändert weiter. Ursprünglicher Stand: **ein echter, manuell
+durchgeführter Notruf-Drill auf einem Non-Debug-Build blieb für jene Runde bewusst nicht
+durchgeführt** (Risiko: hängt das Testgerät im Lock-Task-Modus fest,
 falls der Notruf-Escape-Pfad nicht wie erwartet funktioniert) — die Drill-Bestätigung selbst ist
 aber jederzeit gefahrlos in der UI testbar (setzt nur ein lokales Bit, löst kein `startLockTask()`
 aus). Die Gate-Logik selbst ist JVM-unit-getestet (`SentinelLockTaskGateTest` in `:sentinel`,
 `WardenLockTaskAutoEngageDecisionTest` in `:app`, beide Werte je Bedingung).
 
 **Der Cross-Process-Death-Watchdog** (`SentinelWatchdogController`/`SentinelDeathWatchdog`) startet
-zusammen mit `engage()` — auch das läuft also nie real an, solange der Debug-Build-Hardblock den
-Aufruf davor abfängt. Seine reine Eskalations-Entscheidung ist unabhängig davon JVM-unit-getestet
-(`SentinelWatchdogDecisionTest`).
+zusammen mit `engage()` — auf einem Debug-Build läuft er also nie real an, solange der
+Debug-Build-Hardblock den Aufruf davor abfängt. Auf dem Wegwerf-Build hat er sich nach einem
+einzelnen echten Prozesstod korrekt neu gebunden; die Eskalation nach drei Toden in 60 s ist
+weiterhin nur JVM-unit-getestet (`SentinelWatchdogDecisionTest`) — Prüfprozedur dafür s. P-1
+oben.
 
 **Sentinels Silent-Install selbst ist unabhängig vom Lock-Task-Hardblock und gefahrlos jederzeit
 testbar** (installiert nur ein zusätzliches Paket, versetzt das Gerät nicht in einen Kiosk-Zustand)

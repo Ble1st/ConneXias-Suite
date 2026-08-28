@@ -636,7 +636,14 @@ private fun FactoryResetProtectionAccountsField(
         Text(
             text = "Google-Konto-E-Mail, mit der du das Gerät nach einem Recovery-Wipe " +
                 "wieder einrichten darfst. Eine Adresse pro Zeile. Ohne gespeichertes Konto " +
-                "wird die Kontosperre nicht gesetzt (kein Brick).",
+                "wird die Kontosperre nicht gesetzt (kein Brick). ⚠ Es muss ein echtes " +
+                "Google-Konto sein — Samsung- oder andere Herstellerkonten werden vom " +
+                "FRP-Agenten nicht akzeptiert. Halte Passwort UND zweiten Faktor außerhalb " +
+                "dieses Geräts bereit: die Ersteinrichtung nach dem Wipe verlangt genau dieses " +
+                "Konto, und wenn der zweite Faktor nur auf diesem Gerät liegt, sperrst du dich " +
+                "selbst aus. Das Konto muss zum Zeitpunkt des Wipes noch existieren — ein " +
+                "gelöschtes Google-Konto macht das Gerät nicht wieder frei, sondern " +
+                "unbrauchbar.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
