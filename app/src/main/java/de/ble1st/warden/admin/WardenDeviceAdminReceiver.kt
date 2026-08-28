@@ -8,7 +8,9 @@ import android.content.Intent
 import android.util.Log
 import de.ble1st.warden.BuildConfig
 import de.ble1st.warden.failedattempts.FailedAttemptsRebootController
+import de.ble1st.warden.logging.SecurityEventParser
 import de.ble1st.warden.wardenAuditLog
+import de.ble1st.warden.wardenSecurityEvents
 
 /**
  * Einstiegspunkt für die DPM-/Device-Owner-Lebenszyklus-Callbacks (Konzept Abschnitt 3/12).
@@ -72,11 +74,17 @@ class WardenDeviceAdminReceiver : DeviceAdminReceiver() {
         try {
             val admin = ComponentName(context, WardenDeviceAdminReceiver::class.java)
             val dpm = checkNotNull(context.getSystemService(DevicePolicyManager::class.java))
-            val events = dpm.retrieveSecurityLogs(admin)
+            val events = dpm.retrieveSecurityLogs(admin).orEmpty()
+            // 2026-08-28: bis hierher wurde nur die Anzahl protokolliert und der Inhalt verworfen —
+            // genau das, was nach einem Vorfall zählt, war damit nirgends einsehbar. Jetzt
+            // ausgewertet und persistiert (SecurityEventParser/SecurityEventStore); die Zeile im
+            // Audit-Log bleibt als Batch-Nachweis erhalten.
+            val records = SecurityEventParser.parseSecurityEvents(events)
+            wardenSecurityEvents(context).append(records)
             wardenAuditLog(context).append(
                 Log.INFO,
                 TAG,
-                "Sicherheits-Log-Batch verfügbar: ${events?.size ?: 0} Ereignisse",
+                "Sicherheits-Log-Batch verarbeitet: ${records.size} Ereignisse gespeichert",
             )
         } catch (e: Exception) {
             Log.e(TAG, "Sicherheits-Log-Abruf fehlgeschlagen", e)
@@ -88,14 +96,18 @@ class WardenDeviceAdminReceiver : DeviceAdminReceiver() {
         try {
             val admin = ComponentName(context, WardenDeviceAdminReceiver::class.java)
             val dpm = checkNotNull(context.getSystemService(DevicePolicyManager::class.java))
-            val events = dpm.retrieveNetworkLogs(admin, batchToken)
+            val events = dpm.retrieveNetworkLogs(admin, batchToken).orEmpty()
+            // 2026-08-28: strukturiertes Parsing/Speichern wieder da — anders als der mit der
+            // pausierten Netz-Sperre entfernte NetworkEventLogStore ohne jeden Bezug zum
+            // VPN-Feature: dieselbe Senke wie für die Sicherheitsereignisse (SecurityEventStore),
+            // nur mit eigenen Ereignistypen.
+            val records = SecurityEventParser.parseNetworkEvents(events)
+            wardenSecurityEvents(context).append(records)
             wardenAuditLog(context).append(
                 Log.INFO,
                 TAG,
-                "Netzwerk-Log-Batch verfügbar: ${events?.size ?: networkLogsCount} Ereignisse (token=$batchToken)",
+                "Netzwerk-Log-Batch verarbeitet: ${records.size} Ereignisse gespeichert (token=$batchToken)",
             )
-            // "Netz-Sperre" (2026-08-27): strukturiertes Parsing/Speichern in NetworkEventLogStore
-            // hier entfernt — Feature pausiert, s. Klassendoc oben.
         } catch (e: Exception) {
             Log.e(TAG, "Netzwerk-Log-Abruf fehlgeschlagen", e)
         }

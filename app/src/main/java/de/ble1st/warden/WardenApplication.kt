@@ -7,6 +7,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.util.Log
 import de.ble1st.warden.logging.HashChainLogStore
+import de.ble1st.warden.logging.SecurityEventStorage
+import de.ble1st.warden.logging.SecurityEventStore
 import de.ble1st.warden.sim.SimChangeController
 import de.ble1st.warden.sim.SimChangeWorker
 import de.ble1st.warden.logging.LogStorage
@@ -134,6 +136,13 @@ class WardenApplication : Application() {
      * über `ProcessLifecycleOwner` unten läuft unabhängig davon, ob diese Property je gelesen
      * wurde (die erste Lesung — spätestens `WardenStatusActivity.onResume()` — konstruiert sie). */
     val wardenLockSession: WardenLockSession by lazy { WardenLockSession() }
+
+    /** "System-Ereignisprotokoll" (2026-08-28) — Senke für die DPM-Sicherheits-/Netzwerk-Batches,
+     * `by lazy` wie [auditLogStore]: der Keystore-Zugriff soll nicht schon in `onCreate()`
+     * passieren, sondern erst beim ersten eintreffenden Batch bzw. beim Öffnen der Log-Einsicht. */
+    val securityEventStore: SecurityEventStore by lazy {
+        SecurityEventStore(SecurityEventStorage.buildEnvelopeFile(this))
+    }
 
     /** "Sentinel: eigenständige Kiosk-PIN-App", Plan-Abschnitt "Watchdog-Sicherheitsnetz kommt in
      * v1 mit" — `by lazy` wie die übrigen App-weiten Instanzen: [SentinelDeathWatchdog][de.ble1st
@@ -265,6 +274,16 @@ class WardenApplication : Application() {
 
 /** Process-wide audit log. Falls back to a fresh store only when [context] is not a Warden process
  * (instrumented tests constructing isolated files should keep calling the constructor directly). */
+/** Gegenstück zu [wardenAuditLog] für das System-Ereignisprotokoll (2026-08-28). */
+fun wardenSecurityEvents(context: Context): SecurityEventStore {
+    val app = context.applicationContext
+    return if (app is WardenApplication) {
+        app.securityEventStore
+    } else {
+        SecurityEventStore(SecurityEventStorage.buildEnvelopeFile(app))
+    }
+}
+
 fun wardenAuditLog(context: Context): HashChainLogStore {
     val app = context.applicationContext
     return if (app is WardenApplication) {

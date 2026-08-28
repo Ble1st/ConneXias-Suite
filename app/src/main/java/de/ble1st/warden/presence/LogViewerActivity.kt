@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,7 +28,14 @@ import androidx.fragment.app.FragmentActivity
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.logging.ChainVerificationResult
 import de.ble1st.warden.logging.HashChainLogStore
+import de.ble1st.warden.domain.appmanagement.ThreatSeverity
+import de.ble1st.warden.domain.securitylog.SecurityLogCodec
 import de.ble1st.warden.logging.LogEntry
+import de.ble1st.warden.logging.SecurityEventStore
+import de.ble1st.warden.wardenSecurityEvents
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import de.ble1st.warden.wardenAuditLog
 import de.ble1st.warden.ui.theme.WardenTheme
 import de.ble1st.warden.ui.theme.WardenThemePrefs
@@ -45,6 +53,14 @@ import de.ble1st.warden.ui.theme.WardenThemePrefs
  * erfolgreich erbracht wurde. Kein Bestätigungstext nötig (anders als
  * [SensitiveActionActivity]) — Log-Einsicht ist rein lesend, keine mehrstufige Bestätigung wie
  * bei destruktiven Kommandos gefordert.
+ *
+ * **Zwei Ansichten seit 2026-08-28** ("System-Ereignisprotokoll"): Wardens eigenes,
+ * hash-verkettetes Audit-Log wie bisher — und neu die vom System gemeldeten Sicherheits- und
+ * Netzwerkereignisse ([de.ble1st.warden.logging.SecurityEventStore]), die vorher abgerufen und
+ * sofort wieder verworfen wurden. Bewusst **hinter demselben Presence-Gate** statt als eigener
+ * Bildschirm: der Inhalt (adb-Kommandozeilen, installierte Pakete, aufgelöste Hostnamen) ist
+ * mindestens so aussagekräftig wie das Audit-Log, ein zweiter, schwächer geschützter Zugang dazu
+ * wäre ein Rückschritt.
  *
  * **Presence-Reaktivierung über Wardens lokalen PIN (Threat Model T4, dasselbe Muster wie
  * [SensitiveActionActivity]):** zweiter, gleichrangiger Presence-Weg neben Biometrie —
@@ -79,6 +95,7 @@ class LogViewerActivity : FragmentActivity() {
 
         val presenceManager = PresenceManager(this)
         val logStore = wardenAuditLog(applicationContext)
+        val securityEventStore = wardenSecurityEvents(applicationContext)
         // Nur gelesen, nicht hier umschaltbar — s. FailsafeActivity-Kommentar.
         val accent = WardenThemePrefs.load(applicationContext)
 
@@ -94,7 +111,7 @@ class LogViewerActivity : FragmentActivity() {
                                 is PresenceManager.Result.Success -> {
                                     val consumed = result.proof.consume()
                                     onResult(
-                                        if (consumed) LogAccessOutcome.Granted.from(logStore) else LogAccessOutcome.Denied,
+                                        if (consumed) LogAccessOutcome.Granted.from(logStore, securityEventStore) else LogAccessOutcome.Denied,
                                     )
                                 }
                                 PresenceManager.Result.Unavailable ->
@@ -106,7 +123,7 @@ class LogViewerActivity : FragmentActivity() {
                     },
                     onRequestPinPresence = { onResult ->
                         pendingPinPresenceResult = { granted ->
-                            onResult(if (granted) LogAccessOutcome.Granted.from(logStore) else LogAccessOutcome.Denied)
+                            onResult(if (granted) LogAccessOutcome.Granted.from(logStore, securityEventStore) else LogAccessOutcome.Denied)
                         }
                         pinPresenceLauncher.launch(
                             Intent(this, WardenPinActivity::class.java).apply {
@@ -129,11 +146,18 @@ private sealed class LogAccessOutcome {
     data class Granted(
         val entries: List<LogEntry>,
         val chain: ChainVerificationResult,
+        val systemEvents: SecurityLogCodec.DecodeResult,
     ) : LogAccessOutcome() {
         companion object {
-            fun from(logStore: HashChainLogStore): Granted {
+            /** Ein Lesefehler des System-Ereignisprotokolls darf die Audit-Log-Einsicht nicht
+             * verhindern — beides sind unabhängige Dateien, und der Presence-Nachweis wurde für
+             * beide gleichermaßen erbracht. Der Fehlerfall wird als leeres Ergebnis mit
+             * `skippedLines = -1` sichtbar gemacht statt still verschluckt. */
+            fun from(logStore: HashChainLogStore, securityEventStore: SecurityEventStore): Granted {
                 val entries = logStore.entries()
-                return Granted(entries, logStore.verifyChainIntegrity())
+                val systemEvents = runCatching { securityEventStore.read() }
+                    .getOrElse { SecurityLogCodec.DecodeResult(emptyList(), -1) }
+                return Granted(entries, logStore.verifyChainIntegrity(), systemEvents)
             }
         }
     }
@@ -147,6 +171,7 @@ private fun LogViewerScreen(
     onRequestPinPresence: ((LogAccessOutcome) -> Unit) -> Unit,
 ) {
     var outcome by remember { mutableStateOf<LogAccessOutcome?>(null) }
+    var showSystemEvents by remember { mutableStateOf(false) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -172,32 +197,142 @@ private fun LogViewerScreen(
                     )
                 LogAccessOutcome.Denied ->
                     Text("Abgebrochen oder fehlgeschlagen — kein Log-Inhalt angezeigt.")
-                is LogAccessOutcome.Granted ->
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        item {
-                            Text(
-                                text = when (val chain = current.chain) {
-                                    is ChainVerificationResult.Valid ->
-                                        "Kette gültig (${chain.entryCount} Einträge)"
-                                    is ChainVerificationResult.Broken ->
-                                        "⚠ Kette gebrochen bei #${chain.atSequence}: ${chain.reason}"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (current.chain is ChainVerificationResult.Broken) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
+                is LogAccessOutcome.Granted -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { showSystemEvents = false }) {
+                            Text(if (showSystemEvents) "Warden-Audit" else "▸ Warden-Audit")
                         }
-                        items(current.entries.asReversed()) { entry ->
+                        TextButton(onClick = { showSystemEvents = true }) {
                             Text(
-                                text = "#${entry.sequence} [${entry.tag}] ${entry.message}",
-                                style = MaterialTheme.typography.bodySmall,
+                                if (showSystemEvents) {
+                                    "▸ System (${current.systemEvents.records.size})"
+                                } else {
+                                    "System (${current.systemEvents.records.size})"
+                                },
                             )
                         }
                     }
+                    if (showSystemEvents) {
+                        SystemEventList(current.systemEvents)
+                    } else {
+                        AuditLogList(current)
+                    }
+                }
             }
         }
     }
 }
+
+@Composable
+private fun AuditLogList(granted: LogAccessOutcome.Granted) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        item {
+            Text(
+                text = when (val chain = granted.chain) {
+                    is ChainVerificationResult.Valid -> "Kette gültig (${chain.entryCount} Einträge)"
+                    is ChainVerificationResult.Broken -> "⚠ Kette gebrochen bei #${chain.atSequence}: ${chain.reason}"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (granted.chain is ChainVerificationResult.Broken) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+        items(granted.entries.asReversed()) { entry ->
+            Text(
+                text = "#${entry.sequence} [${entry.tag}] ${entry.message}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+/**
+ * Die vom System gemeldeten Ereignisse (2026-08-28). Voreingestellt ist der Filter "ab Warnung":
+ * mit eingeschaltetem Netzwerk-Logging bestehen über 90 % der Einträge aus DNS-Auflösungen — eine
+ * ungefilterte Liste wäre zwar vollständig, aber unbrauchbar, um einen adb-Zugriff oder eine
+ * nachträglich installierte Zertifizierungsstelle zu finden.
+ */
+@Composable
+private fun SystemEventList(decoded: SecurityLogCodec.DecodeResult) {
+    var minimumSeverity by remember { mutableStateOf(ThreatSeverity.WARNING) }
+    val visible = decoded.records.filter { it.severity.ordinal >= minimumSeverity.ordinal }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (severity in ThreatSeverity.entries) {
+            TextButton(onClick = { minimumSeverity = severity }) {
+                Text(
+                    text = when (severity) {
+                        ThreatSeverity.INFO -> "Alle"
+                        ThreatSeverity.WARNING -> "Ab Warnung"
+                        ThreatSeverity.CRITICAL -> "Nur kritisch"
+                    },
+                    color = if (severity == minimumSeverity) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
+    }
+
+    when {
+        decoded.skippedLines < 0 -> Text(
+            "⚠ System-Ereignisprotokoll nicht lesbar — Datei beschädigt oder Schlüssel verloren.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+        decoded.records.isEmpty() -> Text(
+            "Keine Ereignisse gespeichert. System-Sicherheitslog und/oder Netzwerk-Metadaten-Log " +
+                "müssen unter Safeguards ▸ Forensik/Audit eingeschaltet sein; das System liefert " +
+                "die Ereignisse danach schubweise, nicht sofort.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (decoded.skippedLines > 0) {
+                item {
+                    Text(
+                        "⚠ ${decoded.skippedLines} beschädigte Zeile(n) übersprungen",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+            item {
+                Text(
+                    "${visible.size} von ${decoded.records.size} Ereignissen",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            items(visible.asReversed()) { record ->
+                Text(
+                    text = "${formatTimestamp(record.timestampMillis)} ${severityMarker(record.severity)} " +
+                        "${record.type.label}: ${record.detail}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when (record.severity) {
+                        ThreatSeverity.CRITICAL -> MaterialTheme.colorScheme.error
+                        ThreatSeverity.WARNING -> MaterialTheme.colorScheme.onSurface
+                        ThreatSeverity.INFO -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun severityMarker(severity: ThreatSeverity): String = when (severity) {
+    ThreatSeverity.CRITICAL -> "‼"
+    ThreatSeverity.WARNING -> "⚠"
+    ThreatSeverity.INFO -> "·"
+}
+
+private val TIMESTAMP_FORMAT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("dd.MM. HH:mm:ss").withZone(ZoneId.systemDefault())
+
+private fun formatTimestamp(millis: Long): String =
+    runCatching { TIMESTAMP_FORMAT.format(Instant.ofEpochMilli(millis)) }.getOrDefault("??.??. ??:??:??")
