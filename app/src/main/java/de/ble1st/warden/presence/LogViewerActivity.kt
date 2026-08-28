@@ -331,8 +331,13 @@ private fun severityMarker(severity: ThreatSeverity): String = when (severity) {
     ThreatSeverity.INFO -> "·"
 }
 
+// Jahr bewusst im Format (2026-08-28, Live-Bug-Fund): ein Zeitstempel-Fehler in
+// SecurityEventParser hatte Ereignisse mit einem 57 Jahre falschen Datum angezeigt — unbemerkt,
+// weil das vorherige Format "dd.MM. HH:mm:ss" das Jahr verschluckte und ein falsches Zukunftsjahr
+// wie ein plausibles Tag/Monat-Datum aus der jüngeren Vergangenheit aussehen ließ.
 private val TIMESTAMP_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("dd.MM. HH:mm:ss").withZone(ZoneId.systemDefault())
+    DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss").withZone(ZoneId.systemDefault())
 
 private fun formatTimestamp(millis: Long): String =
-    runCatching { TIMESTAMP_FORMAT.format(Instant.ofEpochMilli(millis)) }.getOrDefault("??.??. ??:??:??")
+    runCatching { TIMESTAMP_FORMAT.format(Instant.ofEpochMilli(millis)) }
+        .getOrDefault("??.??.???? ??:??:??")

@@ -4,7 +4,6 @@ import android.app.admin.ConnectEvent
 import android.app.admin.DnsEvent
 import android.app.admin.NetworkEvent
 import android.app.admin.SecurityLog
-import android.os.SystemClock
 import de.ble1st.warden.domain.securitylog.SecurityLogEventType
 import de.ble1st.warden.domain.securitylog.SecurityLogRecord
 
@@ -13,11 +12,19 @@ import de.ble1st.warden.domain.securitylog.SecurityLogRecord
  * `SecurityLog.SecurityEvent`/[NetworkEvent] in die framework-freien [SecurityLogRecord]s um, die
  * [SecurityEventStore] speichert und der Log-Viewer anzeigt.
  *
- * **Zeitstempel-Umrechnung, nicht nur Übernahme:** `SecurityEvent.getTimeNanos()` zählt seit dem
- * letzten Boot, nicht seit der Epoche — direkt gespeichert stünde in der Anzeige ein Datum aus dem
- * Jahr 1970. Umgerechnet wird über die Differenz zur aktuellen `elapsedRealtimeNanos()`, also
- * relativ zum Abrufzeitpunkt; ein Ereignis von vor einer Stunde bekommt damit auch dann die
- * richtige Uhrzeit, wenn der Batch erst jetzt zugestellt wird.
+ * **Zeitstempel sind bereits Epoch-Werte, keine Umrechnung nötig — echter Live-Bug, 2026-08-28:**
+ * eine frühere Fassung dieser Klasse ging davon aus, `SecurityEvent.getTimeNanos()` zähle seit dem
+ * letzten Boot (wie `SystemClock.elapsedRealtimeNanos()`) und rechnete über die Differenz zur
+ * aktuellen `elapsedRealtimeNanos()` auf Epoch-Zeit um. Live-Test auf echter Hardware (SM-A156B)
+ * zeigte Ereignisse mit Datum "25.04." statt dem tatsächlichen Tagesdatum — mit Debug-Logging der
+ * Rohwerte bestätigt: `getTimeNanos()` liefert bereits Nanosekunden seit der Unix-Epoche (deckt
+ * sich mit `System.currentTimeMillis() * 1_000_000`, nicht mit `elapsedRealtimeNanos()`), die
+ * offizielle Doku nennt die Zeitbasis nicht explizit. Dieselbe Falle traf `NetworkEvent
+ * .getTimestamp()` — laut Android-Referenz bereits "milliseconds... since epoch", nicht
+ * boot-relativ. Die alte Differenzbildung gegen `nowNanos`/`nowMillis` produzierte dadurch
+ * Zeitstempel, die je nach Uptime um Jahrzehnte danebenlagen (ein konkreter Fall: statt "vor 63
+ * Sekunden" kam "25.04.2083" heraus — im UI verborgen, weil das Anzeigeformat kein Jahr zeigt).
+ * Fix: beide Werte direkt übernehmen/umrechnen, keine `now`-Referenz mehr nötig.
  *
  * **Unbekannte Tags werden zu [SecurityLogEventType.SONSTIGES] statt verworfen** — Android
  * ergänzt die Tag-Liste mit neuen Versionen, und ein Ereignis, das diese Zuordnung noch nicht
@@ -25,42 +32,36 @@ import de.ble1st.warden.domain.securitylog.SecurityLogRecord
  */
 object SecurityEventParser {
 
-    fun parseSecurityEvents(events: List<SecurityLog.SecurityEvent>): List<SecurityLogRecord> {
-        val nowMillis = System.currentTimeMillis()
-        val nowNanos = SystemClock.elapsedRealtimeNanos()
-        return events.map { event ->
+    fun parseSecurityEvents(events: List<SecurityLog.SecurityEvent>): List<SecurityLogRecord> =
+        events.map { event ->
             SecurityLogRecord(
-                timestampMillis = nowMillis - (nowNanos - event.timeNanos) / NANOS_PER_MILLI,
+                timestampMillis = event.timeNanos / NANOS_PER_MILLI,
                 type = typeOf(event.tag),
                 detail = describe(event.data),
             )
         }
-    }
 
-    fun parseNetworkEvents(events: List<NetworkEvent>): List<SecurityLogRecord> {
-        val nowMillis = System.currentTimeMillis()
-        val nowNanos = SystemClock.elapsedRealtimeNanos()
-        return events.map { event ->
-            val timestamp = nowMillis - (nowNanos - event.timestamp * NANOS_PER_MILLI) / NANOS_PER_MILLI
+    fun parseNetworkEvents(events: List<NetworkEvent>): List<SecurityLogRecord> =
+        events.map { event ->
+            // event.timestamp ist bereits Millisekunden seit der Epoche — keine Umrechnung nötig.
             when (event) {
                 is DnsEvent -> SecurityLogRecord(
-                    timestampMillis = timestamp,
+                    timestampMillis = event.timestamp,
                     type = SecurityLogEventType.DNS_AUFLOESUNG,
                     detail = "${event.packageName}: ${event.hostname} -> ${event.inetAddresses.joinToString { it.hostAddress.orEmpty() }}",
                 )
                 is ConnectEvent -> SecurityLogRecord(
-                    timestampMillis = timestamp,
+                    timestampMillis = event.timestamp,
                     type = SecurityLogEventType.NETZWERKVERBINDUNG,
                     detail = "${event.packageName}: ${event.inetAddress.hostAddress.orEmpty()}:${event.port}",
                 )
                 else -> SecurityLogRecord(
-                    timestampMillis = timestamp,
+                    timestampMillis = event.timestamp,
                     type = SecurityLogEventType.SONSTIGES,
                     detail = event.packageName.orEmpty(),
                 )
             }
         }
-    }
 
     private fun typeOf(tag: Int): SecurityLogEventType = when (tag) {
         SecurityLog.TAG_ADB_SHELL_CMD -> SecurityLogEventType.ADB_SHELL_KOMMANDO
