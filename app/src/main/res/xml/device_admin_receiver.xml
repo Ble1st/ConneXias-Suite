@@ -23,4 +23,9 @@
     <uses-policy android:name="disable-camera" />
     <!-- setKeyguardDisabledFeatures (KeyguardHardeningSafeguard, LockScreenPrivacySafeguard). -->
     <uses-policy android:name="disable-keyguard-features" />
+    <!-- onPasswordFailed/onPasswordSucceeded (FailedAttemptsRebootController, 2026-08-28).
+         Ohne diesen Eintrag stellt Android die beiden Callbacks schlicht nie zu — derselbe
+         Fehlerfall wie oben bei disable-keyguard-features, nur ohne SecurityException: die
+         Funktion wäre still wirkungslos. -->
+    <uses-policy android:name="watch-login" />
 </device-admin>

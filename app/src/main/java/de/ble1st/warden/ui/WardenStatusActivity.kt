@@ -1,5 +1,6 @@
 package de.ble1st.warden.ui
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -64,6 +65,7 @@ import de.ble1st.warden.appmanagement.SentinelInstallStatusReader
 import de.ble1st.warden.appmanagement.SentinelSilentInstaller
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.autoreboot.AutoRebootStorage
+import de.ble1st.warden.failedattempts.FailedAttemptsRebootStorage
 import de.ble1st.warden.bus.ConcordBus
 import de.ble1st.warden.domain.frp.FactoryResetProtectionAccounts
 import de.ble1st.warden.domain.frp.FactoryResetProtectionDecision
@@ -267,6 +269,18 @@ class WardenStatusActivity : ComponentActivity() {
             var autoRebootThresholdHours by remember {
                 mutableStateOf(AutoRebootStorage.loadThresholdHours(applicationContext))
             }
+            // "Neustart nach zu vielen Fehlversuchen" (2026-08-28) — dieselbe reine
+            // Soll-Wert-Verkabelung wie das Auto-Reboot-Zeitfenster darüber. Der
+            // Sperrbildschirm-Zustand ist dagegen ein Live-Wert: ohne gesetzten Code meldet
+            // Android keine Fehlversuche, die Einstellung wäre wirkungslos (Warnhinweis im Feld).
+            var failedAttemptsRebootThreshold by remember {
+                mutableStateOf(FailedAttemptsRebootStorage.loadThreshold(applicationContext))
+            }
+            val secureLockScreenConfigured = remember {
+                runCatching {
+                    applicationContext.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
+                }.getOrDefault(false)
+            }
             val isAuthenticated by authenticated
             // "Lockdown-Auslöse-Profil" (2026-08-27) — Geschwister von WardenTheme(...) statt
             // innerhalb (und damit außerhalb des `!isAuthenticated`-Kurzschlusses oben): eine per
@@ -388,6 +402,15 @@ class WardenStatusActivity : ComponentActivity() {
                         } catch (e: SecurityException) {
                             Log.e(TAG, "Support-Hinweis setzen fehlgeschlagen (kein Device Owner mehr?)", e)
                         }
+                    },
+                    failedAttemptsRebootThreshold = failedAttemptsRebootThreshold,
+                    secureLockScreenConfigured = secureLockScreenConfigured,
+                    onFailedAttemptsRebootThresholdChange = { updated ->
+                        // Beim Ein-/Umschalten den laufenden Zähler verwerfen — ein alter Stand
+                        // aus einer früheren Konfiguration darf nicht sofort auslösen.
+                        FailedAttemptsRebootStorage.resetFailedAttempts(applicationContext)
+                        failedAttemptsRebootThreshold = updated
+                        FailedAttemptsRebootStorage.saveThreshold(applicationContext, updated)
                     },
                     autoRebootThresholdHours = autoRebootThresholdHours,
                     onAutoRebootThresholdHoursChange = { updated ->
@@ -540,6 +563,9 @@ private fun WardenRoot(
     onSupportMessageChange: (String?) -> Unit,
     autoRebootThresholdHours: Int?,
     onAutoRebootThresholdHoursChange: (Int?) -> Unit,
+    failedAttemptsRebootThreshold: Int?,
+    secureLockScreenConfigured: Boolean,
+    onFailedAttemptsRebootThresholdChange: (Int?) -> Unit,
 ) {
     // rememberSaveable statt remember (Architektur-Review 2026-08-24, F-3): ohne das landete man
     // nach jeder Konfigurationsänderung (Rotation, Falt-/Split-Screen-Vorgang) unabhängig vom
@@ -787,6 +813,32 @@ private fun WardenRoot(
                         concordBus,
                         UserRestrictionSafeguard.DEBUGGING_FEATURES_DISABLED_ID,
                     ),
+                    // "Fehlende Restriction-Abdeckung" (2026-08-28) — s. Factory-Docs in
+                    // UserRestrictionSafeguard.
+                    addUserDisabled = rememberSafeguardToggle(
+                        concordBus,
+                        UserRestrictionSafeguard.ADD_USER_DISABLED_ID,
+                    ),
+                    cellular2gDisabled = rememberSafeguardToggle(
+                        concordBus,
+                        UserRestrictionSafeguard.CELLULAR_2G_DISABLED_ID,
+                    ),
+                    configVpnDisabled = rememberSafeguardToggle(
+                        concordBus,
+                        UserRestrictionSafeguard.CONFIG_VPN_DISABLED_ID,
+                    ),
+                    usbFileTransferDisabled = rememberSafeguardToggle(
+                        concordBus,
+                        UserRestrictionSafeguard.USB_FILE_TRANSFER_DISABLED_ID,
+                    ),
+                    nfcRadioDisabled = rememberSafeguardToggle(
+                        concordBus,
+                        UserRestrictionSafeguard.NFC_RADIO_DISABLED_ID,
+                    ),
+                    bluetoothSharingDisabled = rememberSafeguardToggle(
+                        concordBus,
+                        UserRestrictionSafeguard.BLUETOOTH_SHARING_DISABLED_ID,
+                    ),
                     factoryResetProtectionAccounts = frpAccounts,
                     factoryResetProtectionAgentAvailable = frpAgentAvailable,
                     onSaveFactoryResetProtectionAccounts = { raw ->
@@ -894,6 +946,9 @@ private fun WardenRoot(
                 onSupportMessageChange = onSupportMessageChange,
                 autoRebootThresholdHours = autoRebootThresholdHours,
                 onAutoRebootThresholdHoursChange = onAutoRebootThresholdHoursChange,
+                failedAttemptsRebootThreshold = failedAttemptsRebootThreshold,
+                secureLockScreenConfigured = secureLockScreenConfigured,
+                onFailedAttemptsRebootThresholdChange = onFailedAttemptsRebootThresholdChange,
                 onBack = { screen = WardenScreen.Status },
             )
         }

@@ -40,9 +40,11 @@ object WardenProfileSpec {
                 "Kontosperre nach Recovery-Wipe und Schnellzugriff auf dem Sperrbildschirm aus. " +
                 "Kamera und USB bleiben nutzbar."
         WardenProfile.REISE ->
-            "Alltag plus Sensoren, unbekannte Medien und dauerhaftes USB-Daten-aus."
+            "Alltag plus Sensoren, unbekannte Medien, dauerhaftes USB-Daten-aus sowie " +
+                "USB-Dateiübertragung und Bluetooth-Dateifreigabe aus."
         WardenProfile.MAXIMAL ->
-            "Reise plus biometrie-freie Sperre, nur System-Tastatur/Bedienungshilfen, Audit-Logs. " +
+            "Reise plus biometrie-freie Sperre, nur System-Tastatur/Bedienungshilfen, Audit-Logs, " +
+                "2G-Sperre (IMSI-Catcher), NFC und VPN-Einrichtung aus. " +
                 "USB-Debug/Lockdown-Bündel bleibt hinter Presence."
     }
 
@@ -59,6 +61,8 @@ object WardenProfileSpec {
         "self_uninstall_protection",
         "force_stop_protection",
         "config_date_time_disabled",
+        // 2026-08-28: alltagsneutral, schließt aber den Zweitnutzer-Umgehungsweg.
+        "add_user_disabled",
     )
 
     private val REISE = ALLTAG + setOf(
@@ -68,6 +72,9 @@ object WardenProfileSpec {
         "physical_media_mount_disabled",
         "usb_data_signaling_disabled",
         "credential_config_disabled",
+        // 2026-08-28: Datenabfluss über USB/Bluetooth zu, Radios und Laden bleiben nutzbar.
+        "usb_file_transfer_disabled",
+        "bluetooth_sharing_disabled",
     )
 
     private val MAXIMAL = REISE + setOf(
@@ -77,5 +84,10 @@ object WardenProfileSpec {
         "security_logging_enabled",
         "network_logging_enabled",
         "system_update_policy_automatic",
+        // 2026-08-28: spürbare Einschränkungen (kein 2G-Fallback, kein NFC, kein eigenes VPN)
+        // — deshalb erst hier, nicht schon in Reise.
+        "cellular_2g_disabled",
+        "nfc_radio_disabled",
+        "config_vpn_disabled",
     )
 }

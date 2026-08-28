@@ -211,5 +211,109 @@ class UserRestrictionSafeguard(
          * UI-Aufrufer (z. B. [de.ble1st.warden.ui.WardenStatusActivity]) sie nicht als
          * String-Literal duplizieren müssen, dasselbe Muster wie `CameraSafeguard.ID` & Co. */
         const val CONFIG_DATE_TIME_DISABLED_ID = "config_date_time_disabled"
+
+        /**
+         * "Fehlende Restriction-Abdeckung" (2026-08-28, aus der Lückenanalyse): ein zusätzlich
+         * angelegter Nutzer (Gast oder Zweitprofil) ist ein klassischer Umgehungsweg — die
+         * meisten der übrigen Schalter hier wirken nutzerbezogen, ein frisches Profil startet
+         * ungehärtet und hat trotzdem Zugriff auf dasselbe Gerät. `DISALLOW_ADD_USER` schließt
+         * das, ohne irgendetwas am Alltagsbetrieb des Hauptnutzers zu ändern — deshalb bereits
+         * im Alltag-Profil und nicht erst in Reise/Maximal.
+         */
+        fun addUserDisabled(context: Context): UserRestrictionSafeguard =
+            UserRestrictionSafeguard(
+                context = context,
+                restriction = UserManager.DISALLOW_ADD_USER,
+                id = ADD_USER_DISABLED_ID,
+            )
+
+        /**
+         * `DISALLOW_CELLULAR_2G` (Android 14+) — verbietet den Rückfall auf 2G/GSM. 2G kennt
+         * keine gegenseitige Authentisierung des Netzes und ist damit der Standardweg für
+         * IMSI-Catcher: ein gefälschter Mast zwingt das Gerät auf 2G herunter und liest von dort
+         * an Verkehr und Standort mit. Dieselbe Überlegung wie GrapheneOS' "2G abschalten"-
+         * Schalter, hier über die offizielle Device-Owner-Restriction statt einer ROM-Erweiterung.
+         *
+         * **Nur im Maximal-Profil**, nicht in Reise: in Gegenden mit ausschließlich 2G-Abdeckung
+         * fallen damit auch normale Anrufe/SMS aus. Notrufe bleiben laut Android-Dokumentation
+         * unberührt — die Restriction gilt ausdrücklich nicht für `emergency calls`.
+         */
+        fun cellular2gDisabled(context: Context): UserRestrictionSafeguard =
+            UserRestrictionSafeguard(
+                context = context,
+                restriction = UserManager.DISALLOW_CELLULAR_2G,
+                id = CELLULAR_2G_DISABLED_ID,
+            )
+
+        /**
+         * `DISALLOW_CONFIG_VPN` — verhindert, dass jemand mit kurzzeitigem physischem Zugriff
+         * eine eigene VPN-Verbindung einrichtet und damit den gesamten Verkehr des Geräts über
+         * einen fremden Endpunkt umleitet. Bewusst nur im Maximal-Profil: wer selbst ein VPN
+         * nutzt, sperrt sich damit aus der eigenen Konfiguration aus (bestehende Verbindungen
+         * laufen weiter, nur Anlegen/Ändern ist blockiert).
+         */
+        fun configVpnDisabled(context: Context): UserRestrictionSafeguard =
+            UserRestrictionSafeguard(
+                context = context,
+                restriction = UserManager.DISALLOW_CONFIG_VPN,
+                id = CONFIG_VPN_DISABLED_ID,
+            )
+
+        /**
+         * `DISALLOW_USB_FILE_TRANSFER` — blockiert MTP/PTP-Dateiübertragung über USB.
+         * Ergänzt [UsbDataSignalingSafeguard] (kappt USB-Daten vollständig) und
+         * [de.ble1st.warden.usb.UsbAutoLockController] (kappt sie nur bei gesperrtem Bildschirm)
+         * um die schwächste, alltagstauglichste Stufe: Laden und Zubehör funktionieren weiter,
+         * nur der Dateizugriff fällt weg. Deshalb schon im Reise-Profil.
+         */
+        fun usbFileTransferDisabled(context: Context): UserRestrictionSafeguard =
+            UserRestrictionSafeguard(
+                context = context,
+                restriction = UserManager.DISALLOW_USB_FILE_TRANSFER,
+                id = USB_FILE_TRANSFER_DISABLED_ID,
+            )
+
+        /**
+         * `DISALLOW_NEAR_FIELD_COMMUNICATION_RADIO` — schaltet das NFC-Radio ab. Angriffsfläche
+         * bei physischer Nähe (Relay-/Skimming-Angriffe auf Zahlungs- und Ausweisanwendungen,
+         * unbemerktes Auslesen im gesperrten Zustand). Nur im Maximal-Profil, weil damit auch
+         * kontaktloses Bezahlen und Transponder-Nutzung ausfallen.
+         */
+        fun nfcRadioDisabled(context: Context): UserRestrictionSafeguard =
+            UserRestrictionSafeguard(
+                context = context,
+                restriction = UserManager.DISALLOW_NEAR_FIELD_COMMUNICATION_RADIO,
+                id = NFC_RADIO_DISABLED_ID,
+            )
+
+        /**
+         * `DISALLOW_BLUETOOTH_SHARING` — verbietet das Teilen von Dateien per Bluetooth
+         * (OPP-Profil). Bewusst **nicht** `DISALLOW_BLUETOOTH` (das ganze Radio aus): Kopfhörer,
+         * Uhr und Freisprecheinrichtung sollen weiter funktionieren, der Dateiabfluss-Kanal nicht.
+         * Reise-Profil.
+         */
+        fun bluetoothSharingDisabled(context: Context): UserRestrictionSafeguard =
+            UserRestrictionSafeguard(
+                context = context,
+                restriction = UserManager.DISALLOW_BLUETOOTH_SHARING,
+                id = BLUETOOTH_SHARING_DISABLED_ID,
+            )
+
+        /**
+         * **Bewusst nicht aufgenommen** (2026-08-28, aus derselben Analyse):
+         * - `DISALLOW_AIRPLANE_MODE`: soll verhindern, dass ein Dieb das Gerät offline nimmt —
+         *   nützt hier nichts, weil Warden ohnehin keinen Fernkanal hat, der davon profitieren
+         *   würde. Reiner Komfortverlust ohne Schutzgewinn.
+         * - `DISALLOW_SIM_GLOBALLY`: sperrt jede SIM-Nutzung geräteweit. Zu grob als Schalter
+         *   neben den übrigen — der eigentlich gemeinte Fall (fremde SIM eingelegt) wird von
+         *   [de.ble1st.warden.sim.SimChangeController] behandelt, der reagiert statt pauschal zu
+         *   verbieten.
+         */
+        const val ADD_USER_DISABLED_ID = "add_user_disabled"
+        const val CELLULAR_2G_DISABLED_ID = "cellular_2g_disabled"
+        const val CONFIG_VPN_DISABLED_ID = "config_vpn_disabled"
+        const val USB_FILE_TRANSFER_DISABLED_ID = "usb_file_transfer_disabled"
+        const val NFC_RADIO_DISABLED_ID = "nfc_radio_disabled"
+        const val BLUETOOTH_SHARING_DISABLED_ID = "bluetooth_sharing_disabled"
     }
 }

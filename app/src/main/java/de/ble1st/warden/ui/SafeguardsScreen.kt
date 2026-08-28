@@ -80,6 +80,12 @@ fun SafeguardsScreen(
     factoryResetProtection: SafeguardToggleState,
     modifyAccountsDisabled: SafeguardToggleState,
     debuggingFeaturesDisabled: SafeguardToggleState,
+    addUserDisabled: SafeguardToggleState,
+    cellular2gDisabled: SafeguardToggleState,
+    configVpnDisabled: SafeguardToggleState,
+    usbFileTransferDisabled: SafeguardToggleState,
+    nfcRadioDisabled: SafeguardToggleState,
+    bluetoothSharingDisabled: SafeguardToggleState,
     factoryResetProtectionAccounts: String,
     factoryResetProtectionAgentAvailable: Boolean,
     onSaveFactoryResetProtectionAccounts: (String) -> Unit,
@@ -249,6 +255,13 @@ fun SafeguardsScreen(
             SafeguardEntryRow("Externe Datenträger (SD/USB) sperren", physicalMediaMountLockdown)
             HorizontalDivider()
             SafeguardEntryRow("Installation aus unbekannten Quellen blockieren", installUnknownSourcesDisabled)
+            HorizontalDivider()
+            SafeguardEntryRow(
+                label = "Zusätzliche Nutzer/Gastprofil verbieten",
+                state = addUserDisabled,
+                supportingText = "Ein neu angelegtes Profil startet ungehärtet — die meisten " +
+                    "Schalter hier wirken nutzerbezogen, das Gerät ist aber dasselbe.",
+            )
 
             HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
             Text(
@@ -262,6 +275,13 @@ fun SafeguardsScreen(
             SafeguardEntryRow("USB-Datenverkehr bei Sperre automatisch deaktivieren", usbAutoLock)
             HorizontalDivider()
             SafeguardEntryRow("USB-Datenverkehr dauerhaft deaktivieren", usbPermanentlyDisabled)
+            HorizontalDivider()
+            SafeguardEntryRow(
+                label = "USB-Dateiübertragung (MTP/PTP) sperren",
+                state = usbFileTransferDisabled,
+                supportingText = "Schwächste der drei USB-Stufen: Laden und Zubehör bleiben " +
+                    "nutzbar, nur der Dateizugriff fällt weg.",
+            )
             HorizontalDivider()
             // Live-Drill-Fund (2026-08-26/2026-08-27): registriert im Katalog seit Sentinels
             // Silent-Install, hatte aber nie eine eigene UI-Zeile — s.
@@ -316,6 +336,45 @@ fun SafeguardsScreen(
                 modifier = Modifier.padding(vertical = 12.dp),
             )
             SafeguardEntryRow("Sicherheitsupdates automatisch installieren", systemUpdatePolicy)
+
+            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
+            Text(
+                text = "Funk & Netz — Angriffsfläche bei physischer Nähe (2026-08-28). Spürbare " +
+                    "Einschränkungen im Alltag, deshalb erst im Maximal-Profil enthalten.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 12.dp),
+            )
+            SafeguardEntryRow(
+                label = "2G/GSM-Rückfall verbieten",
+                state = cellular2gDisabled,
+                supportingText = "2G authentisiert das Netz nicht — der Standardweg für " +
+                    "IMSI-Catcher ist der erzwungene Downgrade. ⚠ In reinen 2G-Funklöchern " +
+                    "fallen damit auch normale Anrufe/SMS aus; Notrufe bleiben laut Android " +
+                    "ausgenommen.",
+            )
+            HorizontalDivider()
+            SafeguardEntryRow(
+                label = "NFC-Radio abschalten",
+                state = nfcRadioDisabled,
+                supportingText = "Gegen Relay-/Skimming-Angriffe aus nächster Nähe. ⚠ Damit " +
+                    "endet auch kontaktloses Bezahlen und Transponder-Nutzung.",
+            )
+            HorizontalDivider()
+            SafeguardEntryRow(
+                label = "VPN-Einrichtung sperren",
+                state = configVpnDisabled,
+                supportingText = "Verhindert, dass jemand mit kurzem Zugriff den gesamten " +
+                    "Verkehr über einen fremden Endpunkt umleitet. ⚠ Auch du kannst dann kein " +
+                    "eigenes VPN mehr anlegen oder ändern; bestehende Verbindungen laufen weiter.",
+            )
+            HorizontalDivider()
+            SafeguardEntryRow(
+                label = "Bluetooth-Dateifreigabe sperren",
+                state = bluetoothSharingDisabled,
+                supportingText = "Nur der Dateikanal (OPP) — Kopfhörer, Uhr und " +
+                    "Freisprecheinrichtung funktionieren weiter.",
+            )
 
             HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
             Text(

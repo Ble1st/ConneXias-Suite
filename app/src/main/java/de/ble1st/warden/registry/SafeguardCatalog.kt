@@ -38,6 +38,15 @@ object SafeguardCatalog {
         UserRestrictionSafeguard.factoryResetDisabled(context),
         UserRestrictionSafeguard.safeBootDisabled(context),
         UserRestrictionSafeguard.modifyAccountsDisabled(context),
+        // "Fehlende Restriction-Abdeckung" (2026-08-28): sechs bislang ungenutzte DISALLOW_*-
+        // Restriktionen mit direktem Bezug zum Bedrohungsmodell, s. jeweiliges Factory-Doc in
+        // UserRestrictionSafeguard für Begründung und Profil-Zuordnung.
+        UserRestrictionSafeguard.addUserDisabled(context),
+        UserRestrictionSafeguard.cellular2gDisabled(context),
+        UserRestrictionSafeguard.configVpnDisabled(context),
+        UserRestrictionSafeguard.usbFileTransferDisabled(context),
+        UserRestrictionSafeguard.nfcRadioDisabled(context),
+        UserRestrictionSafeguard.bluetoothSharingDisabled(context),
         // "LockMode/Threat-Protection-Ausbau" (2026-08-25, auf Nutzerwunsch "als Schalter unter
         // Safeguards"): weiterhin auch DeviceLockdownBundle-Mitglied, s.
         // UserRestrictionSafeguard.debuggingFeaturesDisabled-Klassendoc für die Risiko-Begründung.

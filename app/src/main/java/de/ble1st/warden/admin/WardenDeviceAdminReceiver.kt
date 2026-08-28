@@ -6,6 +6,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import de.ble1st.warden.BuildConfig
+import de.ble1st.warden.failedattempts.FailedAttemptsRebootController
 import de.ble1st.warden.wardenAuditLog
 
 /**
@@ -45,6 +47,24 @@ class WardenDeviceAdminReceiver : DeviceAdminReceiver() {
     override fun onDisabled(context: Context, intent: Intent) {
         Log.w(TAG, "Device Admin deaktiviert (onDisabled) — sollte für Warden als Device Owner nicht regulär vorkommen")
         super.onDisabled(context, intent)
+    }
+
+    /**
+     * "Neustart nach zu vielen Fehlversuchen" (2026-08-28) — kommt nur an, weil
+     * `res/xml/device_admin_receiver.xml` die `watch-login`-Policy deklariert. Der Callback feuert
+     * bei jedem Fehlversuch am **System-Sperrbildschirm**; Wardens eigene In-App-PIN läuft
+     * unabhängig davon über [de.ble1st.warden.domain.pin.WardenAntiHammeringDecision].
+     */
+    override fun onPasswordFailed(context: Context, intent: Intent) {
+        super.onPasswordFailed(context, intent)
+        runCatching { FailedAttemptsRebootController(context).onPasswordFailed(BuildConfig.DEBUG) }
+            .onFailure { Log.e(TAG, "Fehlversuch-Auswertung fehlgeschlagen", it) }
+    }
+
+    override fun onPasswordSucceeded(context: Context, intent: Intent) {
+        super.onPasswordSucceeded(context, intent)
+        runCatching { FailedAttemptsRebootController(context).onPasswordSucceeded() }
+            .onFailure { Log.e(TAG, "Fehlversuch-Zähler zurücksetzen fehlgeschlagen", it) }
     }
 
     override fun onSecurityLogsAvailable(context: Context, intent: Intent) {

@@ -70,6 +70,13 @@ class WardenProfileSpecTest {
             "security_logging_enabled",
             "network_logging_enabled",
             "system_update_policy_automatic",
+            // 2026-08-28, "Fehlende Restriction-Abdeckung" — s. UserRestrictionSafeguard.
+            "add_user_disabled",
+            "usb_file_transfer_disabled",
+            "bluetooth_sharing_disabled",
+            "cellular_2g_disabled",
+            "nfc_radio_disabled",
+            "config_vpn_disabled",
         )
         for (profile in WardenProfile.entries) {
             val ids = WardenProfileSpec.idsOn(profile)

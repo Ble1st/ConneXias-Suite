@@ -58,6 +58,9 @@ fun SettingsScreen(
     onSupportMessageChange: (String?) -> Unit,
     autoRebootThresholdHours: Int?,
     onAutoRebootThresholdHoursChange: (Int?) -> Unit,
+    failedAttemptsRebootThreshold: Int?,
+    secureLockScreenConfigured: Boolean,
+    onFailedAttemptsRebootThresholdChange: (Int?) -> Unit,
     onBack: () -> Unit,
 ) {
     var showNamingSettings by remember { mutableStateOf(false) }
@@ -120,6 +123,12 @@ fun SettingsScreen(
                 selectedHours = autoRebootThresholdHours,
                 onSelect = onAutoRebootThresholdHoursChange,
                 modifier = Modifier.padding(top = 4.dp),
+            )
+            FailedAttemptsRebootField(
+                selectedThreshold = failedAttemptsRebootThreshold,
+                secureLockScreenConfigured = secureLockScreenConfigured,
+                onSelect = onFailedAttemptsRebootThresholdChange,
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             SectionLabel("Info")
