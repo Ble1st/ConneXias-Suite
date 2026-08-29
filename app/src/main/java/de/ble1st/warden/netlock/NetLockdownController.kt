@@ -55,9 +55,16 @@ class NetLockdownController(context: Context) {
     }
 
     fun disarm() {
+        // Zuerst den VPN-Tunnel stoppen (wichtig: BEVOR Always-On VPN entfernt wird!)
+        // startService mit Action funktioniert innerhalb der gleichen App auch bei exported=false
+        val stopIntent = Intent(appContext, WardenVpnService::class.java).apply {
+            action = WardenVpnService.ACTION_STOP_TUNNEL
+        }
+        appContext.startService(stopIntent)
+        
+        // Jetzt den Always-On VPN Lockdown entfernen
         authorizer.revert()
         store.saveDesiredArmed(false)
-        appContext.startService(Intent(appContext, WardenVpnService::class.java).setAction(WardenVpnService.ACTION_STOP_TUNNEL))
         logStore.append(Log.WARN, TAG, "Net-Lockdown entschärft (Always-On-VPN entfernt)")
     }
 

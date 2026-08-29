@@ -66,6 +66,7 @@
         android:protectionLevel="signature" />
 
     <!-- "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers -->
+    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
