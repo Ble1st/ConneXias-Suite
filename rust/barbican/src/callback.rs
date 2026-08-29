@@ -24,7 +24,10 @@ pub enum SocketError {
 
 impl fmt::Display for SocketError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Aufbau des geschützten Sockets (Kotlin-Callback) fehlgeschlagen")
+        write!(
+            f,
+            "Aufbau des geschützten Sockets (Kotlin-Callback) fehlgeschlagen"
+        )
     }
 }
 

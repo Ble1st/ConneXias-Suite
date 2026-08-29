@@ -45,12 +45,20 @@ const DOMAIN_TAG: &[u8] = b"warden:failsafe:v2";
 /// Spiegel von `de.ble1st.warden.domain.failsafe.FailsafeResponseMessage.build` — s. Modul-Doc
 /// oben. Das Längenpräfix hält das Format auch dann eindeutig, wenn die Challenge irgendwann
 /// nicht mehr 32 Byte lang ist.
-fn failsafe_response_message(challenge: &[u8], new_device_credential: &str) -> Result<Vec<u8>, String> {
-    let challenge_length = u16::try_from(challenge.len())
-        .map_err(|_| format!("Challenge zu lang für 2-Byte-Längenpräfix ({} Byte)", challenge.len()))?;
+fn failsafe_response_message(
+    challenge: &[u8],
+    new_device_credential: &str,
+) -> Result<Vec<u8>, String> {
+    let challenge_length = u16::try_from(challenge.len()).map_err(|_| {
+        format!(
+            "Challenge zu lang für 2-Byte-Längenpräfix ({} Byte)",
+            challenge.len()
+        )
+    })?;
     let credential_digest = Sha256::digest(new_device_credential.as_bytes());
 
-    let mut message = Vec::with_capacity(DOMAIN_TAG.len() + 2 + challenge.len() + credential_digest.len());
+    let mut message =
+        Vec::with_capacity(DOMAIN_TAG.len() + 2 + challenge.len() + credential_digest.len());
     message.extend_from_slice(DOMAIN_TAG);
     message.extend_from_slice(&challenge_length.to_be_bytes());
     message.extend_from_slice(challenge);
@@ -148,8 +156,14 @@ mod tests {
         let message = failsafe_response_message(&challenge, "korrekthorsebatterie").expect("build");
 
         assert_eq!(&message[..DOMAIN_TAG.len()], DOMAIN_TAG);
-        assert_eq!(&message[DOMAIN_TAG.len()..DOMAIN_TAG.len() + 2], &[0x00, 0x20]);
-        assert_eq!(&message[DOMAIN_TAG.len() + 2..DOMAIN_TAG.len() + 34], &challenge[..]);
+        assert_eq!(
+            &message[DOMAIN_TAG.len()..DOMAIN_TAG.len() + 2],
+            &[0x00, 0x20]
+        );
+        assert_eq!(
+            &message[DOMAIN_TAG.len() + 2..DOMAIN_TAG.len() + 34],
+            &challenge[..]
+        );
         assert_eq!(message.len(), DOMAIN_TAG.len() + 2 + 32 + 32);
     }
 

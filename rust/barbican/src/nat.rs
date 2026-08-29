@@ -87,14 +87,15 @@ impl NatTable {
     /// deren `external_fd`/`smoltcp_handle` real schließen, diese Tabelle tut das nicht selbst
     /// (kein I/O in diesem Modul, s. Klassendoc).
     pub fn insert(&mut self, key: FlowKey, session: NatSession) -> Option<(FlowKey, NatSession)> {
-        let evicted = if self.sessions.len() >= self.max_sessions && !self.sessions.contains_key(&key) {
-            self.oldest_key().map(|k| {
-                let s = self.sessions.remove(&k).expect("oldest_key must exist");
-                (k, s)
-            })
-        } else {
-            None
-        };
+        let evicted =
+            if self.sessions.len() >= self.max_sessions && !self.sessions.contains_key(&key) {
+                self.oldest_key().map(|k| {
+                    let s = self.sessions.remove(&k).expect("oldest_key must exist");
+                    (k, s)
+                })
+            } else {
+                None
+            };
         self.sessions.insert(key, session);
         evicted
     }
@@ -105,7 +106,12 @@ impl NatTable {
 
     /// Räumt alle Sessions, deren `last_active` älter als [timeout] ist, und gibt sie zum realen
     /// Schließen zurück (dieselbe "kein I/O hier"-Begründung wie [insert]).
-    pub fn evict_idle(&mut self, now: Instant, tcp_timeout: std::time::Duration, udp_timeout: std::time::Duration) -> Vec<(FlowKey, NatSession)> {
+    pub fn evict_idle(
+        &mut self,
+        now: Instant,
+        tcp_timeout: std::time::Duration,
+        udp_timeout: std::time::Duration,
+    ) -> Vec<(FlowKey, NatSession)> {
         let mut result = Vec::new();
         let keys: Vec<FlowKey> = self
             .sessions
@@ -178,7 +184,11 @@ mod tests {
         let evicted = table.insert(key(3), session(t0 + Duration::from_secs(2)));
         assert_eq!(table.len(), 2, "Tabelle bleibt auf max_sessions begrenzt");
         let (evicted_key, _) = evicted.expect("eine Session muss verdrängt worden sein");
-        assert_eq!(evicted_key, key(1), "die am längsten untätige Session muss verdrängt werden");
+        assert_eq!(
+            evicted_key,
+            key(1),
+            "die am längsten untätige Session muss verdrängt werden"
+        );
         assert!(table.get(&key(1)).is_none());
         assert!(table.get(&key(3)).is_some());
     }
@@ -193,7 +203,11 @@ mod tests {
 
         let evicted = table.insert(key(3), session(t0 + Duration::from_secs(6)));
         let (evicted_key, _) = evicted.expect("eine Session muss verdrängt worden sein");
-        assert_eq!(evicted_key, key(2), "key(1) wurde aktualisiert, key(2) ist jetzt älter");
+        assert_eq!(
+            evicted_key,
+            key(2),
+            "key(1) wurde aktualisiert, key(2) ist jetzt älter"
+        );
     }
 
     #[test]

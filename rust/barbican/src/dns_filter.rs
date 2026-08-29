@@ -183,7 +183,11 @@ mod tests {
         let flags = u16::from_be_bytes([reply[2], reply[3]]);
         assert_eq!(flags & 0x8000, 0x8000, "QR-Bit muss gesetzt sein");
         assert_eq!(flags & 0x000F, 3, "RCODE muss NXDOMAIN (3) sein");
-        assert_eq!(&reply[12..], &query[12..], "Question-Section muss unverändert echoen");
+        assert_eq!(
+            &reply[12..],
+            &query[12..],
+            "Question-Section muss unverändert echoen"
+        );
     }
 
     #[test]

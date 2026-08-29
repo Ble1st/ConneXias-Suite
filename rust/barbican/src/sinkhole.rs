@@ -116,7 +116,10 @@ mod tests {
 
     #[test]
     fn rejects_negative_fd() {
-        assert!(matches!(start_sinkhole(-1), Err(SinkholeError::InvalidTunFd)));
+        assert!(matches!(
+            start_sinkhole(-1),
+            Err(SinkholeError::InvalidTunFd)
+        ));
     }
 
     #[test]

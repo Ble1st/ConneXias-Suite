@@ -98,7 +98,9 @@ impl fmt::Display for TunnelError {
             TunnelError::AlreadyRunning => write!(f, "captured tunnel already running"),
             TunnelError::InvalidTunFd => write!(f, "invalid tun file descriptor"),
             TunnelError::InvalidTunAddress => write!(f, "invalid tunnel ipv4 address"),
-            TunnelError::InvalidDnsAddress => write!(f, "invalid dns sentinel/upstream ipv4 address"),
+            TunnelError::InvalidDnsAddress => {
+                write!(f, "invalid dns sentinel/upstream ipv4 address")
+            }
             TunnelError::Io { detail } => write!(f, "io error: {detail}"),
         }
     }
@@ -340,13 +342,23 @@ impl Device for TunDevice {
     type RxToken<'a> = TunRxToken;
     type TxToken<'a> = TunTxToken<'a>;
 
-    fn receive(&mut self, _timestamp: SmolInstant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+    fn receive(
+        &mut self,
+        _timestamp: SmolInstant,
+    ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let buf = self.inbound.pop_front()?;
-        Some((TunRxToken { buf }, TunTxToken { writer: &mut self.writer }))
+        Some((
+            TunRxToken { buf },
+            TunTxToken {
+                writer: &mut self.writer,
+            },
+        ))
     }
 
     fn transmit(&mut self, _timestamp: SmolInstant) -> Option<Self::TxToken<'_>> {
-        Some(TunTxToken { writer: &mut self.writer })
+        Some(TunTxToken {
+            writer: &mut self.writer,
+        })
     }
 
     fn capabilities(&self) -> DeviceCapabilities {
@@ -416,7 +428,12 @@ fn run_engine_loop(
                 if let Some(reply) = try_fast_path_dns_reply(&packet, &stats) {
                     let _ = device.writer.write_all(&reply);
                 } else {
-                    ensure_listener_for_packet(&packet, &mut sockets, &mut tcp_listeners, &mut udp_listeners);
+                    ensure_listener_for_packet(
+                        &packet,
+                        &mut sockets,
+                        &mut tcp_listeners,
+                        &mut udp_listeners,
+                    );
                     device.inbound.push_back(packet);
                 }
             }
@@ -425,7 +442,12 @@ fn run_engine_loop(
         }
 
         // Verarbeitete Pakete an smoltcp weiterleiten
-        reap_completed_listeners(&mut sockets, &mut tcp_listeners, &mut flow_sockets, &socket_factory);
+        reap_completed_listeners(
+            &mut sockets,
+            &mut tcp_listeners,
+            &mut flow_sockets,
+            &socket_factory,
+        );
         pump_established_sessions(&mut sockets, &mut nat, &mut flow_sockets, &stats);
         pump_udp_listeners(
             &mut sockets,
@@ -543,9 +565,7 @@ fn ensure_listener_for_packet(
             let mut socket = tcp::Socket::new(rx_buffer, tx_buffer);
             if socket.listen(port).is_ok() {
                 let handle = sockets.add(socket);
-                entry.push(PortListener {
-                    handle,
-                });
+                entry.push(PortListener { handle });
             }
         }
         IpProtocol::Udp => {
@@ -636,9 +656,7 @@ fn reap_completed_listeners(
                 let mut fresh = tcp::Socket::new(rx_buffer, tx_buffer);
                 if fresh.listen(port).is_ok() {
                     let handle = sockets.add(fresh);
-                    still_listening.push(PortListener {
-                        handle,
-                    });
+                    still_listening.push(PortListener { handle });
                 }
             }
         }
@@ -655,9 +673,10 @@ fn spawn_tcp_connect(key: FlowKey, socket_factory: Arc<dyn ProtectedSocketFactor
     thread::spawn(move || {
         let result = socket_factory.open_tcp(key.dst_ip.clone(), key.dst_port);
         if let Ok(fd) = result
-            && let Ok(mut pending) = PENDING_TCP_FDS.lock() {
-                pending.push((key, fd));
-            }
+            && let Ok(mut pending) = PENDING_TCP_FDS.lock()
+        {
+            pending.push((key, fd));
+        }
     });
 }
 
@@ -714,16 +733,19 @@ fn pump_established_sessions(
         if socket.may_recv() {
             let mut buf = [0u8; TCP_BUFFER_SIZE];
             if let Ok(n) = socket.recv_slice(&mut buf)
-                && n > 0 {
-                    let mut stream = ManuallyDrop::new(unsafe { TcpStream::from_raw_fd(session.external_fd) });
-                    let _ = stream.write_all(&buf[..n]);
-                    stats.forwarded_bytes.fetch_add(n as u64, Ordering::SeqCst);
-                    to_touch.push(key.clone());
-                }
+                && n > 0
+            {
+                let mut stream =
+                    ManuallyDrop::new(unsafe { TcpStream::from_raw_fd(session.external_fd) });
+                let _ = stream.write_all(&buf[..n]);
+                stats.forwarded_bytes.fetch_add(n as u64, Ordering::SeqCst);
+                to_touch.push(key.clone());
+            }
         }
         // Extern -> App.
         if socket.can_send() {
-            let mut stream = ManuallyDrop::new(unsafe { TcpStream::from_raw_fd(session.external_fd) });
+            let mut stream =
+                ManuallyDrop::new(unsafe { TcpStream::from_raw_fd(session.external_fd) });
             let _ = stream.set_nonblocking(true);
             let mut buf = [0u8; TCP_BUFFER_SIZE];
             match stream.read(&mut buf) {
@@ -782,7 +804,11 @@ fn pump_udp_listeners(
             // `WardenVpnService.addDnsServer(...)` vergibt eine rein tunnelinterne Adresse
             // (s. `dns_sentinel`-Parameterdoc an `start_captured_tunnel`) — außerhalb des Tunnels
             // nicht erreichbar, deshalb hier auf einen echten Upstream-Resolver umgeschrieben.
-            let real_dst = if dst_addr == dns_sentinel { upstream_dns } else { dst_addr };
+            let real_dst = if dst_addr == dns_sentinel {
+                upstream_dns
+            } else {
+                dst_addr
+            };
             let key = FlowKey {
                 proto: Proto::Udp,
                 src_ip: meta.endpoint.addr.to_string(),
@@ -793,7 +819,8 @@ fn pump_udp_listeners(
             flow_sockets.entry(key.clone()).or_insert(handle);
             match nat.get(&key) {
                 Some(session) => {
-                    let stream = ManuallyDrop::new(unsafe { UdpSocket::from_raw_fd(session.external_fd) });
+                    let stream =
+                        ManuallyDrop::new(unsafe { UdpSocket::from_raw_fd(session.external_fd) });
                     let _ = stream.send(data);
                     nat.touch(&key, Instant::now());
                 }
@@ -810,9 +837,10 @@ fn spawn_udp_connect(key: FlowKey, socket_factory: Arc<dyn ProtectedSocketFactor
     thread::spawn(move || {
         let result = socket_factory.open_udp(key.dst_ip.clone(), key.dst_port);
         if let Ok(fd) = result
-            && let Ok(mut pending) = PENDING_UDP_FDS.lock() {
-                pending.push((key, fd));
-            }
+            && let Ok(mut pending) = PENDING_UDP_FDS.lock()
+        {
+            pending.push((key, fd));
+        }
     });
 }
 
