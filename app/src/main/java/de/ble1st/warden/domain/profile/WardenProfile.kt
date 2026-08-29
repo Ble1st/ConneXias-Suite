@@ -16,6 +16,26 @@ enum class WardenProfile {
     MAXIMAL,
     ;
 
+    /**
+     * Härtegrad, größer = strenger (2026-08-28, aus der Code-/Sicherheitsanalyse, Befund Q-1).
+     *
+     * Diese Ordnung ist **keine Konvention, sondern eine Tatsache über [WardenProfileSpec]**: die
+     * drei Mengen sind echt ineinander geschachtelt (`ALLTAG ⊂ REISE ⊂ MAXIMAL`), ein höheres
+     * Profil schaltet also ausschließlich zusätzliche Safeguards ein und nie einen ab.
+     * `WardenProfileSpecTest.strengthOrderMatchesSubsetOrder` prüft genau das — ohne diesen Test
+     * könnte eine spätere Umsortierung der Mengen die Ordnung stillschweigend zur Lüge machen,
+     * und [AutoProfileDecision] würde eine Verschärfung für eine Abschwächung halten.
+     *
+     * Bewusst ein eigenes Feld statt `ordinal`: die Deklarationsreihenfolge einer Enum ist keine
+     * Zusage, auf die sich sicherheitsrelevante Logik stützen sollte.
+     */
+    val strength: Int
+        get() = when (this) {
+            ALLTAG -> 0
+            REISE -> 1
+            MAXIMAL -> 2
+        }
+
     val label: String
         get() = when (this) {
             ALLTAG -> "Alltag"
@@ -40,9 +60,11 @@ object WardenProfileSpec {
                 "Kontosperre nach Recovery-Wipe und Schnellzugriff auf dem Sperrbildschirm aus. " +
                 "Kamera und USB bleiben nutzbar."
         WardenProfile.REISE ->
-            "Alltag plus Sensoren, unbekannte Medien und dauerhaftes USB-Daten-aus."
+            "Alltag plus Sensoren, unbekannte Medien, dauerhaftes USB-Daten-aus sowie " +
+                "USB-Dateiübertragung und Bluetooth-Dateifreigabe aus."
         WardenProfile.MAXIMAL ->
-            "Reise plus biometrie-freie Sperre, nur System-Tastatur/Bedienungshilfen, Audit-Logs. " +
+            "Reise plus biometrie-freie Sperre, nur System-Tastatur/Bedienungshilfen, Audit-Logs, " +
+                "2G-Sperre (IMSI-Catcher), NFC und VPN-Einrichtung aus. " +
                 "USB-Debug/Lockdown-Bündel bleibt hinter Presence."
     }
 
@@ -59,6 +81,8 @@ object WardenProfileSpec {
         "self_uninstall_protection",
         "force_stop_protection",
         "config_date_time_disabled",
+        // 2026-08-28: alltagsneutral, schließt aber den Zweitnutzer-Umgehungsweg.
+        "add_user_disabled",
     )
 
     private val REISE = ALLTAG + setOf(
@@ -68,6 +92,9 @@ object WardenProfileSpec {
         "physical_media_mount_disabled",
         "usb_data_signaling_disabled",
         "credential_config_disabled",
+        // 2026-08-28: Datenabfluss über USB/Bluetooth zu, Radios und Laden bleiben nutzbar.
+        "usb_file_transfer_disabled",
+        "bluetooth_sharing_disabled",
     )
 
     private val MAXIMAL = REISE + setOf(
@@ -77,5 +104,10 @@ object WardenProfileSpec {
         "security_logging_enabled",
         "network_logging_enabled",
         "system_update_policy_automatic",
+        // 2026-08-28: spürbare Einschränkungen (kein 2G-Fallback, kein NFC, kein eigenes VPN)
+        // — deshalb erst hier, nicht schon in Reise.
+        "cellular_2g_disabled",
+        "nfc_radio_disabled",
+        "config_vpn_disabled",
     )
 }

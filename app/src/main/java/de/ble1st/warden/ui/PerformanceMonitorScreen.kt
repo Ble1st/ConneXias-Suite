@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,12 +21,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import de.ble1st.warden.performance.AppUsageInfo
 import de.ble1st.warden.performance.BatterySnapshot
 import de.ble1st.warden.performance.DeviceMemorySnapshot
+import de.ble1st.warden.ui.theme.mono
 import kotlin.math.roundToInt
 
 /**
@@ -86,11 +88,11 @@ fun PerformanceMonitorScreen(
             }
             HorizontalDivider()
             Text(text = "Arbeitsspeicher", style = MaterialTheme.typography.titleMedium)
-            MemorySection(memory)
+            MemorySection(memory, onRetry = onRefresh)
 
             HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
             Text(text = "Akku", style = MaterialTheme.typography.titleMedium)
-            BatterySection(battery, batteryDrainPercentPerHour)
+            BatterySection(battery, batteryDrainPercentPerHour, onRetry = onRefresh)
 
             HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
             Text(text = "App-Aktivität (verdächtige Apps hervorgehoben)", style = MaterialTheme.typography.titleMedium)
@@ -103,15 +105,18 @@ fun PerformanceMonitorScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 4.dp),
             )
-            UsageSection(usageAccessGranted, usageFindings, suspiciousPackageNames, appLabels, onRequestUsageAccess)
+            UsageSection(usageAccessGranted, usageFindings, suspiciousPackageNames, appLabels, onRequestUsageAccess, onRefresh)
         }
     }
 }
 
 @Composable
-private fun MemorySection(memory: DeviceMemorySnapshot?) {
+private fun MemorySection(memory: DeviceMemorySnapshot?, onRetry: () -> Unit) {
     if (memory == null) {
-        ErrorStateRow(headline = "Speicherstatus nicht lesbar", detail = "ActivityManager nicht verfügbar.")
+        // Vorschlag V-12 (2026-08-29): derselbe zweite Versuch wie in V-6. Der
+        // "Aktualisieren"-Knopf oben tut dasselbe, steht aber je nach Bildschirmhöhe außer Sicht,
+        // sobald man bei einem der unteren Abschnitte angekommen ist.
+        ErrorStateRow(headline = "Speicherstatus nicht lesbar", detail = "ActivityManager nicht verfügbar.", onRetry = onRetry)
         return
     }
     val usedFraction = if (memory.totalMemBytes > 0) {
@@ -135,9 +140,9 @@ private fun MemorySection(memory: DeviceMemorySnapshot?) {
 }
 
 @Composable
-private fun BatterySection(battery: BatterySnapshot?, drainPercentPerHour: Double?) {
+private fun BatterySection(battery: BatterySnapshot?, drainPercentPerHour: Double?, onRetry: () -> Unit) {
     if (battery == null) {
-        ErrorStateRow(headline = "Akkustatus nicht lesbar", detail = "Kein ACTION_BATTERY_CHANGED-Broadcast erhalten.")
+        ErrorStateRow(headline = "Akkustatus nicht lesbar", detail = "Kein ACTION_BATTERY_CHANGED-Broadcast erhalten.", onRetry = onRetry)
         return
     }
     Column {
@@ -171,6 +176,7 @@ private fun UsageSection(
     suspiciousPackageNames: Set<String>,
     appLabels: Map<String, String>,
     onRequestUsageAccess: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     if (!usageAccessGranted) {
         Column {
@@ -184,28 +190,59 @@ private fun UsageSection(
         return
     }
     if (usageFindings == null) {
-        ErrorStateRow(headline = "Nutzungsdaten nicht lesbar", detail = "UsageStatsManager nicht verfügbar.")
+        ErrorStateRow(headline = "Nutzungsdaten nicht lesbar", detail = "UsageStatsManager nicht verfügbar.", onRetry = onRetry)
         return
     }
     if (usageFindings.isEmpty()) {
         EmptyStateRow(headline = "Keine Vordergrund-Aktivität in den letzten 24h")
         return
     }
-    LazyColumn(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        items(usageFindings, key = { it.packageName }) { info ->
+    // Plain Column statt LazyColumn: dieser Screen ist bereits als Ganzes per verticalScroll
+    // gescrollt (Memory-/Akku-Abschnitte oben) — eine LazyColumn darin würde mit unbegrenzter
+    // Höhe gemessen und crasht hart (IllegalStateException, Compose erlaubt das strukturell
+    // nicht). Unproblematisch, weil die Liste ohnehin auf "Fremd-Apps mit Vordergrund-Aktivität
+    // in den letzten 24h" begrenzt ist, keine potenziell tausende Einträge lange Liste.
+    // Vorschlag V-11 (2026-08-29): verdächtige Apps zuerst. Die Abschnittsüberschrift verspricht
+    // "verdächtige Apps hervorgehoben" — hervorgehoben waren sie bisher nur farblich, standen aber
+    // weiter irgendwo in der Nutzungszeit-Reihenfolge. Innerhalb beider Gruppen weiter nach
+    // Vordergrundzeit absteigend, also unverändert die bisherige Ordnung.
+    val ordered = remember(usageFindings, suspiciousPackageNames) {
+        usageFindings.sortedWith(
+            compareByDescending<AppUsageInfo> { it.packageName in suspiciousPackageNames }
+                .thenByDescending { it.totalForegroundTimeMillis },
+        )
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (info in ordered) {
             val suspicious = info.packageName in suspiciousPackageNames
+            val label = appLabels[info.packageName] ?: info.packageName
+            val duration = formatDuration(info.totalForegroundTimeMillis)
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    // Vorschlag V-11: diese Zeilen hatten bisher gar keine Semantik — App-Name,
+                    // Paketname und Nutzungsdauer waren drei getrennte Knoten, die Dauer damit
+                    // ohne erkennbaren Bezug zur App darüber. Das "⚠" trug die Verdachtsmarkierung
+                    // ausschließlich als Zeichen; je nach Vorlesehilfe wurde es als "Warnzeichen"
+                    // oder gar nicht angesagt. Jetzt steht sie als Wort in der Beschreibung.
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = buildString {
+                            append(label).append(", ").append(info.packageName)
+                            append(", ").append(duration).append(" im Vordergrund")
+                            if (suspicious) append(", als verdächtig eingestuft")
+                        }
+                    },
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(
-                        text = (appLabels[info.packageName] ?: info.packageName) + if (suspicious) " ⚠" else "",
+                        text = label + if (suspicious) " ⚠" else "",
                         color = if (suspicious) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     )
-                    Text(text = info.packageName, style = MaterialTheme.typography.bodySmall)
+                    Text(text = info.packageName, style = MaterialTheme.typography.bodySmall.mono())
                 }
-                Text(text = formatDuration(info.totalForegroundTimeMillis), style = MaterialTheme.typography.bodySmall)
+                Text(text = duration, style = MaterialTheme.typography.bodySmall)
             }
         }
     }

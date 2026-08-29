@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -56,15 +57,40 @@ fun SectionLabel(text: String) {
  * das für die meisten hier gebrauchten Konzepte (Schild, Apps, Verlauf, Wiederherstellung) kein
  * passendes Icon enthält. Ein Text-Kürzel in einer kleinen Box braucht kein einziges zusätzliches
  * Icon und bleibt im selben Monospace-Terminal-Stil wie der Rest der App.
+ *
+ * **Vorlesehilfe (Vorschlag U-7, 2026-08-29):** die Zeile setzte vorher
+ * `contentDescription = "$title, $subtitle"` über ein einfaches `semantics {}` — mit zwei Folgen.
+ * Erstens fehlte das [badge] darin komplett: die Fund-Anzahl des Sicherheits-Scanners, also genau
+ * die Information, wegen der die Zeile überhaupt Aufmerksamkeit verdient, war für TalkBack
+ * unsichtbar. Zweitens *überschreibt* ein einfaches `semantics {}` die Kinderknoten nicht, sondern
+ * tritt neben sie — Titel und Untertitel wurden dadurch doppelt vorgelesen.
+ * `clearAndSetSemantics` ersetzt den Teilbaum stattdessen vollständig durch eine einzige,
+ * vollständige Beschreibung.
  */
 @Composable
-fun MenuRow(title: String, onClick: () -> Unit, subtitle: String? = null, badge: String? = null, tag: String? = null) {
+fun MenuRow(
+    title: String,
+    onClick: () -> Unit,
+    subtitle: String? = null,
+    badge: String? = null,
+    /** Vorschlag V-2 (2026-08-29): färbt das Badge in die Fehlerfarbe. Bewusst ein eigener
+     * Schalter statt "Badge > 0 ⇒ rot" — die Dringlichkeit hängt am Schweregrad, nicht an der
+     * Anzahl, und ein dauerhaft rotes Badge für harmlose Info-Funde nutzt die Farbe ab. */
+    badgeAlarming: Boolean = false,
+    tag: String? = null,
+) {
+    val spoken = buildString {
+        append(title)
+        subtitle?.let { append(", ").append(it) }
+        // "3 Funde" statt eines nackten "3" — die Zahl allein sagt einer Vorlesehilfe nichts.
+        badge?.let { append(", ").append(it).append(" Funde") }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .clickable(onClick = onClick)
-            .semantics { contentDescription = subtitle?.let { "$title, $it" } ?: title },
+            .clearAndSetSemantics { contentDescription = spoken },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -75,7 +101,16 @@ fun MenuRow(title: String, onClick: () -> Unit, subtitle: String? = null, badge:
                 Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        badge?.let { Badge { Text(it) } }
+        badge?.let {
+            if (badgeAlarming) {
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ) { Text(it) }
+            } else {
+                Badge { Text(it) }
+            }
+        }
         Icon(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,

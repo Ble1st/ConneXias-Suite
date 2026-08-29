@@ -1,0 +1,16 @@
+# R8-Keep-Regeln für die "Netz-Sperre" (2026-08-27, connexias-barbican) — Geschwister von
+# warden.keep, identische Begründung (s. dortiger Kopfkommentar für die volle Herleitung: JNA
+# `Native.register()` bindet `external fun`s per Methodenname, `Structure`-Unterklassen tragen ihr
+# Speicherlayout als `@Structure.FieldOrder`-Namens-Strings, beides überlebt R8-Renaming nicht).
+#
+# Zusätzlich zu warden.keeps drei Punkten kommt hier ein vierter dazu: `ProtectedSocketFactory`
+# ist ein UniFFI-*Callback*-Interface — Rust ruft `WardenVpnService.openTcp`/`openUdp` über
+# denselben namensbasierten JNA-Callback-Mechanismus wie `KeyWrapper` zurück nach Kotlin (s.
+# `callback.rs`-Klassendoc). `WardenVpnService` selbst braucht deshalb ebenfalls eine eigene
+# -keep-Regel, nicht nur das generierte `uniffi.connexias_barbican`-Paket — anders als
+# `KeystoreKek` (nur intern über `EnvelopeFile` referenziert) wird `WardenVpnService` sonst
+# nirgends per direktem Methodenaufruf auf `openTcp`/`openUdp` erreicht, R8 sähe diese beiden
+# Methoden ansonsten als toten Code an.
+-keep class uniffi.connexias_barbican.** { *; }
+-keepclassmembers class uniffi.connexias_barbican.** { *; }
+-keep class de.ble1st.warden.vpn.WardenVpnService { *; }

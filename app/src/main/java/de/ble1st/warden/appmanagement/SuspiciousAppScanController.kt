@@ -10,6 +10,7 @@ import de.ble1st.warden.domain.appmanagement.SigningCertChangeDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppFinding
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppScanDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
+import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.domain.appmanagement.VersionDowngradeDecision
 import de.ble1st.warden.domain.pin.WardenLockTaskAutoEngageDecision
 import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
@@ -58,14 +59,28 @@ import de.ble1st.warden.wardenAuditLog
  * eigentliche Bedrohungsmodell (Social-Engineering-App fordert Admin/Accessibility) betrifft
  * praktisch immer nachträglich vom Nutzer installierte, nicht-System-Apps.
  *
- * **[scan] hat seit Feature 4/5 einen dokumentierten Nebeneffekt:** es aktualisiert die
- * Signatur-/Aktivierungs-Baselines ([SigningCertHistoryStore]/[ActivationHistoryStore]) für den
- * *nächsten* Aufruf — die ursprüngliche "reine Erkennung, ohne etwas zu verändern"-Eigenschaft
- * gilt jetzt nur noch bezogen auf den Gerätezustand (DPM/PackageManager/Accessibility), nicht
- * mehr auf Wardens eigenen Baseline-Cache. Bewusst in Kauf genommen statt einer separaten
- * "commit"-Methode: jeder Aufrufer (UI-Öffnen, periodischer Worker, manueller Scan) soll dieselbe,
- * konsistente Baseline vorwärtsbewegen — ein Fenster, in dem zwei Aufrufer unterschiedliche
- * Baselines sähen, wäre die schlechtere Alternative.
+ * **Wer die Baselines vorrücken darf (Korrektur 2026-08-28, aus der Code-/Sicherheitsanalyse):**
+ * ausschließlich [scanAndEnforce] und [runImmediateScan] — also genau die beiden Wege, die einen
+ * Fund auch *behandeln* (durchsetzen und/oder benachrichtigen). [scan]/[scanWithDetails] werten
+ * nur noch aus.
+ *
+ * Vorher committete [scan] selbst, mit der Begründung, alle Aufrufer sollten dieselbe Baseline
+ * teilen. Das war der falsche Kompromiss: die vier `CRITICAL`-Signale
+ * ([SuspiciousSignal.SIGNING_CERT_CHANGED], [SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED],
+ * [SuspiciousSignal.ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED], [SuspiciousSignal.VERSION_DOWNGRADED])
+ * sind **Einmal-Signale** — sie existieren nur, solange die gespeicherte Baseline vom Ist-Zustand
+ * abweicht. Da [scanWithDetails] über [de.ble1st.warden.bus.ConcordBus.listSuspiciousAppFindings]
+ * sowohl vom Dashboard (bei jedem Öffnen) als auch von
+ * [de.ble1st.warden.profile.AutoProfileController] (alle 15 Minuten) aufgerufen wird, verbrauchte
+ * in aller Regel ein *Lesepfad* das Signal, bevor [SuspiciousAppScanWorker] es überhaupt sah:
+ * keine Benachrichtigung, kein Auto-Einfrieren, kein Lock-Task-Auto-Engage für einen
+ * Zertifikatswechsel — und beim Auto-Profil eine Eskalation auf `MAXIMAL`, die beim nächsten Lauf
+ * mangels Fund gleich wieder zurückfiel.
+ *
+ * Der befürchtete Nachteil (zwei Aufrufer sehen unterschiedliche Baselines) tritt dadurch nicht
+ * ein: ein reiner Lesepfad *verändert* jetzt nichts, er sieht denselben offenen Fund so lange, bis
+ * ein behandelnder Lauf ihn quittiert. Genau das ist gewollt — ein noch nicht behandeltes Signal
+ * soll sichtbar bleiben.
  *
  * [trust] friert nicht nur nichts mehr automatisch ein, sondern hebt ein bereits erfolgtes
  * automatisches Einfrieren sofort wieder auf und zieht eine offene Benachrichtigung zurück —
@@ -112,16 +127,20 @@ class SuspiciousAppScanController(
         }
     }
 
-    /** Evaluate + commit baselines. UI list reads use this; scheduled/immediate passes use
-     * [prepareScan] so enforce/notify see the same transition signals before baselines move. */
-    fun scan(): List<SuspiciousAppFinding> {
-        val prepared = prepareScan()
-        prepared.commitBaselines()
-        return prepared.findings
-    }
+    /**
+     * Reine Auswertung **ohne** Baseline-Commit — s. den "Wer die Baselines vorrücken darf"-Absatz
+     * im Klassendoc. Nur [scanAndEnforce] und [runImmediateScan] committen, weil nur sie den Fund
+     * auch tatsächlich behandeln (durchsetzen + benachrichtigen). Jeder reine Lesepfad (UI-Liste,
+     * [de.ble1st.warden.profile.AutoProfileController]) darf ein Transition-Signal sehen, aber
+     * nicht verbrauchen.
+     */
+    fun scan(): List<SuspiciousAppFinding> = prepareScan().findings
 
-    /** Wie [scan], aber angereichert mit Label/Ist-eingefroren für die UI. */
-    fun scanWithDetails(): List<SuspiciousAppFindingInfo> = enrich(scan())
+    /** Wie [scan], aber angereichert mit Label/Ist-eingefroren für die UI — ebenfalls ohne
+     * Baseline-Commit. Ein einziges [prepareScan] für beides (Befund Q-9, 2026-08-29): vorher
+     * `enrich(scan())`, was die Paketliste zweimal holte. */
+    fun scanWithDetails(): List<SuspiciousAppFindingInfo> =
+        prepareScan().let { prepared -> enrich(prepared.findings, prepared.labels) }
 
     /** Erkennung + Durchsetzung. Läuft nur, wenn [isEnabled]. Baselines werden nach dem
      * Enforce-Schritt geschrieben, damit Transition-Signale nicht vor der Notification verloren
@@ -131,6 +150,8 @@ class SuspiciousAppScanController(
         val prepared = prepareScan()
         enforce(prepared.findings)
         prepared.commitBaselines()
+        // Befund Q-9 (2026-08-29), s. runImmediateScan.
+        SuspiciousAppThreatLevelStore.record(context, prepared.findings)
         return prepared.findings
     }
 
@@ -179,14 +200,26 @@ class SuspiciousAppScanController(
         if (isEnabled()) {
             enforce(prepared.findings)
         }
-        val detailed = enrich(prepared.findings)
+        val detailed = enrich(prepared.findings, prepared.labels)
         notifyNewFindings(detailed)
         prepared.commitBaselines()
+        // Befund Q-9 (2026-08-29): der Bedrohungsstand wird hier festgehalten, damit
+        // AutoProfileController ihn lesen kann, statt alle 15 Minuten einen zweiten vollständigen
+        // Paket-Scan auszulösen — s. SuspiciousAppThreatLevelStore-Klassendoc.
+        SuspiciousAppThreatLevelStore.record(context, prepared.findings)
         return detailed
     }
 
+    /**
+     * [labels] wird aus dem *bereits* in [prepareScan] geholten `listInstalledApps()`-Ergebnis
+     * gebildet und an [enrich] durchgereicht (Befund Q-9, 2026-08-29). Vorher rief `enrich()` die
+     * Paketliste ein zweites Mal ab, obwohl `prepareScan()` sie unmittelbar davor schon hatte —
+     * ein voller `QUERY_ALL_PACKAGES`-Durchlauf pro Scan zu viel, und der teuerste Einzelschritt
+     * des ganzen Laufs.
+     */
     private class PreparedScan(
         val findings: List<SuspiciousAppFinding>,
+        val labels: Map<String, String>,
         private val commit: () -> Unit,
     ) {
         fun commitBaselines() = commit()
@@ -239,7 +272,10 @@ class SuspiciousAppScanController(
             systemPackageNames = systemPackageNames,
             trustedPackageNames = store.trustedPackages(),
         )
-        return PreparedScan(findings) {
+        return PreparedScan(
+            findings = findings,
+            labels = installedApps.associate { it.packageName to it.label },
+        ) {
             activationHistoryStore.recordActiveDeviceAdmins(currentActiveAdmins)
             activationHistoryStore.recordActiveAccessibilityServices(currentActiveAccessibility)
             currentFingerprints.forEach { (pkg, fingerprint) -> signingCertHistoryStore.record(pkg, fingerprint) }
@@ -247,8 +283,12 @@ class SuspiciousAppScanController(
         }
     }
 
-    private fun enrich(findings: List<SuspiciousAppFinding>): List<SuspiciousAppFindingInfo> {
-        val labels = appLister.listInstalledApps().associate { it.packageName to it.label }
+    /** [labels] kommt aus [PreparedScan] — s. dessen Klassendoc (Befund Q-9): nie selbst
+     * `listInstalledApps()` aufrufen, der Aufrufer hat die Liste bereits. */
+    private fun enrich(
+        findings: List<SuspiciousAppFinding>,
+        labels: Map<String, String>,
+    ): List<SuspiciousAppFindingInfo> {
         return findings.map { finding ->
             SuspiciousAppFindingInfo(
                 packageName = finding.packageName,
@@ -259,8 +299,20 @@ class SuspiciousAppScanController(
         }
     }
 
+    /**
+     * Automatisches Einfrieren wirkt nur ab [ThreatSeverity.WARNING] aufwärts (2026-08-28, aus
+     * der Code-/Sicherheitsanalyse, Befund S-7). Ein Fund entsteht bereits bei einem reinen
+     * `INFO`-Signal ([SuspiciousSignal.UNKNOWN_INSTALL_SOURCE]/
+     * [SuspiciousSignal.OVERLAY_PERMISSION_DECLARED], s. [ThreatSeverity]-Klassendoc) — auf einem
+     * Device-Owner-Gerät, das Warden selbst als rohe APK über GitHub Releases erreicht (also
+     * zwangsläufig sideload-installiert wurde), friert der Scanner ohne diese Schwelle praktisch
+     * jede seitlich installierte App ein, sobald er eingeschaltet wird — inklusive legitimer.
+     * `INFO`-Funde bleiben unverändert sichtbar (Dashboard, Benachrichtigung mit Aktionsknöpfen),
+     * lösen nur keine automatische Aktion mehr aus.
+     */
     private fun enforce(findings: List<SuspiciousAppFinding>) {
         for (finding in findings) {
+            if (ThreatSeverity.highest(finding.signals) < ThreatSeverity.WARNING) continue
             if (appManagementController.isFrozen(finding.packageName)) continue
             appManagementController.setFrozen(finding.packageName, true)
             val actuallyFrozen = appManagementController.isFrozen(finding.packageName)
@@ -288,6 +340,9 @@ class SuspiciousAppScanController(
                     TAG,
                     "Gefährliche Rechte automatisch entzogen: pkg=${finding.packageName} rechte=$revoked",
                 )
+                // Merken, was entzogen wurde — sonst kann [trust] es später nicht wiederherstellen
+                // (2026-08-29, Lückenschluss Feature 3, s. RevokedPermissionStore-Klassendoc).
+                RevokedPermissionStore.record(context, finding.packageName, revoked)
             }
         }
     }
@@ -297,8 +352,61 @@ class SuspiciousAppScanController(
         appManagementController.setFrozen(packageName, false)
         notifier.cancel(packageName)
         notifiedStore.clear(packageName)
+        // Gegenstück zum Entzug in [enforce]: ein Fehlalarm soll gefährliche Rechte nicht
+        // dauerhaft auf DENIED zurücklassen, nur weil der Fund inzwischen als vertrauenswürdig
+        // markiert wurde (2026-08-29, Lückenschluss Feature 3 "Permission Auto-Block").
+        val toRestore = RevokedPermissionStore.consume(context, packageName)
+        if (toRestore.isNotEmpty()) {
+            val restored = runCatching { permissionRevoker.restoreDefaultGrantState(packageName, toRestore) }
+                .getOrDefault(emptyList())
+            if (restored.isNotEmpty()) {
+                logStore.append(
+                    Log.WARN,
+                    TAG,
+                    "Automatisch entzogene Rechte wiederhergestellt: pkg=$packageName rechte=$restored",
+                )
+            }
+        }
         logStore.append(Log.WARN, TAG, "Als vertrauenswürdig markiert (Verdachtsscanner): pkg=$packageName")
     }
+
+    /**
+     * Manuelles Gegenstück zum automatischen Pfad in [enforce] (2026-08-29, Feature 3 "Permission
+     * Auto-Block" — der im Plan vorgesehene manuelle Baustein neben der bereits bestehenden
+     * automatischen Durchsetzung). Vom Permission-Audit-Bildschirm aus pro App aufrufbar, unabhängig
+     * von einem Verdachtsscanner-Fund — der Nutzer kann eine beliebige Fremd-App als "zu
+     * freizügig" einstufen, ohne dass sie erst als Verdachtsfund auffallen muss. Nutzt denselben
+     * [RevokedPermissionStore], damit ein späteres [trust] (falls die App auch als Verdachtsfund
+     * auftaucht) dieselben Rechte wiederherstellen kann wie bei einem automatischen Entzug.
+     */
+    fun manuallyRevokeDangerousPermissions(packageName: String): List<String> {
+        val revoked = runCatching { permissionRevoker.revokeDangerousPermissions(packageName) }
+            .getOrDefault(emptyList())
+        if (revoked.isNotEmpty()) {
+            RevokedPermissionStore.record(context, packageName, revoked)
+            logStore.append(Log.WARN, TAG, "Gefährliche Rechte manuell entzogen: pkg=$packageName rechte=$revoked")
+        }
+        return revoked
+    }
+
+    /** Gegenstück zu [manuallyRevokeDangerousPermissions] — stellt genau die über
+     * [RevokedPermissionStore] gemerkten Rechte wieder her, nicht alle aktuell deklarierten
+     * gefährlichen Rechte der App (die könnten inzwischen andere sein). */
+    fun manuallyRestoreDangerousPermissions(packageName: String): List<String> {
+        val toRestore = RevokedPermissionStore.consume(context, packageName)
+        if (toRestore.isEmpty()) return emptyList()
+        val restored = runCatching { permissionRevoker.restoreDefaultGrantState(packageName, toRestore) }
+            .getOrDefault(emptyList())
+        if (restored.isNotEmpty()) {
+            logStore.append(Log.WARN, TAG, "Gefährliche Rechte manuell wiederhergestellt: pkg=$packageName rechte=$restored")
+        }
+        return restored
+    }
+
+    /** Für die Anzeige im Permission-Audit-Bildschirm: ob für dieses Paket aktuell manuell/
+     * automatisch entzogene Rechte gemerkt sind, ohne sie zu konsumieren. */
+    fun hasRevokedPermissions(packageName: String): Boolean =
+        RevokedPermissionStore.peek(context, packageName).isNotEmpty()
 
     /** Von [SuspiciousAppActionReceiver] aufgerufen — Nutzer hat "Einfrieren" in der
      * Sicherheitsbenachrichtigung angetippt. [AppManagementController.setFrozen] prüft

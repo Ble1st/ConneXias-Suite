@@ -45,17 +45,18 @@ package de.ble1st.warden.domain.presence
  * Rückweg bleibt an einen *frischen* Nachweis gebunden, egal wie alt der App-Eintritts-Nachweis
  * ist — s. [de.ble1st.warden.presence.DestructiveActionExecutor.executeWithSessionPresence].
  *
- * **`LOCKDOWN_TASK_ENGAGE` (2026-08-25, "LockMode/Threat-Protection-Ausbau", auf ausdrücklichen
- * Nutzerwunsch: "ausarbeiten von LockMode (WardenLockTask) mit Auslöser, kein Kiosk-Modus"):**
- * der manuelle, presence-gated Weg, ein bereits per [de.ble1st.warden.registry
- * .WardenLockTaskAuthorizer] autorisiertes `startLockTask()` tatsächlich anzustoßen (bisher gab es
- * dafür nirgends einen Aufrufer, s. `de.ble1st.warden.pin.WardenLockTaskManager`-Klassendoc).
- * **Kein Kiosk-Modus:** `WardenLockTaskAuthorizer` setzt weiterhin nur `EMERGENCY_PRESERVING
- * _FEATURES` (Keyguard + Notfall-Anrufe bleiben erreichbar, kein `LOCK_TASK_FEATURE_NONE`), und
- * ein Ausstieg bleibt jederzeit über dieselbe presence-gated Aktion erreichbar (`stopLockTask()`
- * über `de.ble1st.warden.ui.WardenStatusActivity`, gated nur durch die ohnehin für den Bildschirm
- * nötige `WardenLockSession`, kein zweiter Presence-Prompt für den risikofreien Ausstieg selbst —
- * dieselbe "raus ist immer leicht" Haltung, die ein echter Kiosk-Modus gerade nicht hätte).
+ * **`LOCKDOWN_TASK_ENGAGE` (2026-08-25, "LockMode/Threat-Protection-Ausbau", ursprünglich auf
+ * ausdrücklichen Nutzerwunsch "kein Kiosk-Modus" — seit "Sentinel: eigenständige Kiosk-PIN-App"
+ * jetzt doch ein echter Kiosk-Modus, s. u.):** der manuelle, presence-gated Weg, [de.ble1st.warden
+ * .sentinelbridge.SentinelLockdownEngager] anzustoßen — autorisiert per [de.ble1st.warden.registry
+ * .WardenLockTaskAuthorizer] die separate Sentinel-App für Lock-Task und startet deren
+ * `SentinelActivity`, die dort `startLockTask()` in ihrem eigenen, fremden Prozess aufruft (nicht
+ * in Wardens eigenem — s. `SentinelLockdownEngager`-Klassendoc für die volle Begründung des
+ * Wechsels). `WardenLockTaskAuthorizer` setzt weiterhin nur `EMERGENCY_PRESERVING_FEATURES`
+ * (Keyguard + Notfall-Anrufe bleiben erreichbar), aber sonst *ist* es jetzt Kiosk: einziger
+ * Ausstieg ist Sentinels eigene, separate PIN direkt auf dem Gerät — **kein** Warden-Dashboard-Weg
+ * mehr (Warden selbst ist ja nicht mehr die eingesperrte App und kann `stopLockTask()` schon
+ * technisch nicht mehr für Sentinels Prozess aufrufen).
  * Zusätzlich zum manuellen Weg hier existiert ein automatischer Auslöser
  * (`de.ble1st.warden.domain.pin.WardenLockTaskAutoEngageDecision`) für kritische Bedrohungsfunde —
  * der läuft bewusst *nicht* über diese Aktion/[de.ble1st.warden.presence

@@ -8,8 +8,10 @@ package de.ble1st.warden.domain.pin
  * [WardenPinBlob], nicht aus einem Prozessspeicher-Zähler, der einen Reboot nicht überleben würde.
  *
  * **"Notruf bleibt unberührt":** strukturell dadurch erfüllt, dass diese Klasse den
- * Notruf-/Lock-Task-Pfad (`WardenLockTaskGate`) gar nicht kennt — der Backoff blockiert
- * ausschließlich `WardenPinDecision.evaluate`-Aufrufe, nie den systemeigenen Notruf-Weg.
+ * Notruf-/Lock-Task-Pfad (`de.ble1st.warden.sentinel.domain.SentinelLockTaskGate`, seit
+ * "Sentinel: eigenständige Kiosk-PIN-App" in einem eigenen Modul/Prozess) gar nicht kennt — der
+ * Backoff blockiert ausschließlich `WardenPinDecision.evaluate`-Aufrufe, nie den systemeigenen
+ * Notruf-Weg.
  *
  * **Konstantzeit-Vergleich:** der eigentliche Geheimnisvergleich läuft über
  * `Engine.verifyPassword` (Argon2id, Rust-Engine) — kein eigener naiver `==`/`contentEquals` auf

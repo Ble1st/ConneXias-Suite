@@ -1,7 +1,9 @@
 package de.ble1st.warden.logging
 
+import android.util.Log
 import de.ble1st.warden.crypto.EnvelopeFile
 import de.ble1st.warden.domain.logging.HashChainAnchorCodec
+import de.ble1st.warden.domain.logging.HashChainRetentionDecision
 import de.ble1st.warden.domain.logging.HashChainWipeGuardDecision
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -61,14 +63,45 @@ import java.security.MessageDigest
  * KEK-gewrappten Datei; [verifyChainIntegrity] vergleicht dagegen und meldet `Broken`, wenn die
  * Kette hinter diesem Anker zurückfällt. `null` (Default) deaktiviert die Prüfung vollständig —
  * bestehende Aufrufer/Tests ohne Anker verhalten sich unverändert wie vor dieser Ergänzung.
+ *
+ * **Aufbewahrungsgrenze (2026-08-28, aus der Code-/Sicherheitsanalyse, Befund Q-3):** die
+ * Rotation oben machte [append] billig, aber die Gesamtmenge wuchs weiterhin unbegrenzt —
+ * archivierte Segmente wurden nie verworfen, während [entries]/[verifyChainIntegrity] jedes davon
+ * lesen und entschlüsseln. Sind [keepArchivedSegments] **und** [retentionAnchorFile] gesetzt,
+ * werden nach einer Rotation die ältesten Segmente über diese Grenze hinaus gelöscht.
+ *
+ * Das ist bewusst nicht als schlichtes Löschen gebaut: eine gekürzte Kette ist von außen nicht
+ * von einer *manipulierten* zu unterscheiden — der erste verbliebene Eintrag zeigt nicht mehr auf
+ * [GENESIS_HASH]. Deshalb hält [retentionAnchorFile] Sequenznummer und Hash des zuletzt
+ * verworfenen Eintrags fest, und [de.ble1st.warden.domain.logging.HashChainRetentionDecision]
+ * entscheidet daraus, welcher Starthash für die verbliebene Kette gilt. Eine Kürzung **ohne**
+ * passenden Anker bleibt damit unverändert als `Broken` erkennbar; der Anker erklärt genau die
+ * eine Lücke, die Warden selbst erzeugt hat, und keine andere.
+ *
+ * Reihenfolge beim Verwerfen: erst der Anker, dann das Löschen. Ein Absturz dazwischen lässt
+ * Dateien stehen, die der Anker bereits als verworfen führt — die Kette beginnt dann weiterhin bei
+ * Sequenz 0 und verifiziert trotzdem (s. [HashChainRetentionDecision.startOf][de.ble1st.warden
+ * .domain.logging.HashChainRetentionDecision.startOf]). Andersherum entstünde eine Lücke, für die
+ * kein Anker existiert — also ein falscher Manipulationsalarm.
+ *
+ * Ohne beide Parameter (Default) wird nichts verworfen; das bisherige Verhalten bleibt exakt
+ * erhalten.
  */
 class HashChainLogStore(
     private val envelopeFile: EnvelopeFile,
     private val segmentCapacity: Int = DEFAULT_SEGMENT_CAPACITY,
     private val wipeGuardAnchorFile: EnvelopeFile? = null,
+    private val retentionAnchorFile: EnvelopeFile? = null,
+    private val keepArchivedSegments: Int? = null,
 ) {
     init {
         require(segmentCapacity > 0) { "segmentCapacity muss positiv sein: $segmentCapacity" }
+        require(keepArchivedSegments == null || keepArchivedSegments > 0) {
+            "keepArchivedSegments muss positiv sein: $keepArchivedSegments"
+        }
+        require(keepArchivedSegments == null || retentionAnchorFile != null) {
+            "Aufbewahrungsgrenze ohne Retention-Anker würde die Kettenprüfung brechen — s. Klassendoc"
+        }
     }
 
     private val archiveBaseName: String = envelopeFile.dataFile.nameWithoutExtension
@@ -80,6 +113,7 @@ class HashChainLogStore(
         if (activeChain.size >= segmentCapacity) {
             archiveActiveSegment(activeChain)
             activeChain = emptyList()
+            discardArchivesBeyondRetention()
         }
 
         val (previousHash, sequence) = tailOf(activeChain)
@@ -105,11 +139,85 @@ class HashChainLogStore(
 
     /** Prüft die gesamte Kette (alle Segmente) auf Konsistenz — s. Klassendoc — und, falls ein
      * [wipeGuardAnchorFile] übergeben wurde, zusätzlich gegen den Wipe-Guard-Anker. */
-    fun verifyChainIntegrity(): ChainVerificationResult {
-        val chain = entries()
-        val structural = verifyChainIntegrity(chain)
+    fun verifyChainIntegrity(): ChainVerificationResult = verifyLoadedChain(entries())
+
+    /**
+     * Wie [verifyChainIntegrity], aber über eine bereits geladene Kette (2026-08-28, Befund Q-3):
+     * die Log-Einsicht brauchte die Einträge ohnehin und ließ sie durch [verifyChainIntegrity]
+     * ein zweites Mal von der Platte lesen und entschlüsseln — bei mehreren Segmenten der
+     * teuerste Teil des ganzen Vorgangs, doppelt.
+     *
+     * [chain] muss die **vollständige** Kette sein (also das Ergebnis von [entries]): sowohl der
+     * Wipe-Guard als auch die Retention-Prüfung vergleichen gegen deren Enden. Eine gefilterte
+     * Teilliste würde beide fälschlich `Broken` melden.
+     */
+    fun verifyLoadedChain(chain: List<LogEntry>): ChainVerificationResult {
+        val start = expectedStartHash(chain)
+        if (start is HashChainRetentionDecision.Start.Unexplained) {
+            return ChainVerificationResult.Broken(chain.firstOrNull()?.sequence ?: -1L, "retention: ${start.reason}")
+        }
+        val startHash = (start as? HashChainRetentionDecision.Start.AfterDiscarded)?.hash ?: GENESIS_HASH
+        val structural = verifyChainIntegrity(chain, startHash)
         if (structural is ChainVerificationResult.Broken) return structural
         return checkWipeGuard(chain) ?: structural
+    }
+
+    /**
+     * Sequenznummer des zuletzt durch die Aufbewahrungsgrenze verworfenen Eintrags, oder `null`,
+     * wenn nie etwas verworfen wurde. Für die Log-Einsicht: dass die Ansicht nicht bei Sequenz 0
+     * beginnt, soll dort als Aufbewahrungsgrenze erklärt dastehen und nicht als fehlender Anfang.
+     */
+    fun discardedThroughSequence(): Long? {
+        val anchorFile = retentionAnchorFile ?: return null
+        if (!anchorFile.hasStorage()) return null
+        return HashChainAnchorCodec.decode(anchorFile.read()).first
+    }
+
+    /** Erwarteter Starthash der verbliebenen Kette — s. [HashChainRetentionDecision]. */
+    private fun expectedStartHash(chain: List<LogEntry>): HashChainRetentionDecision.Start {
+        val anchorFile = retentionAnchorFile
+        val anchorPresent = anchorFile != null && anchorFile.hasStorage()
+        val (anchorSequence, anchorHash) = if (anchorPresent) {
+            HashChainAnchorCodec.decode(anchorFile.read())
+        } else {
+            0L to ByteArray(0)
+        }
+        return HashChainRetentionDecision.startOf(
+            chainPresent = chain.isNotEmpty(),
+            firstSequence = chain.firstOrNull()?.sequence ?: 0L,
+            anchorPresent = anchorPresent,
+            anchorSequence = anchorSequence,
+            anchorHash = anchorHash,
+        )
+    }
+
+    /**
+     * Verwirft die ältesten Archivsegmente über [keepArchivedSegments] hinaus und schreibt vorher
+     * den Retention-Anker — s. Klassendoc für die Reihenfolge und warum sie so herum sein muss.
+     * Ohne konfigurierte Grenze passiert hier nichts.
+     */
+    private fun discardArchivesBeyondRetention() {
+        val anchorFile = retentionAnchorFile ?: return
+        val files = archiveFiles()
+        val discardCount = HashChainRetentionDecision.segmentsToDiscard(files.size, keepArchivedSegments)
+        if (discardCount == 0) return
+
+        val discard = files.take(discardCount)
+        val lastDiscarded = decodeEntries(envelopeFile.sibling(discard.last().name).read()).last()
+        anchorFile.write(HashChainAnchorCodec.encode(lastDiscarded.sequence, lastDiscarded.hash))
+        for (file in discard) {
+            if (!file.delete()) {
+                // Kein Abbruch: der Anker steht bereits, und ein liegengebliebenes Segment ist der
+                // harmlose Fall (die Kette beginnt dann weiter vorn und verifiziert trotzdem).
+                // Beim nächsten Lauf wird es erneut versucht.
+                Log.w(TAG, "Archivsegment ${file.name} nicht löschbar")
+            }
+        }
+        Log.i(
+            TAG,
+            "Aufbewahrungsgrenze: $discardCount Archivsegment(e) verworfen, " +
+                "Einträge bis Sequenz ${lastDiscarded.sequence} sind nicht mehr einsehbar",
+        )
     }
 
     /** `null`, solange kein Anker konfiguriert ist oder die Kette ihn (noch) einhält — sonst ein
@@ -185,6 +293,8 @@ class HashChainLogStore(
     }
 
     companion object {
+        private const val TAG = "HashChainLogStore"
+
         /** Anzahl Einträge, ab der ein Segment archiviert und durch ein frisches ersetzt wird. */
         const val DEFAULT_SEGMENT_CAPACITY = 500
 
@@ -247,9 +357,17 @@ sealed class ChainVerificationResult {
  * `EnvelopeFile`-Persistenz, damit die eigentliche Manipulationserkennung (Meilenstein-B.6-
  * Abnahmekriterium: "Eintrag entfernen → Kette bricht → erkannt") als schneller JVM-Unit-Test
  * ohne Gerät/Keystore prüfbar ist.
+ *
+ * [startHash] ist normalerweise [HashChainLogStore.GENESIS_HASH]; wurde der Anfang der Kette durch
+ * die Aufbewahrungsgrenze verworfen, steht dort der Hash des zuletzt verworfenen Eintrags (s.
+ * [de.ble1st.warden.domain.logging.HashChainRetentionDecision]). Der Default hält alle bisherigen
+ * Aufrufer unverändert.
  */
-internal fun verifyChainIntegrity(chain: List<LogEntry>): ChainVerificationResult {
-    var expectedPrevious = HashChainLogStore.GENESIS_HASH
+internal fun verifyChainIntegrity(
+    chain: List<LogEntry>,
+    startHash: ByteArray = HashChainLogStore.GENESIS_HASH,
+): ChainVerificationResult {
+    var expectedPrevious = startHash
     for (entry in chain) {
         if (!entry.previousHash.contentEquals(expectedPrevious)) {
             return ChainVerificationResult.Broken(

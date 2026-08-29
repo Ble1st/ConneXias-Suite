@@ -1,8 +1,9 @@
 [workspace]
 resolver = "3"
-# Nur "engine" — anders als im ConneXias-Framework-Quellprojekt (dort zusätzlich "archive" für
-# Steward und "barbican" für die VPN-Suite), beide bewusst nicht Teil dieses Projekts.
-members = ["engine"]
+# "engine" (Krypto) bleibt Workspace-Mitglied. "barbican" ("Netz-Sperre") ist
+# seit 2026-08-29 wieder aktiviert - Kernfehler (DNS-Blockliste/NAT-Relay verarbeitet keinen
+# Traffic) wurde behoben durch Polling-Reihenfolge-Fix in engine.rs.
+members = ["engine", "barbican"]
 
 [workspace.package]
 edition = "2024"

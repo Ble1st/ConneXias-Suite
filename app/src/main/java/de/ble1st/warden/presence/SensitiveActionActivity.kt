@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,9 +41,13 @@ import de.ble1st.warden.admin.WardenDeviceAdminReceiver
 import de.ble1st.warden.domain.presence.DestructiveCommandGuard
 import de.ble1st.warden.domain.presence.SensitiveAction
 import de.ble1st.warden.domain.presence.SensitiveActionDecisionResult
+import de.ble1st.warden.domain.presence.SensitiveActionOutcome
+import de.ble1st.warden.domain.pin.LockdownTriggerProfile
+import de.ble1st.warden.domain.pin.LockdownTriggerProfilePolicy
 import de.ble1st.warden.domain.registry.SafeguardRegistry
-import de.ble1st.warden.pin.WardenLockTaskDrillStorage
-import de.ble1st.warden.pin.WardenLockTaskManager
+import de.ble1st.warden.pin.LockdownTriggerProfileStore
+import de.ble1st.warden.pin.WardenLockTaskDrillFreshnessGate
+import de.ble1st.warden.sentinelbridge.SentinelLockdownEngager
 import de.ble1st.warden.registry.DeviceLockNowManager
 import de.ble1st.warden.registry.DeviceLockdownBundle
 import de.ble1st.warden.registry.MasterSwitch
@@ -53,6 +58,7 @@ import de.ble1st.warden.registry.SafeguardRegistryStore
 import de.ble1st.warden.wardenAuditLog
 import de.ble1st.warden.ui.theme.WardenTheme
 import de.ble1st.warden.ui.theme.WardenThemePrefs
+import kotlinx.coroutines.delay
 
 /**
  * Meilenstein F.2 (Konzept Abschnitt 2b/(7) Punkt 3): "Bestätigung out-of-band anzeigen ...
@@ -145,6 +151,15 @@ class SensitiveActionActivity : FragmentActivity() {
         // Lifecycle-Refresh-Mechanismus, den für eine einzelne Statuszeile neu einzuführen wäre
         // ein größerer Schritt, als "langsam" hier gerechtfertigt ist.
         val checkLockdownActive = { isLockdownModeActive(applicationContext) }
+        // "Lockdown-Auslöse-Profil" (2026-08-27): erlaubt es einem externen Einstiegspunkt
+        // (SentinelQuickTile unter LockdownTriggerProfile.STRICT), diese Activity mit einer
+        // bereits vorausgewählten Aktion zu öffnen, statt den Nutzer erneut aus allen sechs
+        // Aktionen wählen zu lassen. Ein unbekannter/fehlender Wert fällt auf den bisherigen
+        // Default zurück, kein Crash.
+        val preselectedAction = intent.getStringExtra(EXTRA_PRESELECTED_ACTION)
+            ?.let { runCatching { SensitiveAction.valueOf(it) }.getOrNull() }
+            ?: SensitiveAction.MASTER_SWITCH_REVERT
+        val lockdownTriggerProfile = LockdownTriggerProfileStore.load(applicationContext)
 
         setContent {
             WardenTheme(accent = accent) {
@@ -152,13 +167,15 @@ class SensitiveActionActivity : FragmentActivity() {
                     executionAllowed = executionAllowed,
                     checkLockdownActive = checkLockdownActive,
                     sessionAuthenticated = wardenLockSession.isAuthenticated(),
+                    initialAction = preselectedAction,
+                    lockdownTriggerProfile = lockdownTriggerProfile,
                     onConfirmSession = { action, confirmationText, onResult ->
-                        val decision = executor.executeWithSessionPresence(
+                        val outcome = executor.executeWithSessionPresence(
                             action,
                             confirmationText,
                             sessionAuthenticated = wardenLockSession.isAuthenticated(),
                         )
-                        onResult(describeDecision(action, decision))
+                        onResult(describeOutcome(action, outcome))
                     },
                     onConfirmBiometric = { action, confirmationText, onResult ->
                         presenceManager.request(
@@ -167,8 +184,8 @@ class SensitiveActionActivity : FragmentActivity() {
                         ) { result ->
                             when (result) {
                                 is PresenceManager.Result.Success -> {
-                                    val decision = executor.execute(action, confirmationText, result.proof)
-                                    onResult(describeDecision(action, decision))
+                                    val outcome = executor.execute(action, confirmationText, result.proof)
+                                    onResult(describeOutcome(action, outcome))
                                 }
                                 PresenceManager.Result.Unavailable ->
                                     onResult("⚠ Keine Biometrie eingerichtet — Aktion nicht möglich.")
@@ -179,8 +196,8 @@ class SensitiveActionActivity : FragmentActivity() {
                     },
                     onConfirmPin = { action, confirmationText, onResult ->
                         pendingPinPresenceResult = { granted ->
-                            val decision = executor.executeWithPinPresence(action, confirmationText, granted)
-                            onResult(describeDecision(action, decision))
+                            val outcome = executor.executeWithPinPresence(action, confirmationText, granted)
+                            onResult(describeOutcome(action, outcome))
                         }
                         pinPresenceLauncher.launch(
                             Intent(this, WardenPinActivity::class.java).apply {
@@ -194,6 +211,13 @@ class SensitiveActionActivity : FragmentActivity() {
     }
 
     companion object {
+        /** "Lockdown-Auslöse-Profil" (2026-08-27) — erlaubt [de.ble1st.warden.sentinelbridge
+         * .SentinelQuickTile] (unter [de.ble1st.warden.domain.pin.LockdownTriggerProfile.STRICT])
+         * diese Activity mit vorausgewähltem [SensitiveAction] zu öffnen, statt den Nutzer erneut
+         * aus allen sechs Aktionen wählen zu lassen — dieselbe Idee wie
+         * [WardenPinActivity.EXTRA_PRESENCE_REQUEST]. */
+        const val EXTRA_PRESELECTED_ACTION = "de.ble1st.warden.presence.SensitiveActionActivity.EXTRA_PRESELECTED_ACTION"
+
         /** Verkabelt Presence-/Rate-Limit-/Bestätigungs-Kette mit den echten
          * `DevicePolicyManager`-Aufrufen für `REBOOT` und `MasterSwitch.disarm()` für
          * `MASTER_SWITCH_REVERT` — dieselben drei bekannten C.2-Schalter wie `FailsafeActivity`
@@ -201,12 +225,10 @@ class SensitiveActionActivity : FragmentActivity() {
          * [DestructiveActionExecutor]).
          *
          * **`activity: Activity` statt bloß `Context`** (seit `LOCKDOWN_TASK_ENGAGE`,
-         * 2026-08-25): [WardenLockTaskManager]/`Activity.startLockTask()` verlangt laut Android-
-         * Dokumentation zwingend eine laufende `Activity`, kein bloßer `Context` genügt — anders
-         * als jede andere hier verkabelte Aktion. Diese Activity selbst (nicht
-         * `WardenStatusActivity` darunter im Task-Stack) genügt: `startLockTask()` sperrt laut
-         * Dokumentation den gesamten *Task*, unabhängig davon, welche seiner Activities den Aufruf
-         * macht. */
+         * 2026-08-25) — nicht mehr technisch zwingend seit "Sentinel: eigenständige Kiosk-PIN-
+         * App" (`startLockTask()` läuft jetzt in Sentinels eigenem Prozess, nicht mehr hier), aber
+         * beibehalten: kein Grund, die Signatur zu verschmälern, nur weil der konkrete Aufruf
+         * jetzt ein reiner `Context`-Verbraucher ist. */
         private fun buildExecutor(activity: Activity): DestructiveActionExecutor {
             val context = activity.applicationContext
             val admin = ComponentName(context, WardenDeviceAdminReceiver::class.java)
@@ -240,8 +262,9 @@ class SensitiveActionActivity : FragmentActivity() {
                 // "nie ein potenziell veraltetes Bit cachen"-Vorbehalt wie bei jedem anderen
                 // isActive()-Lesezugriff in diesem Projekt).
                 performLockTaskEngage = {
-                    WardenLockTaskManager(activity).startIfPermitted(
-                        emergencyCallDrillPassed = WardenLockTaskDrillStorage.isConfirmed(context),
+                    SentinelLockdownEngager.engage(
+                        context = context,
+                        emergencyCallDrillPassed = WardenLockTaskDrillFreshnessGate.effectiveEmergencyCallDrillPassed(context),
                     )
                 },
             )
@@ -258,6 +281,12 @@ class SensitiveActionActivity : FragmentActivity() {
     }
 }
 
+/** "Lockdown-Auslöse-Profil" (2026-08-27) — Kühlzeit nach Bestätigungstext-Match, nur unter
+ * [de.ble1st.warden.domain.pin.LockdownTriggerProfile.STRICT] und nur für
+ * [SensitiveAction.LOCKDOWN_TASK_ENGAGE] wirksam, s. `SensitiveActionScreen`. */
+private const val STRICT_LOCKDOWN_COOLDOWN_MILLIS = 3_000L
+private const val COOLDOWN_TICK_MILLIS = 200L
+
 private fun describeAction(action: SensitiveAction): String = when (action) {
     SensitiveAction.WIPE_DATA -> "Nur Protokoll — wipeData() bleibt bewusst unverkabelt"
     SensitiveAction.REBOOT -> "Startet das Gerät neu, wenn die Debug-Build-Sperre nicht greift"
@@ -266,20 +295,29 @@ private fun describeAction(action: SensitiveAction): String = when (action) {
     SensitiveAction.LOCKDOWN_MODE_ARM ->
         "USB aus, Safe Boot/Werksreset/OEM-Unlock/Debugging blockiert. Rückweg: Alle Safeguards zurücksetzen."
     SensitiveAction.LOCKDOWN_TASK_ENGAGE ->
-        "App-Lock (kein Kiosk-Modus — Notruf/Keyguard bleiben erreichbar). Braucht bestätigten " +
-            "Notruf-Drill (Safeguards ▸ Lockdown-Modus). Ausstieg jederzeit über \"App-Lock beenden\"."
+        "Echter Kiosk-Modus über die separate Sentinel-App — Notruf/Keyguard bleiben erreichbar, " +
+            "sonst nichts. Braucht bestätigten Notruf-Drill (Safeguards ▸ Lockdown-Modus) und eine " +
+            "installierte Sentinel-App. Ausstieg nur über Sentinels eigene PIN auf dem Gerät selbst."
 }
 
-private fun describeDecision(action: SensitiveAction, decision: SensitiveActionDecisionResult): String = when (decision) {
-    SensitiveActionDecisionResult.Approved -> if (action == SensitiveAction.WIPE_DATA) {
-        "✓ Bestätigt — Stub protokolliert (wipeData() bewusst weiterhin nicht verkabelt)."
-    } else {
-        "✓ Bestätigt — real ausgeführt und protokolliert."
-    }
+/** Befund Q-5 (2026-08-29): nimmt jetzt [SensitiveActionOutcome] statt der reinen
+ * Vorab-Entscheidung entgegen — sonst zeigte ein real fehlgeschlagenes `reboot()`/
+ * `MasterSwitch.disarm()`/… hier trotzdem "✓ real ausgeführt", weil der alte Rückgabewert
+ * ([SensitiveActionDecisionResult]) die Ausführung selbst gar nicht kannte. */
+private fun describeOutcome(action: SensitiveAction, outcome: SensitiveActionOutcome): String = when (outcome) {
+    is SensitiveActionOutcome.Denied -> describeDeniedReason(outcome.reason)
+    SensitiveActionOutcome.ExecutedSuccessfully -> "✓ Bestätigt — real ausgeführt und protokolliert."
+    is SensitiveActionOutcome.ExecutedWithError -> "⚠ Bestätigt, aber Ausführung fehlgeschlagen: ${outcome.detail}"
+    SensitiveActionOutcome.ExecutedAsStub -> "✓ Bestätigt — Stub protokolliert (wipeData() bewusst weiterhin nicht verkabelt)."
+}
+
+private fun describeDeniedReason(reason: SensitiveActionDecisionResult): String = when (reason) {
     SensitiveActionDecisionResult.ExecutionBlocked -> "⚠ Debug-Build — destruktive Kommandos hart abgeschaltet (F.4)."
     SensitiveActionDecisionResult.RateLimited -> "⚠ Zu viele Versuche — bitte kurz warten."
     SensitiveActionDecisionResult.WrongConfirmationText -> "⚠ Bestätigungstext stimmte nicht."
     SensitiveActionDecisionResult.PresenceNotProven -> "⚠ Presence-Nachweis fehlgeschlagen."
+    SensitiveActionDecisionResult.Approved ->
+        error("SensitiveActionOutcome.Denied wird nie mit reason=Approved erzeugt, s. dessen Klassendoc")
 }
 
 @Composable
@@ -287,11 +325,13 @@ private fun SensitiveActionScreen(
     executionAllowed: Boolean,
     checkLockdownActive: () -> Boolean?,
     sessionAuthenticated: Boolean,
+    initialAction: SensitiveAction,
+    lockdownTriggerProfile: LockdownTriggerProfile,
     onConfirmSession: (SensitiveAction, String, (String) -> Unit) -> Unit,
     onConfirmBiometric: (SensitiveAction, String, (String) -> Unit) -> Unit,
     onConfirmPin: (SensitiveAction, String, (String) -> Unit) -> Unit,
 ) {
-    var selectedAction by remember { mutableStateOf(SensitiveAction.MASTER_SWITCH_REVERT) }
+    var selectedAction by remember { mutableStateOf(initialAction) }
     var confirmationText by remember { mutableStateOf("") }
     var statusMessage by remember { mutableStateOf("") }
     // "Arbeite langsam am Lockdownmodus", zweiter Schritt: rein informative Statuszeile, kein
@@ -366,12 +406,36 @@ private fun SensitiveActionScreen(
             // machen, nicht nur die eigentliche Aktionsausführung. Die Warnung oben bleibt
             // sichtbar, das Ergebnis zeigt korrekt "ExecutionBlocked" (`describeDecision`).
             val confirmEnabled = confirmationText == selectedAction.confirmationPhrase
+            // "Lockdown-Auslöse-Profil" (2026-08-27): unter LockdownTriggerProfile.STRICT bleibt
+            // für LOCKDOWN_TASK_ENGAGE der Session-Presence-Kurzweg unten strukturell deaktiviert,
+            // obwohl SensitiveAction.allowsSessionPresence weiterhin true ist (die Enum selbst
+            // bleibt unangetastet — dieselbe lokale Override-Haltung wie überall sonst in diesem
+            // Screen: die Entscheidung wird hier ausgewertet, nicht am Enum geändert). Dazu eine
+            // kurze Kühlzeit nach Phrasen-Match, bevor die verbleibenden zwei Presence-Buttons
+            // überhaupt antippbar werden — verhindert einen Reflex-Tap direkt nach dem Tippen.
+            val forcedFullPresence = selectedAction == SensitiveAction.LOCKDOWN_TASK_ENGAGE &&
+                !LockdownTriggerProfilePolicy.allowSessionPresenceReuse(lockdownTriggerProfile)
+            var cooldownRemainingMillis by remember(selectedAction) { mutableStateOf(0L) }
+            LaunchedEffect(confirmEnabled, selectedAction) {
+                if (forcedFullPresence && confirmEnabled) {
+                    var remaining = STRICT_LOCKDOWN_COOLDOWN_MILLIS
+                    cooldownRemainingMillis = remaining
+                    while (remaining > 0) {
+                        delay(COOLDOWN_TICK_MILLIS)
+                        remaining = (remaining - COOLDOWN_TICK_MILLIS).coerceAtLeast(0)
+                        cooldownRemainingMillis = remaining
+                    }
+                } else {
+                    cooldownRemainingMillis = 0L
+                }
+            }
+            val presenceButtonsEnabled = confirmEnabled && cooldownRemainingMillis <= 0
             // WardenLock (Finalisierungsphase 2026-08-24, auf Nutzerwunsch): für die vier
             // session-fähigen Aktionen genügt der beim App-Eintritt bereits erbrachte Nachweis —
             // kein zweiter Biometrie-/PIN-Prompt hier. `WIPE_DATA` (`allowsSessionPresence=false`)
             // behält den bisherigen Zwei-Wege-Presence-Flow unverändert, s. `SensitiveAction`-
             // Klassendoc.
-            if (selectedAction.allowsSessionPresence && sessionAuthenticated) {
+            if (selectedAction.allowsSessionPresence && sessionAuthenticated && !forcedFullPresence) {
                 TextButton(
                     enabled = confirmEnabled,
                     onClick = {
@@ -384,8 +448,15 @@ private fun SensitiveActionScreen(
                     Text("Bestätigen")
                 }
             } else {
+                if (forcedFullPresence && cooldownRemainingMillis > 0) {
+                    Text(
+                        text = "Streng-Profil: bitte warten (${(cooldownRemainingMillis / 1000.0)}s)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 TextButton(
-                    enabled = confirmEnabled,
+                    enabled = presenceButtonsEnabled,
                     onClick = {
                         onConfirmBiometric(selectedAction, confirmationText) { message ->
                             statusMessage = message
@@ -400,7 +471,7 @@ private fun SensitiveActionScreen(
                 // Geräte ohne Class-3-Sensor — Threat Model T4 sieht beide von Anfang an als
                 // gleichwertige Alternativen vor, kein "Fallback zweiter Klasse".
                 TextButton(
-                    enabled = confirmEnabled,
+                    enabled = presenceButtonsEnabled,
                     onClick = {
                         onConfirmPin(selectedAction, confirmationText) { message ->
                             statusMessage = message

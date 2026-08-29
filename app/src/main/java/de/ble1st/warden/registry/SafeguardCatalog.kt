@@ -38,6 +38,15 @@ object SafeguardCatalog {
         UserRestrictionSafeguard.factoryResetDisabled(context),
         UserRestrictionSafeguard.safeBootDisabled(context),
         UserRestrictionSafeguard.modifyAccountsDisabled(context),
+        // "Fehlende Restriction-Abdeckung" (2026-08-28): sechs bislang ungenutzte DISALLOW_*-
+        // Restriktionen mit direktem Bezug zum Bedrohungsmodell, s. jeweiliges Factory-Doc in
+        // UserRestrictionSafeguard für Begründung und Profil-Zuordnung.
+        UserRestrictionSafeguard.addUserDisabled(context),
+        UserRestrictionSafeguard.cellular2gDisabled(context),
+        UserRestrictionSafeguard.configVpnDisabled(context),
+        UserRestrictionSafeguard.usbFileTransferDisabled(context),
+        UserRestrictionSafeguard.nfcRadioDisabled(context),
+        UserRestrictionSafeguard.bluetoothSharingDisabled(context),
         // "LockMode/Threat-Protection-Ausbau" (2026-08-25, auf Nutzerwunsch "als Schalter unter
         // Safeguards"): weiterhin auch DeviceLockdownBundle-Mitglied, s.
         // UserRestrictionSafeguard.debuggingFeaturesDisabled-Klassendoc für die Risiko-Begründung.
@@ -45,6 +54,32 @@ object SafeguardCatalog {
         FactoryResetProtectionSafeguard(context),
         // Permanent USB signaling off — independent of UsbAutoLockController (screen-lock poll).
         UsbDataSignalingSafeguard(context),
+        // "Sentinel: eigenständige Kiosk-PIN-App", Live-Drill-Folgearbeit (2026-08-26): automatisch
+        // scharf geschaltet direkt bei erfolgreicher Silent-Installation
+        // (SentinelInstallResultReceiver), nicht erst hier — s. SentinelUninstallProtectionSafeguard
+        // -Klassendoc. Registrierung hier sorgt für Boot-Reconciliation + MasterSwitch-Abdeckung.
+        SentinelUninstallProtectionSafeguard(context),
+        // "Netz-Sperre" (2026-08-27, Kernfehler behoben und reaktiviert 2026-08-29 — s.
+        // WardenApplication-Klassendoc): NetLockdownAuthorizer existiert im aktiven Build (auch
+        // als DeviceLockdownBundle-Mitglied, s. dortige members-Liste) und ist trotzdem bewusst
+        // NICHT hier registriert,
+        // obwohl es die "beides" (Standalone + DeviceLockdownBundle-Mitglied) genannte
+        // Nutzeranforderung zunächst nahelegt — anders als die simplen Boolean-Toggles um es herum
+        // braucht dessen *korrektes* apply() eine Lockdown-Allowlist (s. dessen Klassendoc), die
+        // der generische, no-arg-basierte RegistryReconciler/PersistentSafeguardRegistry-Pfad nicht
+        // liefern kann. Würde man es trotzdem hier registrieren, bekäme "net_lockdown" einen
+        // *zweiten*, unabhängigen Soll-Zustand in SafeguardRegistryStore (parallel zu
+        // NetLockdownController/NetLockdownStore) — und jeder MasterSwitch/Failsafe-Aufruf, der
+        // generisch registry.revert("net_lockdown") aufruft, würde diesen zweiten Soll-Zustand auf
+        // "false" persistieren. Ein späteres echtes NetLockdownController.arm() aktualisiert diesen
+        // zweiten Soll-Zustand nie — der nächste Boot sähe dann fälschlich "Soll=false, Ist=true"
+        // und würde die Netz-Sperre über den generischen RegistryReconciler wieder entschärfen,
+        // parallel zu (und im Widerspruch mit) reconcileNetLockdown()s eigener, korrekter
+        // Boot-Reconciliation. "Standalone" wird stattdessen wie im ConneXias-Framework-
+        // Quellprojekt gelöst: ein eigener Ein/Aus-Schalter in NetworkScreen, der direkt
+        // NetLockdownController.arm()/disarm() aufruft, ganz ohne den generischen Safeguard-
+        // Registry-Pfad — "DeviceLockdownBundle-Mitglied" bleibt trotzdem erfüllt, s. dortige
+        // members-Liste.
     )
 
     fun registerReversible(registry: PersistentSafeguardRegistry, context: Context) {

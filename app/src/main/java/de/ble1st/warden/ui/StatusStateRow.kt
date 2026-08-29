@@ -1,6 +1,7 @@
 package de.ble1st.warden.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,7 +30,18 @@ import androidx.compose.ui.unit.dp
  * s. [MenuComponents.kt]-Kommentar).
  */
 @Composable
-fun ErrorStateRow(headline: String, detail: String, modifier: Modifier = Modifier) {
+fun ErrorStateRow(
+    headline: String,
+    detail: String,
+    modifier: Modifier = Modifier,
+    /** Vorschlag V-6 (2026-08-29): optionaler zweiter Versuch. Ein fehlgeschlagener Ladevorgang
+     * war bisher eine Sackgasse — der einzige Weg zu einem neuen Versuch war, den Bildschirm zu
+     * verlassen und wieder zu betreten. Gerade die häufigste Ursache (DPM-Aufruf schlägt fehl,
+     * weil das System kurz nach dem Boot noch nicht so weit ist) ist die, die beim zweiten Versuch
+     * schlicht funktioniert. `null` lässt die Schaltfläche weg — für Fehlerzustände ohne
+     * wiederholbaren Ladevorgang. */
+    onRetry: (() -> Unit)? = null,
+) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Icon(
             imageVector = Icons.Filled.Warning,
@@ -44,6 +57,11 @@ fun ErrorStateRow(headline: String, detail: String, modifier: Modifier = Modifie
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp),
             )
+            onRetry?.let {
+                TextButton(onClick = it, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                    Text("Erneut versuchen")
+                }
+            }
         }
     }
 }

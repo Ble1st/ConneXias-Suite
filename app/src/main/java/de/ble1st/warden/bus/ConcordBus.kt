@@ -21,6 +21,7 @@ import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.integrity.RootIndicatorScanner
 import de.ble1st.warden.integrity.StorageEncryptionStatusReader
 import de.ble1st.warden.logging.HashChainLogStore
+import de.ble1st.warden.profile.AutoProfileStorage
 import de.ble1st.warden.registry.DeviceLockNowManager
 import de.ble1st.warden.registry.DeviceLockdownBundle
 import de.ble1st.warden.registry.PersistentSafeguardRegistry
@@ -128,8 +129,37 @@ class ConcordBus(
     fun isLockdownModeActive(): Boolean =
         authorize(BusCommand.READ, "isLockdownModeActive") { deviceLockdownBundle.isActive() }
 
-    fun isSafeguardActive(safeguardId: String): Boolean =
-        authorize(BusCommand.READ, "isSafeguardActive") { registry.isActive(safeguardId) }
+    /**
+     * Ist-Zustand mehrerer Safeguards in **einem** autorisierten Aufruf (2026-08-28, aus der
+     * Code-/Sicherheitsanalyse, Befund Q-2).
+     *
+     * Der Safeguards-Screen braucht den Zustand aller 33 Katalogeinträge auf einmal. Über die
+     * frühere Einzelmethode `isSafeguardActive` waren das 33 Durchläufe durch [authorize] — also
+     * 33 Rate-Limit-Token und 33 `HashChainLogStore.append`-Aufrufe, von denen jeder das gesamte
+     * aktive Segment liest,
+     * entschlüsselt, neu verschlüsselt und schreibt. Ein Bildschirmaufbau füllte damit rund ein
+     * Fünfzehntel eines 500er-Log-Segments und kam dem Rate-Limit von
+     * [RATE_LIMIT_CALLS]/[RATE_LIMIT_WINDOW_MILLIS] gefährlich nahe; wurde es überschritten, warf
+     * [authorize] und die UI meldete irreführend "vermutlich kein Device Owner aktiv".
+     *
+     * Die eigentlichen DPM-Abfragen bleiben unverändert einzeln und live (`isActive()` cached
+     * nichts, s. `Safeguard`-Doc) — gebündelt wird nur die Autorisierung darum herum.
+     *
+     * **Fehler bleiben pro Eintrag isoliert:** der Wert ist `null`, wenn genau dieser
+     * `isActive()`-Aufruf geworfen hat (z. B. eine DPM-Restriction, die das Gerät nicht kennt) —
+     * dieselbe "`null` heißt: nicht lesbar, nicht: aus"-Unterscheidung wie bei den Einzel-Lesern
+     * in der UI. Ein einzelner nicht unterstützter Safeguard darf nicht den ganzen Bildschirm
+     * blind machen. Eine abgelehnte *Autorisierung* wirft dagegen weiterhin für den ganzen Aufruf
+     * — dann ist tatsächlich kein Wert vertrauenswürdig.
+     */
+    fun safeguardStates(safeguardIds: Collection<String>): Map<String, Boolean?> =
+        authorize(BusCommand.READ, "safeguardStates") {
+            safeguardIds.associateWith { id ->
+                runCatching { registry.isActive(id) }
+                    .onFailure { Log.w(TAG, "Safeguard-Zustand ($id) nicht lesbar", it) }
+                    .getOrNull()
+            }
+        }
 
     fun applySafeguard(safeguardId: String): Boolean =
         authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "applySafeguard") {
@@ -182,6 +212,25 @@ class ConcordBus(
             true
         }
 
+    /** Feature 3 ("Permission Auto-Block", 2026-08-29) — manueller Baustein neben der bereits
+     * bestehenden automatischen Durchsetzung in [SuspiciousAppScanController.enforce]: der Nutzer
+     * kann einer beliebigen Fremd-App ihre gefährlichen Rechte entziehen, ohne auf einen
+     * Verdachtsfund zu warten. S. [de.ble1st.warden.ui.PermissionAuditScreen]. */
+    fun revokeDangerousPermissions(targetPackage: String): List<String> =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "revokeDangerousPermissions") {
+            suspiciousAppScanController.manuallyRevokeDangerousPermissions(targetPackage)
+        }
+
+    fun restoreDangerousPermissions(targetPackage: String): List<String> =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "restoreDangerousPermissions") {
+            suspiciousAppScanController.manuallyRestoreDangerousPermissions(targetPackage)
+        }
+
+    fun hasRevokedPermissions(targetPackage: String): Boolean =
+        authorize(BusCommand.READ, "hasRevokedPermissions") {
+            suspiciousAppScanController.hasRevokedPermissions(targetPackage)
+        }
+
     /** Feature 10 ("manuelle Sofort-Scan-Auslösung", 2026-08-22) — löst einen vollständigen
      * Scan-Lauf sofort aus, statt auf den nächsten periodischen WorkManager-Slot zu warten. */
     fun runImmediateSuspiciousAppScan(): List<SuspiciousAppFindingInfo> =
@@ -217,6 +266,12 @@ class ConcordBus(
             val result = WardenProfileApplier(context, registry) { enabled ->
                 UsbAutoLockStorage.setEnabled(context, enabled)
             }.apply(profile)
+            // Wirkendes Profil hier festhalten, nicht bei den Aufrufern (2026-08-28, Befund Q-1):
+            // sowohl der manuelle Tap als auch AutoProfileController laufen zwingend durch diese
+            // Methode, also ist das die einzige Stelle, an der der Stand nicht auseinanderlaufen
+            // kann. AutoProfileDecision braucht ihn, um eine manuelle Verschärfung nicht beim
+            // nächsten Zeitplanlauf stillschweigend herunterzuschalten.
+            AutoProfileStorage.saveLastEffective(context, profile)
             UsbLockStateReceiver.syncRegistration(context)
             if (result.failed.isNotEmpty()) {
                 Log.w(TAG, "Profil ${profile.name}: fehlgeschlagen für ${result.failed}")
@@ -245,10 +300,26 @@ class ConcordBus(
         return action()
     }
 
-    /** Audit-Identität — reduziert gegenüber dem Quellprojekt (kein `uid`/`pid`/`lineage`-Knoten
+    /**
+     * Audit-Identität — reduziert gegenüber dem Quellprojekt (kein `uid`/`pid`/`lineage`-Knoten
      * mehr, s. Klassendoc): [Role.OWNER] ist der einzig mögliche Aufrufer, `presence` bleibt bis
-     * zur Portierung der Presence-Schritte immer `n/a`. */
+     * zur Portierung der Presence-Schritte immer `n/a`.
+     *
+     * **Erfolgreiche [BusCommand.READ]-Aufrufe werden seit 2026-08-28 nicht mehr protokolliert**
+     * (Befund Q-2). Ein Audit-Log soll Entscheidungen und Zustandsänderungen festhalten, nicht das
+     * Rendern einer Liste: die Lese-Einträge waren die mit Abstand häufigsten, sagten inhaltlich
+     * nichts aus ("die UI hat einen Status angezeigt") und verdrängten durch die Segmentrotation
+     * genau die Einträge, für die dieses Log existiert. Jeder [append][HashChainLogStore.append]
+     * schreibt außerdem das ganze aktive Segment neu — ein Bildschirmaufbau kostete so dutzende
+     * vollständige Datei-Schreibzyklen.
+     *
+     * **Ein *abgelehnter* Read wird weiterhin protokolliert**, und das ist der sicherheitsrelevante
+     * Teil: er heißt, dass die Capability-Matrix oder das Rate-Limit gegriffen hat — ein Ereignis,
+     * das ohne Eintrag nirgends sichtbar wäre. Alle anderen Kommandoklassen (schaltend,
+     * Log-Zugriff) bleiben unverändert immer im Log.
+     */
     private fun log(command: BusCommand, methodName: String, allowed: Boolean) {
+        if (allowed && command == BusCommand.READ) return
         val message = "role=${Role.OWNER} cmd=$methodName class=$command presence=n/a allowed=$allowed"
         logStore.append(priority = if (allowed) Log.INFO else Log.WARN, tag = TAG, message = message)
     }
@@ -257,6 +328,9 @@ class ConcordBus(
         const val TAG = "ConcordBus"
         // Opening Safeguards reads every catalog ID; applying a profile remounts them in the
         // same window. 30 was enough for single toggles, not for a catalog remount.
+        // Seit safeguardStates() (2026-08-28, Befund Q-2) kostet ein Bildschirmaufbau statt 34
+        // nur noch wenige Token — die Grenze bleibt trotzdem stehen: sie schützt gegen
+        // versehentliche UI-Schleifen, und dafür ist reichlich Luft besser als knapp bemessen.
         const val RATE_LIMIT_CALLS = 80
         const val RATE_LIMIT_WINDOW_MILLIS = 10_000L
     }

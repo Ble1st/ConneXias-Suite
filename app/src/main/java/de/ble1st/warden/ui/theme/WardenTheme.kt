@@ -88,13 +88,28 @@ fun wardenColorScheme(accent: WardenAccent = WardenAccent.GRUEN): ColorScheme {
     )
 }
 
-private fun TextStyle.mono(): TextStyle = copy(fontFamily = FontFamily.Monospace)
+/** Öffentlich (Vorschlag U-9, 2026-08-29), damit die Stellen, an denen feste Zeichenbreite eine
+ * *Funktion* hat — Protokollzeilen, Paketnamen, Hex-Strings, Zahlenkolonnen — sie explizit
+ * anfordern können, statt sie aus einer global monospaced Body-Rolle mitzunehmen. */
+fun TextStyle.mono(): TextStyle = copy(fontFamily = FontFamily.Monospace)
 
-/** Durchgängig Monospace statt nur punktuell — halbherzig gemischt (nur Headlines mono, Body
- * proportional) sieht auf Screens mit viel Fließtext (Scanner-Erklärung, Log-Einträge) wie ein
- * Stilbruch aus; Paketnamen/Hex-Strings (App-Verwaltung, Failsafe) profitieren ohnehin von
- * fester Zeichenbreite. Basiert auf der M3-Baseline-`Typography()`, nur die Font ersetzt —
- * Größen/Gewichte/Line-Heights bleiben die durchdachten M3-Defaults. */
+/**
+ * Monospace für die Rollen, die den Terminal-Charakter tragen — Überschriften, Titel und Labels —
+ * proportional für die drei `body`-Rollen.
+ *
+ * **Korrektur am 2026-08-29 (Vorschlag U-9).** Vorher waren alle 15 Rollen monospaced, mit der
+ * Begründung, eine Mischung sähe wie ein Stilbruch aus. Das stimmt für kurze Werte, hält aber dem
+ * gewachsenen Textaufkommen nicht stand: Warnhinweise, Safeguard-Beschreibungen und die
+ * Scanner-Erklärungen sind inzwischen echter Fließtext in `bodySmall`, und Monospace kostet dort
+ * spürbar Lesbarkeit (breitere Glyphen, mehr Umbrüche, kein Rhythmus zwischen schmalen und breiten
+ * Buchstaben). Die Identität hängt nicht an diesen Absätzen — sie hängt an den Überschriften, den
+ * Statuswerten und dem Protokoll.
+ *
+ * Wo feste Zeichenbreite dagegen inhaltlich gebraucht wird, fordert die Aufrufstelle sie jetzt
+ * gezielt über [mono] an (Protokollzeilen in `LogViewerActivity`, Failsafe-Challenge, Paketnamen).
+ * Basis bleibt die M3-Baseline-`Typography()`; nur die Font wird ersetzt, Größen/Gewichte/
+ * Line-Heights bleiben die durchdachten M3-Defaults.
+ */
 val WardenTypography: Typography = Typography().let { base ->
     Typography(
         displayLarge = base.displayLarge.mono(),
@@ -106,9 +121,12 @@ val WardenTypography: Typography = Typography().let { base ->
         titleLarge = base.titleLarge.mono(),
         titleMedium = base.titleMedium.mono(),
         titleSmall = base.titleSmall.mono(),
-        bodyLarge = base.bodyLarge.mono(),
-        bodyMedium = base.bodyMedium.mono(),
-        bodySmall = base.bodySmall.mono(),
+        // body* bewusst proportional, s. Klassendoc oben.
+        bodyLarge = base.bodyLarge,
+        bodyMedium = base.bodyMedium,
+        bodySmall = base.bodySmall,
+        // Labels bleiben mono: kurze Kürzel und Zahlen (Tag-Badges "SG"/"AV", Fund-Zähler,
+        // PIN-Tastaturziffern) — genau der Fall, für den feste Zeichenbreite gemacht ist.
         labelLarge = base.labelLarge.mono(),
         labelMedium = base.labelMedium.mono(),
         labelSmall = base.labelSmall.mono(),

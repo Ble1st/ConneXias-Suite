@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Warden→Sentinel-Vertrauensrichtung: nur ein mit demselben Zertifikat signiertes Paket
+         darf SentinelActivity starten oder an SentinelHeartbeatService binden. `signature`-
+         Protection-Level wird von Android selbst am Zertifikat durchgesetzt, bevor überhaupt
+         App-Code läuft — kein Userspace-Caller-Verifier nötig (Plan-Abschnitt "Warum kein
+         AIDL-Bus"). -->
+    <permission
+        android:name="de.ble1st.warden.sentinel.permission.ENGAGE"
+        android:protectionLevel="signature" />
+
+    <!-- Sentinel→Warden-Richtung: Warden deklariert/besitzt dieses Permission selbst
+         (app/src/main/AndroidManifest.xml), Sentinel braucht nur die uses-permission-Deklaration,
+         um den Entwarn-Broadcast senden zu dürfen. -->
+    <uses-permission android:name="de.ble1st.warden.permission.SENTINEL_SIGNAL" />
+
+    <!-- Package-Visibility (Android 11+) — SentinelActivity/SilentInstaller-seitige Prüfungen
+         müssen Wardens Paket sehen können. -->
+    <queries>
+        <package android:name="de.ble1st.warden" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@android:drawable/ic_lock_lock"
+        android:label="Sentinel"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!-- Kein LAUNCHER-Intent-Filter — kein App-Drawer-Eintrag, Warden startet diese Activity
+             ausschließlich explizit per ComponentName. exported="true" ist trotzdem Pflicht,
+             damit ein fremdes (aber gleich signiertes) Paket sie per expliziten Intent überhaupt
+             erreichen kann — die eigentliche Zugriffskontrolle liegt im android:permission-Attribut,
+             nicht in exported selbst. -->
+        <activity
+            android:name=".SentinelActivity"
+            android:exported="true"
+            android:permission="de.ble1st.warden.sentinel.permission.ENGAGE"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <service
+            android:name=".SentinelHeartbeatService"
+            android:exported="true"
+            android:permission="de.ble1st.warden.sentinel.permission.ENGAGE" />
+
+    </application>
+
+</manifest>

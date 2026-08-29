@@ -103,8 +103,8 @@ jobs:
 
       - name: Check generated Kotlin bindings for drift
         run: |
-          if ! git diff --quiet -- app/src/main/java/uniffi/connexias_engine/connexias_engine.kt; then
-            echo "::warning::Frisch generierte UniFFI-Kotlin-Bindings weichen vom committeten Stand ab — rust/build-android.sh lokal laufen lassen und Ergebnis committen."
+          if ! git diff --quiet -- app/src/main/java/uniffi/connexias_engine/connexias_engine.kt sentinel/src/main/java/uniffi/connexias_engine/connexias_engine.kt; then
+            echo "::warning::Frisch generierte UniFFI-Kotlin-Bindings weichen vom committeten Stand ab (app/ und/oder sentinel/) — rust/build-android.sh lokal laufen lassen und Ergebnis committen."
           fi
 
       # --- Android-Release-Build ---
@@ -121,7 +121,12 @@ jobs:
         run: |
           echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
 
-      - name: Assemble release APK
+      # Baut :app UND :sentinel (":app:assembleRelease" hängt bereits transitiv von
+      # ":sentinel:assembleRelease" ab — app/build.gradle.kts' copySentinelApkFor<Variant>-Task,
+      # s. dessen Kommentar) — ein einziger Gradle-Aufruf genügt, kein separater Sentinel-Schritt
+      # nötig. Beide Module lesen dieselben WARDEN_RELEASE_STORE_*-Env-Vars (Pflicht für die
+      # signature-Permission-Kopplung, s. sentinel/build.gradle.kts-Kommentar).
+      - name: Assemble release APKs (Warden + Sentinel)
         env:
           WARDEN_RELEASE_STORE_FILE: ${{ runner.temp }}/release.keystore
           WARDEN_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
@@ -143,6 +148,17 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           retention-days: 90
 
+      # Sentinels rohe APK zusätzlich als eigenständiges Artefakt/Release-Asset — nicht nur
+      # eingebettet in Wardens assets/sentinel.apk (Plan-Abschnitt "Build/Release") — für
+      # unabhängige Prüfbarkeit (z. B. Zertifikatsvergleich gegen Wardens APK) und Runbook-Zwecke
+      # (manuelle Neuinstallation ohne einen laufenden Warden, s. MANUAL_SMOKE_TEST.md).
+      - name: Upload Sentinel APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-${{ steps.version.outputs.name }}
+          path: sentinel/build/outputs/apk/release/*.apk
+          retention-days: 90
+
       # F-4-Folgearbeit (R8 seit 2026-08-25 aktiv): R8s Obfuskierung ist pro Build einzigartig
       # (kein -applymapping) — ohne mapping.txt aus genau diesem Build ist ein späterer Crash-
       # Report (Nutzer meldet Zeile+umbenannten Klassennamen, s. proguard-rules.pro-Kommentar zu
@@ -156,10 +172,21 @@ jobs:
           path: app/build/outputs/mapping/release/
           retention-days: 365
 
+      # :sentinel hat R8 seit demselben Milestone ebenfalls aktiv (sentinel/build.gradle.kts) —
+      # dieselbe Begründung wie oben, eigenes mapping.txt pro Modul.
+      - name: Upload Sentinel R8 mapping (Crash-Deobfuskierung für diese Version)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-${{ steps.version.outputs.name }}-mapping
+          path: sentinel/build/outputs/mapping/release/
+          retention-days: 365
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Warden ${{ steps.version.outputs.name }}
           draft: true
-          files: app/build/outputs/apk/release/*.apk
+          files: |
+            app/build/outputs/apk/release/*.apk
+            sentinel/build/outputs/apk/release/*.apk

@@ -2,26 +2,31 @@ package de.ble1st.warden.registry
 
 import android.content.Context
 import de.ble1st.warden.domain.registry.CompositeSafeguard
+import de.ble1st.warden.netlock.NetLockdownAuthorizer
 
 /**
  * Meilenstein C.5 (Konzept Abschnitt 4/19): "Geräte-Lockdown-Bündel (USB-Signaling, SAFE_BOOT,
- * FACTORY_RESET, DEBUGGING_FEATURES, Sentinel scharf) als zusammengesetzter Eintrag." Baut den
- * konkreten [CompositeSafeguard] aus fünf Einzel-Safeguards: [UsbDataSignalingSafeguard],
+ * FACTORY_RESET, DEBUGGING_FEATURES, Sentinel scharf, Netz-Sperre) als zusammengesetzter Eintrag."
+ * Baut den konkreten [CompositeSafeguard] aus sechs Einzel-Safeguards: [UsbDataSignalingSafeguard],
  * [UserRestrictionSafeguard.safeBootDisabled], [UserRestrictionSafeguard.factoryResetDisabled],
- * [UserRestrictionSafeguard.debuggingFeaturesDisabled], [WardenLockTaskAuthorizer]. Factory-reset /
- * safe-boot also exist as standalone reversible catalog entries for Alltag; the bundle still
+ * [UserRestrictionSafeguard.debuggingFeaturesDisabled], [WardenLockTaskAuthorizer],
+ * [NetLockdownAuthorizer]. Factory-reset / safe-boot also exist as standalone reversible catalog
+ * entries for Alltag; the bundle still
  * reapplies them plus USB-debug kill. `DISALLOW_OEM_UNLOCK` is hidden and immutable for Device
  * Owner — debugging-features-off is the public path that also hides the OEM-unlock toggle.
  *
  * [WardenLockTaskAuthorizer] deckt davon bewusst nur die **Autorisierungs**-Hälfte ab
- * (DPM-Whitelist: darf das eigene Paket überhaupt in den Lock-Task-Modus) — dieselbe Grenze, die
- * schon in dessen eigenem Klassendoc gezogen wird: das eigentliche Scharfschalten
- * (`Activity.startLockTask()`) bleibt bewusst außerhalb *dieses Bündels* — ein `apply()` dieses
- * Bündel-Mitglieds versetzt das Gerät selbst nicht in den Lock-Task-Modus, das ist weiterhin
- * `WardenLockTaskManager`s Aufgabe. Seit "LockMode/Threat-Protection-Ausbau" (2026-08-25) gibt es
- * dafür reale, aber eigenständig (presence-gated bzw. mehrfach gegatet) abgesicherte Aufrufer, s.
- * `WardenLockTaskGate`/`WardenLockTaskManager`-Klassendocs — "jedes automatischen Pfads" gilt
- * also nicht mehr uneingeschränkt, nur noch bezogen auf dieses eine Bündel selbst.
+ * (DPM-Whitelist: darf die separate Sentinel-App überhaupt in den Lock-Task-Modus, s. dessen
+ * eigenem Klassendoc für den Wechsel von "eigenes Paket" auf "Sentinel-Paket") — dieselbe Grenze,
+ * die schon in dessen eigenem Klassendoc gezogen wird: das eigentliche Scharfschalten
+ * (`Activity.startLockTask()`) bleibt bewusst außerhalb *dieses Bündels* und läuft seit "Sentinel:
+ * eigenständige Kiosk-PIN-App" ohnehin in Sentinels eigenem, fremden Prozess — ein `apply()`
+ * dieses Bündel-Mitglieds versetzt das Gerät selbst nicht in den Lock-Task-Modus, das ist
+ * `de.ble1st.warden.sentinelbridge.SentinelLockdownEngager`s Aufgabe. Seit
+ * "LockMode/Threat-Protection-Ausbau" (2026-08-25) gibt es dafür reale, aber eigenständig
+ * (presence-gated bzw. mehrfach gegatet) abgesicherte Aufrufer, s. `SentinelLockdownEngager`-
+ * Klassendoc — "jedes automatischen Pfads" gilt also nicht mehr uneingeschränkt, nur noch bezogen
+ * auf dieses eine Bündel selbst.
  *
  * **Seit "arbeite langsam am Lockdownmodus" (2026-08-22) über
  * [de.ble1st.warden.domain.presence.SensitiveAction.LOCKDOWN_MODE_ARM] erreichbar** — auf
@@ -49,6 +54,8 @@ object DeviceLockdownBundle {
             UserRestrictionSafeguard.factoryResetDisabled(context),
             UserRestrictionSafeguard.debuggingFeaturesDisabled(context),
             WardenLockTaskAuthorizer(context),
-        ),
+            // "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers
+            NetLockdownAuthorizer(context)
+        )
     )
 }

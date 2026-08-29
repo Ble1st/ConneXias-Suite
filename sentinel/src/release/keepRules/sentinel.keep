@@ -1,0 +1,17 @@
+# R8-Keep-Regeln für Sentinel — identische Begründung wie app/src/release/keepRules/warden.keep
+# (s. dortigen Kommentar für die volle Herleitung): Sentinels eigene Kopie der UniFFI-generierten
+# Bindings + JNA selbst brauchen dieselbe pauschale Keep-Regel, aus demselben Grund (JNA
+# Native.register()-Namensbindung + Structure.FieldOrder-Reflection).
+
+-keep class uniffi.connexias_engine.** { *; }
+-keepclassmembers class uniffi.connexias_engine.** { *; }
+
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class com.sun.jna.** { *; }
+-dontwarn com.sun.jna.**
+
+-dontwarn java.awt.**
+-dontwarn module-info
+
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile

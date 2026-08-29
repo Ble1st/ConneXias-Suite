@@ -1,5 +1,6 @@
 package de.ble1st.warden.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -20,6 +21,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.domain.cellsecurity.CellSecurityReaction
+import de.ble1st.warden.domain.sim.SimChangeReaction
+import de.ble1st.warden.domain.profile.AutoProfileConfig
 import de.ble1st.warden.ui.theme.WardenAccent
 
 /**
@@ -58,10 +62,32 @@ fun SettingsScreen(
     onSupportMessageChange: (String?) -> Unit,
     autoRebootThresholdHours: Int?,
     onAutoRebootThresholdHoursChange: (Int?) -> Unit,
+    failedAttemptsRebootThreshold: Int?,
+    secureLockScreenConfigured: Boolean,
+    onFailedAttemptsRebootThresholdChange: (Int?) -> Unit,
+    simChangeReaction: SimChangeReaction?,
+    onSimChangeReactionChange: (SimChangeReaction?) -> Unit,
+    cellSecurityReaction: CellSecurityReaction?,
+    onCellSecurityReactionChange: (CellSecurityReaction?) -> Unit,
+    autoProfileConfig: AutoProfileConfig,
+    onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
     onBack: () -> Unit,
 ) {
     var showNamingSettings by remember { mutableStateOf(false) }
     var showLicenses by remember { mutableStateOf(false) }
+
+    // Vorschlag V-8 (2026-08-29) — echter Navigationsfehler, nicht nur Kosmetik: die beiden
+    // Unterseiten sind reiner lokaler Compose-State (s. Klassendoc), und der einzige registrierte
+    // BackHandler lag bis hierher eine Ebene höher in `WardenRoot`. Der schaltet unbedingt auf
+    // `WardenScreen.Status` — die Zurück-Geste aus "Namensvergebung"/"Lizenzen" sprang also direkt
+    // aufs Dashboard und übersprang die Einstellungen-Ebene, aus der man gerade gekommen war. Nur
+    // der Zurück-Pfeil in der TopAppBar der Unterseite verhielt sich richtig. BackHandler werden
+    // in umgekehrter Registrierungsreihenfolge abgearbeitet, der hier gewinnt also gegen den in
+    // `WardenRoot`, solange er aktiv ist.
+    BackHandler(enabled = showNamingSettings || showLicenses) {
+        showNamingSettings = false
+        showLicenses = false
+    }
 
     if (showNamingSettings) {
         NamingSettingsScreen(
@@ -120,6 +146,27 @@ fun SettingsScreen(
                 selectedHours = autoRebootThresholdHours,
                 onSelect = onAutoRebootThresholdHoursChange,
                 modifier = Modifier.padding(top = 4.dp),
+            )
+            FailedAttemptsRebootField(
+                selectedThreshold = failedAttemptsRebootThreshold,
+                secureLockScreenConfigured = secureLockScreenConfigured,
+                onSelect = onFailedAttemptsRebootThresholdChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            SimChangeField(
+                selectedReaction = simChangeReaction,
+                onSelect = onSimChangeReactionChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            CellSecurityField(
+                selectedReaction = cellSecurityReaction,
+                onSelect = onCellSecurityReactionChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            AutoProfileField(
+                config = autoProfileConfig,
+                onChange = onAutoProfileConfigChange,
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             SectionLabel("Info")

@@ -12,6 +12,23 @@ import java.io.DataOutputStream
  * `SafeguardRegistry` selbst nicht — arbeitet bewusst nur mit der reinen `Map<String, Boolean>`
  * (s. `SafeguardRegistry.desiredStateSnapshot`/`restoreDesiredState`), leichter testbar und ohne
  * Kopplung an die Registry-Klasse selbst. [PersistentSafeguardRegistry] verdrahtet beides.
+ *
+ * **Prozessweite Sperre um den Read-Modify-Write-Zyklus (Befund Q-7, 2026-08-29):** [save] liest,
+ * merged und schreibt. Der *Write* allein ist zwar atomar (`EnvelopeFile` nutzt
+ * `Files.move(ATOMIC_MOVE)`), der Zyklus darum herum war es nicht — und es gibt fünf unabhängig
+ * konstruierte [PersistentSafeguardRegistry]-Instanzen (ConcordBus, Boot-Receiver,
+ * `SensitiveActionActivity`, `SentinelInstallResultReceiver`, Watchdog-Controller), deren Läufe
+ * sich zeitlich überlappen können. Ohne Sperre ging eine gleichzeitige Änderung verloren
+ * (klassisches Lost Update: beide lesen denselben Stand, der zweite Write überschreibt den ersten).
+ * Der Schaden blieb klein, weil `RegistryReconciler` bei nächster Gelegenheit korrigiert — aber
+ * "wird später eh repariert" ist kein Grund, einen bekannten Datenverlust stehen zu lassen.
+ *
+ * Die Sperre liegt im Companion-Object, ist also **prozessweit** und nicht pro Instanz — genau das
+ * ist der Punkt: alle Instanzen zeigen auf dieselbe Envelope-Datei
+ * ([de.ble1st.warden.registry.RegistryStorage]), eine Instanz-Sperre würde exakt nichts
+ * serialisieren. Dass damit auch Stores auf *anderen* Dateien (isolierte Instrumented-Tests)
+ * mitserialisiert werden, ist bewusst in Kauf genommen: die Alternative wäre eine Lock-Tabelle pro
+ * Pfad, und die Schreibvorgänge sind selten und kurz genug, dass der Unterschied nie messbar wird.
  */
 class SafeguardRegistryStore(private val envelopeFile: EnvelopeFile) {
 
@@ -19,14 +36,24 @@ class SafeguardRegistryStore(private val envelopeFile: EnvelopeFile) {
      * Fail-Safe (Invariante 6): existiert bereits ein gewrappter DEK **oder** eine Datendatei,
      * aber das Lesen scheitert, wirft [EnvelopeFile.read] statt still eine leere Map zu liefern — ein
      * verschwundener Soll-Zustand darf nie als "noch nie gesetzt" durchgehen. */
-    fun load(): Map<String, Boolean> =
-        if (envelopeFile.hasStorage()) decodeDesiredState(envelopeFile.read()) else emptyMap()
+    fun load(): Map<String, Boolean> = synchronized(WRITE_LOCK) { loadUnlocked() }
 
-    fun save(desiredState: Map<String, Boolean>) {
+    fun save(desiredState: Map<String, Boolean>) = synchronized(WRITE_LOCK) {
         // Overlay, never replace: a caller that only registered a subset (or omits lockdown
         // on purpose) must not wipe other IDs from the shared envelope.
-        val merged = load() + desiredState
+        val merged = loadUnlocked() + desiredState
         envelopeFile.write(encodeDesiredState(merged))
+    }
+
+    /** Ohne Sperre — nur aus bereits gesperrtem Kontext aufrufen (`synchronized` ist in Kotlin/JVM
+     * reentrant, ein direkter Aufruf von [load] hier wäre also ebenfalls korrekt; getrennt gehalten,
+     * damit an der Aufrufstelle sichtbar bleibt, dass der Merge *innerhalb* der Sperre passiert). */
+    private fun loadUnlocked(): Map<String, Boolean> =
+        if (envelopeFile.hasStorage()) decodeDesiredState(envelopeFile.read()) else emptyMap()
+
+    private companion object {
+        /** S. Klassendoc: bewusst prozessweit (Companion), nicht pro Instanz. */
+        val WRITE_LOCK = Any()
     }
 }
 

@@ -16,8 +16,15 @@ package de.ble1st.warden.crypto
  * [KeystoreKek.unwrap]/`WrapException.Failed`.
  */
 class OfflineFailsafeVerifier {
-    fun verify(challenge: ByteArray, response: ByteArray, publicKey: ByteArray): Boolean = try {
-        Engine.verifySignature(publicKey, challenge, response)
+    /**
+     * [message] ist seit 2026-08-28 **nicht mehr die nackte Challenge**, sondern die von
+     * [de.ble1st.warden.domain.failsafe.FailsafeResponseMessage.build] zusammengesetzte Bytefolge
+     * — sie bindet die neue Geräte-PIN mit an die Signatur (s. dortiges Klassendoc). Diese Klasse
+     * bleibt bewusst dumm: sie prüft eine Signatur über *irgendwelche* Bytes, das Zusammensetzen
+     * gehört in die testbare Domain-Schicht.
+     */
+    fun verify(message: ByteArray, response: ByteArray, publicKey: ByteArray): Boolean = try {
+        Engine.verifySignature(publicKey, message, response)
     } catch (e: Exception) {
         false
     }

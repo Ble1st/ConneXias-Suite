@@ -7,6 +7,7 @@ import de.ble1st.warden.domain.presence.DestructiveCommandGuard
 import de.ble1st.warden.domain.presence.SensitiveAction
 import de.ble1st.warden.domain.presence.SensitiveActionDecision
 import de.ble1st.warden.domain.presence.SensitiveActionDecisionResult
+import de.ble1st.warden.domain.presence.SensitiveActionOutcome
 import de.ble1st.warden.logging.HashChainLogStore
 import de.ble1st.warden.registry.MasterSwitchResult
 
@@ -55,6 +56,14 @@ import de.ble1st.warden.registry.MasterSwitchResult
  * Flag. Beide Pfade laufen durch dieselbe [executeInternal] — identische Guard-Reihenfolge
  * (Debug-Build → Rate-Limit → Bestätigungstext → Presence), identisches Logging, identische
  * Aktionsausführung, nur die Art des Presence-Nachweises unterscheidet sich.
+ *
+ * **Rückgabetyp [SensitiveActionOutcome] statt [SensitiveActionDecisionResult] (Befund Q-5,
+ * 2026-08-29):** vorher endete jeder Aufruf hier bei bestandener Prüfung mit
+ * [SensitiveActionDecisionResult.Approved] — unabhängig davon, ob [runAction] danach tatsächlich
+ * erfolgreich war. `SensitiveActionOutcome`s Klassendoc erklärt den vollen Fall; hier zählt nur:
+ * [executeInternal] liefert bei einer Ablehnung weiterhin sofort `Denied(decision)`, bei
+ * `Approved` läuft [runAction] und *dessen* Ergebnis (Erfolg/Fehler/Stub) wird zurückgegeben, nicht
+ * mehr pauschal "Approved".
  */
 class DestructiveActionExecutor(
     private val isDebugBuild: Boolean,
@@ -64,9 +73,9 @@ class DestructiveActionExecutor(
     private val performMasterSwitchRevert: () -> List<MasterSwitchResult> = { emptyList() },
     private val performLockNow: () -> Unit = {},
     private val performLockdownArm: () -> Unit = {},
-    private val performLockTaskEngage: () -> Unit = {},
+    private val performLockTaskEngage: () -> Boolean = { false },
 ) {
-    fun execute(action: SensitiveAction, confirmationText: String, proof: PresenceProof): SensitiveActionDecisionResult =
+    fun execute(action: SensitiveAction, confirmationText: String, proof: PresenceProof): SensitiveActionOutcome =
         executeInternal(action, confirmationText, presenceConsumed = proof.consume())
 
     /** Presence-Alternative über Wardens lokalen PIN statt Biometrie — s. Klassendoc.
@@ -78,7 +87,7 @@ class DestructiveActionExecutor(
         action: SensitiveAction,
         confirmationText: String,
         pinPresenceGranted: Boolean,
-    ): SensitiveActionDecisionResult =
+    ): SensitiveActionOutcome =
         executeInternal(action, confirmationText, presenceConsumed = pinPresenceGranted)
 
     /**
@@ -96,14 +105,14 @@ class DestructiveActionExecutor(
         action: SensitiveAction,
         confirmationText: String,
         sessionAuthenticated: Boolean,
-    ): SensitiveActionDecisionResult =
+    ): SensitiveActionOutcome =
         executeInternal(action, confirmationText, presenceConsumed = sessionAuthenticated && action.allowsSessionPresence)
 
     private fun executeInternal(
         action: SensitiveAction,
         confirmationText: String,
         presenceConsumed: Boolean,
-    ): SensitiveActionDecisionResult {
+    ): SensitiveActionOutcome {
         val executionAllowed = DestructiveCommandGuard.isExecutionAllowed(isDebugBuild)
         val rateLimitOk = rateLimiter.allow(action.name)
         val confirmationTextMatches = confirmationText == action.confirmationPhrase
@@ -118,86 +127,105 @@ class DestructiveActionExecutor(
             message = "sensitive action $action -> $decision",
         )
 
-        if (decision == SensitiveActionDecisionResult.Approved) {
+        return if (decision == SensitiveActionDecisionResult.Approved) {
             runAction(action)
-        }
-        return decision
-    }
-
-    private fun runAction(action: SensitiveAction) {
-        when (action) {
-            SensitiveAction.WIPE_DATA -> runStub(action)
-            SensitiveAction.REBOOT -> {
-                val outcome = runCatching { performReboot() }
-                logStore.append(
-                    priority = Log.WARN,
-                    tag = TAG,
-                    message = if (outcome.isSuccess) {
-                        "reboot() real ausgeführt"
-                    } else {
-                        "reboot() fehlgeschlagen: ${outcome.exceptionOrNull()}"
-                    },
-                )
-            }
-            SensitiveAction.MASTER_SWITCH_REVERT -> {
-                val outcome = runCatching { performMasterSwitchRevert() }
-                logStore.append(
-                    priority = Log.WARN,
-                    tag = TAG,
-                    message = if (outcome.isSuccess) {
-                        "MasterSwitch.disarm() real ausgeführt: " +
-                            outcome.getOrThrow().joinToString { "${it.id}=${it::class.simpleName}" }
-                    } else {
-                        "MasterSwitch.disarm() fehlgeschlagen: ${outcome.exceptionOrNull()}"
-                    },
-                )
-            }
-            SensitiveAction.LOCK_NOW -> {
-                val outcome = runCatching { performLockNow() }
-                logStore.append(
-                    priority = Log.WARN,
-                    tag = TAG,
-                    message = if (outcome.isSuccess) {
-                        "lockNow() real ausgeführt"
-                    } else {
-                        "lockNow() fehlgeschlagen: ${outcome.exceptionOrNull()}"
-                    },
-                )
-            }
-            SensitiveAction.LOCKDOWN_MODE_ARM -> {
-                val outcome = runCatching { performLockdownArm() }
-                logStore.append(
-                    priority = Log.WARN,
-                    tag = TAG,
-                    message = if (outcome.isSuccess) {
-                        "DeviceLockdownBundle.apply() real ausgeführt"
-                    } else {
-                        "DeviceLockdownBundle.apply() fehlgeschlagen: ${outcome.exceptionOrNull()}"
-                    },
-                )
-            }
-            SensitiveAction.LOCKDOWN_TASK_ENGAGE -> {
-                val outcome = runCatching { performLockTaskEngage() }
-                logStore.append(
-                    priority = Log.WARN,
-                    tag = TAG,
-                    message = if (outcome.isSuccess) {
-                        "WardenLockTaskManager.startIfPermitted() real angestoßen"
-                    } else {
-                        "WardenLockTaskManager.startIfPermitted() fehlgeschlagen: ${outcome.exceptionOrNull()}"
-                    },
-                )
-            }
+        } else {
+            SensitiveActionOutcome.Denied(decision)
         }
     }
 
-    private fun runStub(action: SensitiveAction) {
+    private fun runAction(action: SensitiveAction): SensitiveActionOutcome = when (action) {
+        SensitiveAction.WIPE_DATA -> runStub(action)
+        SensitiveAction.REBOOT ->
+            runSimpleAction(
+                action = { performReboot() },
+                successMessage = "reboot() real ausgeführt",
+                failurePrefix = "reboot() fehlgeschlagen: ",
+            )
+        SensitiveAction.LOCK_NOW ->
+            runSimpleAction(
+                action = { performLockNow() },
+                successMessage = "lockNow() real ausgeführt",
+                failurePrefix = "lockNow() fehlgeschlagen: ",
+            )
+        SensitiveAction.LOCKDOWN_MODE_ARM ->
+            runSimpleAction(
+                action = { performLockdownArm() },
+                successMessage = "DeviceLockdownBundle.apply() real ausgeführt",
+                failurePrefix = "DeviceLockdownBundle.apply() fehlgeschlagen: ",
+            )
+        SensitiveAction.MASTER_SWITCH_REVERT -> {
+            // Befund Q-5 (2026-08-29): das äußere runCatching allein reichte nicht — MasterSwitch
+            // .disarm() fängt Fehler pro Safeguard bereits selbst ab und liefert eine Liste aus
+            // Disarmed/Failed zurück, statt zu werfen. Ein einzelner MasterSwitchResult.Failed
+            // ging deshalb bisher als "Approved" durch, obwohl der Master-Switch nicht vollständig
+            // gegriffen hatte.
+            val outcome = runCatching { performMasterSwitchRevert() }
+            val results = outcome.getOrNull()
+            val failedItems = results?.filterIsInstance<MasterSwitchResult.Failed>().orEmpty()
+            when {
+                outcome.isFailure -> logAndFail("MasterSwitch.disarm() fehlgeschlagen: ${outcome.exceptionOrNull()}")
+                failedItems.isNotEmpty() -> logAndFail(
+                    "MasterSwitch.disarm() teilweise fehlgeschlagen: " +
+                        failedItems.joinToString { "${it.id}: ${it.cause}" },
+                )
+                else -> {
+                    logStore.append(
+                        priority = Log.WARN,
+                        tag = TAG,
+                        message = "MasterSwitch.disarm() real ausgeführt: " +
+                            results.orEmpty().joinToString { "${it.id}=${it::class.simpleName}" },
+                    )
+                    SensitiveActionOutcome.ExecutedSuccessfully
+                }
+            }
+        }
+        SensitiveAction.LOCKDOWN_TASK_ENGAGE -> {
+            // "Lockdown-Auslöse-Profil" (2026-08-27, Bug-Fix): performLockTaskEngage lieferte
+            // vorher () -> Unit — ein false-Rückgabewert von SentinelLockdownEngager.engage()
+            // (Sentinel nicht installiert, intern per ActivityNotFoundException abgefangen,
+            // nicht geworfen) wurde dadurch stillschweigend verworfen und als Erfolg
+            // protokolliert. Jetzt () -> Boolean, drei statt zwei Fälle — und (Befund Q-5,
+            // 2026-08-29) der dritte ("abgelehnt") zählt jetzt ebenfalls als Fehlschlag, nicht
+            // nur als abweichende Log-Zeile bei sonst weiterhin gemeldetem "Approved".
+            val outcome = runCatching { performLockTaskEngage() }
+            when {
+                outcome.isFailure -> logAndFail("SentinelLockdownEngager.engage() fehlgeschlagen: ${outcome.exceptionOrNull()}")
+                outcome.getOrThrow() -> {
+                    logStore.append(priority = Log.WARN, tag = TAG, message = "SentinelLockdownEngager.engage() real angestoßen")
+                    SensitiveActionOutcome.ExecutedSuccessfully
+                }
+                else -> logAndFail("SentinelLockdownEngager.engage() abgelehnt: Sentinel nicht installiert")
+            }
+        }
+    }
+
+    /** Gemeinsames Muster für die drei einfachen Ein-Aufruf-Aktionen (REBOOT, LOCK_NOW,
+     * LOCKDOWN_MODE_ARM): ausführen, Ergebnis loggen, [SensitiveActionOutcome] danach ableiten
+     * statt es wie vor Befund Q-5 zu verwerfen. */
+    private fun runSimpleAction(action: () -> Unit, successMessage: String, failurePrefix: String): SensitiveActionOutcome {
+        val outcome = runCatching(action)
+        return if (outcome.isSuccess) {
+            logStore.append(priority = Log.WARN, tag = TAG, message = successMessage)
+            SensitiveActionOutcome.ExecutedSuccessfully
+        } else {
+            logAndFail("$failurePrefix${outcome.exceptionOrNull()}")
+        }
+    }
+
+    private fun logAndFail(detail: String): SensitiveActionOutcome {
+        logStore.append(priority = Log.WARN, tag = TAG, message = detail)
+        return SensitiveActionOutcome.ExecutedWithError(detail)
+    }
+
+    private fun runStub(action: SensitiveAction): SensitiveActionOutcome {
         logStore.append(
             priority = Log.WARN,
             tag = TAG,
             message = "STUB: würde jetzt $action real ausführen (DevicePolicyManager.wipeData()) " +
                 "— bewusst weiterhin nicht verkabelt, s. Klassendoc.",
         )
+        return SensitiveActionOutcome.ExecutedAsStub
     }
 
     private companion object {

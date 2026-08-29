@@ -25,6 +25,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -37,6 +38,7 @@ import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
 import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.integrity.RootIndicatorSignal
+import de.ble1st.warden.ui.theme.mono
 
 /**
  * Milestone "Automatisches Einfrieren verdächtiger Apps" — portiert aus Heralds UI (jetzt Wardens
@@ -65,6 +67,10 @@ fun SecurityScannerScreen(
     deviceIntegrityStatus: DeviceIntegrityStatus?,
     scanInProgress: Boolean,
     onBack: () -> Unit,
+    /** Vorschlag V-6 (2026-08-29): lädt Schalterzustand, Funde und Integritätsstatus neu, ohne
+     * den Bildschirm zu verlassen. Anders als [onRunImmediateScan] wird dabei **kein** neuer Scan
+     * ausgelöst — nur das Lesen wiederholt, das fehlgeschlagen ist. */
+    onRetry: () -> Unit,
     onToggleScannerEnabled: (Boolean) -> Unit,
     onTrust: (packageName: String) -> Unit,
     onRunImmediateScan: () -> Unit,
@@ -124,6 +130,7 @@ fun SecurityScannerScreen(
                 ErrorStateRow(
                     headline = "Scanner-Status konnte nicht gelesen werden",
                     detail = "Schalter deaktiviert, bis der Zustand wieder lesbar ist.",
+                    onRetry = onRetry,
                 )
             }
             Text(
@@ -132,7 +139,9 @@ fun SecurityScannerScreen(
                     "erkannt bevor die Rechte überhaupt aktiviert wurden. Systemapps sind " +
                     "ausgenommen. Bei jedem Fund erscheint sofort eine Sicherheitsbenachrichtigung " +
                     "mit den Optionen \"Einfrieren\"/\"Deinstallieren\" — unabhängig vom Schalter " +
-                    "unten, der zusätzlich stilles Auto-Einfrieren aktiviert. Jederzeit reversibel " +
+                    "unten, der zusätzlich stilles Auto-Einfrieren aktiviert. Wirkt erst ab Stufe " +
+                    "Warnung — eine reine Info (z. B. unbekannte Installationsquelle) friert " +
+                    "nichts automatisch ein, ist aber weiterhin sichtbar. Jederzeit reversibel " +
                     "über \"Vertrauen\" unten oder die App-Verwaltung.",
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -155,7 +164,7 @@ fun SecurityScannerScreen(
             }
             HorizontalDivider()
             Text(text = "Geräte-Integrität", style = MaterialTheme.typography.titleMedium)
-            DeviceIntegritySection(deviceIntegrityStatus)
+            DeviceIntegritySection(deviceIntegrityStatus, onRetry = onRetry)
             HorizontalDivider()
             Text(text = "Aktuelle Funde", style = MaterialTheme.typography.titleMedium)
             if (findingsLoadFailed) {
@@ -165,15 +174,28 @@ fun SecurityScannerScreen(
                 ErrorStateRow(
                     headline = "Funde-Liste konnte nicht geladen werden",
                     detail = "Vermutlich kein Device Owner aktiv — s. Statusanzeige.",
+                    onRetry = onRetry,
                 )
             } else if (findings.isEmpty()) {
                 EmptyStateRow(headline = "Keine verdächtigen Apps gefunden")
             } else {
+                // Vorschlag V-3 (2026-08-29): kritische Funde zuerst. Vorher stand die Liste in
+                // Scan-Reihenfolge, also praktisch in Paketreihenfolge — ein kritischer
+                // Signaturwechsel konnte unter zehn Info-Funden ("unbekannte Installationsquelle")
+                // liegen und war nur durch Scrollen zu finden. Innerhalb einer Stufe nach Namen,
+                // damit die Reihenfolge zwischen zwei Scans stabil bleibt und nicht bei jedem
+                // Neuladen springt.
+                val sorted = remember(findings) {
+                    findings.sortedWith(
+                        compareByDescending<SuspiciousAppFindingInfo> { it.severity.ordinal }
+                            .thenBy { it.label.lowercase() },
+                    )
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    items(findings, key = { it.packageName }) { finding ->
+                    items(sorted, key = { it.packageName }) { finding ->
                         FindingRow(
                             finding = finding,
                             onTrust = { onTrust(finding.packageName) },
@@ -189,11 +211,12 @@ fun SecurityScannerScreen(
 /** `null` = Laden fehlgeschlagen — dieselbe Fail-Safe-Unterscheidung wie [findingsLoadFailed]
  * oben: ein Lesefehler darf nicht wie "alles unauffällig" aussehen. */
 @Composable
-private fun DeviceIntegritySection(status: DeviceIntegrityStatus?) {
+private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -> Unit) {
     if (status == null) {
         ErrorStateRow(
             headline = "Geräte-Integritätsstatus konnte nicht geladen werden",
             detail = "Vermutlich kein Device Owner aktiv — s. Statusanzeige.",
+            onRetry = onRetry,
         )
         return
     }
@@ -271,8 +294,12 @@ private fun FindingRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .semantics {
-                contentDescription = "Verdachtsfund ${finding.label}"
+            // Vorschlag V-5 (2026-08-29) — dieselbe Korrektur wie in `AppManagementRowContent`,
+            // Begründung dort. Der Schweregrad kommt mit in die Beschreibung: er stand bisher nur
+            // als farbiges Badge da und war für eine Vorlesehilfe damit gar nicht vorhanden.
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Verdachtsfund ${finding.label}, ${finding.packageName}, " +
+                    "Schweregrad ${severityLabel(finding.severity)}"
                 stateDescription = if (finding.frozen) "eingefroren" else "nicht eingefroren"
             },
         verticalAlignment = Alignment.CenterVertically,
@@ -283,7 +310,7 @@ private fun FindingRow(
                 Text(text = finding.label, style = MaterialTheme.typography.bodyLarge)
                 SeverityBadge(finding.severity)
             }
-            Text(text = finding.packageName, style = MaterialTheme.typography.bodySmall)
+            Text(text = finding.packageName, style = MaterialTheme.typography.bodySmall.mono())
             Text(
                 text = signalsText(SuspiciousSignal.fromBitmask(finding.signalsBitmask)) +
                     if (finding.frozen) " · eingefroren" else "",
@@ -308,7 +335,10 @@ private fun severityColor(severity: ThreatSeverity): Color = when (severity) {
     ThreatSeverity.CRITICAL -> Color(0xFFB00020)
 }
 
-private fun severityLabel(severity: ThreatSeverity): String = when (severity) {
+/** Nicht `private`: seit Vorschlag V-2 (2026-08-29) zeigt auch die Dashboard-Menüzeile den
+ * höchsten Schweregrad an, und zwei getrennte Übersetzungstabellen für dieselben drei Stufen
+ * würden früher oder später auseinanderlaufen. */
+internal fun severityLabel(severity: ThreatSeverity): String = when (severity) {
     ThreatSeverity.INFO -> "Info"
     ThreatSeverity.WARNING -> "Warnung"
     ThreatSeverity.CRITICAL -> "Kritisch"
@@ -320,7 +350,9 @@ private fun SeverityBadge(severity: ThreatSeverity) {
         text = severityLabel(severity),
         style = MaterialTheme.typography.labelSmall,
         color = severityColor(severity),
-        modifier = Modifier.semantics { contentDescription = "Stufe ${severityLabel(severity)}" },
+        // Vorschlag V-5 (2026-08-29): keine eigene contentDescription mehr. Die Zeile ist jetzt
+        // ein zusammengeführter Semantikknoten, der den Schweregrad selbst nennt — eine zweite
+        // hier würde in dieselbe Beschreibung einfließen und doppelt vorgelesen.
     )
 }
 
