@@ -2,17 +2,15 @@ package de.ble1st.warden.registry
 
 import android.content.Context
 import de.ble1st.warden.domain.registry.CompositeSafeguard
+import de.ble1st.warden.netlock.NetLockdownAuthorizer
 
 /**
  * Meilenstein C.5 (Konzept Abschnitt 4/19): "Geräte-Lockdown-Bündel (USB-Signaling, SAFE_BOOT,
- * FACTORY_RESET, DEBUGGING_FEATURES, Sentinel scharf) als zusammengesetzter Eintrag." Baut den
- * konkreten [CompositeSafeguard] aus fünf Einzel-Safeguards: [UsbDataSignalingSafeguard],
+ * FACTORY_RESET, DEBUGGING_FEATURES, Sentinel scharf, Netz-Sperre) als zusammengesetzter Eintrag."
+ * Baut den konkreten [CompositeSafeguard] aus sechs Einzel-Safeguards: [UsbDataSignalingSafeguard],
  * [UserRestrictionSafeguard.safeBootDisabled], [UserRestrictionSafeguard.factoryResetDisabled],
- * [UserRestrictionSafeguard.debuggingFeaturesDisabled], [WardenLockTaskAuthorizer]. Ein sechstes
- * Mitglied, `NetLockdownAuthorizer` ("Netz-Sperre", 2026-08-27), war kurzzeitig dabei, ist aber
- * seit demselben Tag wieder entfernt — Feature pausiert (ungeklärter Kernfehler im Live-Test,
- * s. `WardenApplication`-Klassendoc), Code geparkt unter `app/netlock-disabled/`. Bei
- * Reaktivierung: Import + sechstes Listeneintrag unten wiederherstellen. Factory-reset /
+ * [UserRestrictionSafeguard.debuggingFeaturesDisabled], [WardenLockTaskAuthorizer],
+ * [NetLockdownAuthorizer]. Factory-reset / safe-boot also exist as standalone reversible catalog Factory-reset /
  * safe-boot also exist as standalone reversible catalog entries for Alltag; the bundle still
  * reapplies them plus USB-debug kill. `DISALLOW_OEM_UNLOCK` is hidden and immutable for Device
  * Owner — debugging-features-off is the public path that also hides the OEM-unlock toggle.
@@ -56,8 +54,8 @@ object DeviceLockdownBundle {
             UserRestrictionSafeguard.factoryResetDisabled(context),
             UserRestrictionSafeguard.debuggingFeaturesDisabled(context),
             WardenLockTaskAuthorizer(context),
-            // "Netz-Sperre" (2026-08-27): sechstes Mitglied NetLockdownAuthorizer(context) hier
-            // entfernt — Feature pausiert, s. Klassendoc oben.
-        ),
+            // "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers
+            NetLockdownAuthorizer(context)
+        )
     )
 }

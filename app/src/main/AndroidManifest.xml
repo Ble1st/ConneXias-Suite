@@ -6,6 +6,7 @@
          (kommentarlos — kein Fehler, kein Log), s. RegistryReconciliationReceiver-Klassendoc.
          "normal"-Protection-Level, wird bei Installation automatisch gewährt. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- App-Verwaltung/Verdachtsscanner (InstalledAppLister-Klassendoc) müssen JEDES installierte
          Fremdpaket sehen, nicht nur die per <queries> deklarierten — seit Android 11 filtert
@@ -64,13 +65,13 @@
         android:name="de.ble1st.warden.permission.SENTINEL_SIGNAL"
         android:protectionLevel="signature" />
 
-    <!-- ⏸ "Netz-Sperre" PAUSIERT (2026-08-27, s. WardenApplication-Klassendoc + app/netlock-
-         disabled/README.md): die folgenden fünf Permissions (FOREGROUND_SERVICE,
-         FOREGROUND_SERVICE_SPECIAL_USE, INTERNET, ACCESS_NETWORK_STATE,
-         REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) wurden ausschließlich für WardenVpnService/
-         NetLockdownController gebraucht — kein anderes Feature nutzt sie. Deshalb komplett
-         entfernt statt nur die Service-/Activity-Deklarationen unten; bei Reaktivierung aus dem
-         Deaktivierungs-Commit wiederherstellen. -->
+    <!-- "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".WardenApplication"
@@ -268,11 +269,19 @@
              Dashboard-Button, s. SentinelQuickTile-Klassendoc. exported="true" + BIND_QUICK_SETTINGS_TILE
              ist für eine Kachel Pflicht (systemgeschützt, dieselbe Idiomatik wie
              WardenDeviceAdminReceiver/BIND_DEVICE_ADMIN) — das System bindet diesen Dienst exklusiv selbst. -->
-        <!-- ⏸ "Netz-Sperre" PAUSIERT (2026-08-27, s. WardenApplication-Klassendoc +
-             app/netlock-disabled/README.md): WardenVpnService- und NetworkLogViewerActivity-
-             Deklarationen hier entfernt — Code liegt geparkt unter app/netlock-disabled/, nicht
-             mitkompiliert. Bei Reaktivierung beide Deklarationen aus dem Deaktivierungs-Commit
-             wiederherstellen. -->
+        <!-- "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers -->
+        <service
+            android:name=".vpn.WardenVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+        <activity
+            android:name=".netlock.NetworkLogViewerActivity"
+            android:exported="false" />
 
         <service
             android:name=".sentinelbridge.SentinelQuickTile"

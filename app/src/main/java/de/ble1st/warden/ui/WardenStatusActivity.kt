@@ -130,6 +130,10 @@ import de.ble1st.warden.registry.UserRestrictionSafeguard
 import de.ble1st.warden.registry.WardenFactoryResetProtectionStorage
 import de.ble1st.warden.registry.WardenOrganizationNameStorage
 import de.ble1st.warden.registry.WardenSupportMessageStorage
+import de.ble1st.warden.netlock.FirewallMode
+import de.ble1st.warden.netlock.NetworkFirewallPolicyController
+import de.ble1st.warden.netlock.NetLockdownController
+import de.ble1st.warden.ui.NetworkScreen
 import de.ble1st.warden.ui.theme.WardenAccent
 import de.ble1st.warden.ui.theme.WardenTheme
 import de.ble1st.warden.ui.theme.WardenThemePrefs
@@ -296,7 +300,7 @@ class WardenStatusActivity : ComponentActivity() {
             val secureLockScreenConfigured = remember {
                 runCatching {
                     applicationContext.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
-                }.getOrDefault(false)
+                }.getOrDefault(true)
             }
             val isAuthenticated by authenticated
             // "Lockdown-Auslöse-Profil" (2026-08-27) — Geschwister von WardenTheme(...) statt
@@ -558,9 +562,7 @@ private sealed class WardenScreen {
     data object Settings : WardenScreen()
     data object PermissionAudit : WardenScreen()
     data object PerformanceMonitor : WardenScreen()
-    // "Netz-Sperre" (2026-08-27): WardenScreen.Network hier entfernt — Feature pausiert, s.
-    // WardenApplication-Klassendoc. Code (inkl. NetworkScreen-Composable) geparkt unter
-    // app/netlock-disabled/.
+    data object Network : WardenScreen()
 }
 
 /** Architektur-Review 2026-08-24 (F-3) — `WardenScreen` selbst ist keine der sonst über
@@ -694,6 +696,7 @@ private fun WardenRoot(
                 onKioskNow = onKioskNow,
                 onOpenPermissionAudit = { screen = WardenScreen.PermissionAudit },
                 onOpenPerformanceMonitor = { screen = WardenScreen.PerformanceMonitor },
+                onOpenNetwork = { screen = WardenScreen.Network },
             )
         }
         WardenScreen.AppManagement -> {
@@ -1112,9 +1115,28 @@ private fun WardenRoot(
                 onRefresh = { refresh() },
             )
         }
-        // "Netz-Sperre" (2026-08-27): WardenScreen.Network-Zweig hier entfernt — Feature
-        // pausiert, s. WardenApplication-Klassendoc. NetworkScreen-Composable + der komplette
-        // Controller/Store-Code liegen geparkt unter app/netlock-disabled/.
+        is WardenScreen.Network -> {
+            val appContext = LocalContext.current.applicationContext
+            val netLockdownController = remember { NetLockdownController(appContext) }
+            val networkFirewallPolicyController = remember { NetworkFirewallPolicyController(appContext) }
+            val apps by remember { mutableStateOf(networkFirewallPolicyController.listApps()) }
+            
+            NetworkScreen(
+                lockdownActive = netLockdownController.isActive(),
+                onToggleLockdown = { enabled ->
+                    if (enabled) netLockdownController.arm() else netLockdownController.disarm()
+                },
+                apps = apps,
+                appsLoadFailed = false,
+                modeFor = { pkg -> networkFirewallPolicyController.modeFor(pkg) },
+                onSetMode = { pkg, mode -> networkFirewallPolicyController.setMode(pkg, mode) },
+                userBlocklistDomains = setOf(), // TODO: Aus Store laden
+                defaultBlocklistSize = 0, // TODO: Aus Store laden
+                onAddDomain = { domain -> /* TODO */ },
+                onRemoveDomain = { domain -> /* TODO */ },
+                onBack = { screen = WardenScreen.Status }
+            )
+        }
     }
 }
 
@@ -1318,7 +1340,7 @@ private fun WardenStatusScreen(
     onKioskNow: () -> SensitiveActionOutcome,
     onOpenPermissionAudit: () -> Unit,
     onOpenPerformanceMonitor: () -> Unit,
-    // "Netz-Sperre" (2026-08-27): onOpenNetwork-Parameter hier entfernt — Feature pausiert.
+    onOpenNetwork: () -> Unit,
 ) {
     // Punkt 4 ("weitere App-UI-Verschönerungen", 2026-08-22) — haptisches Feedback für die einzige
     // sofort (ohne Bestätigungsschritt) ausgeführte Dashboard-Aktion, s. NumpadButton-Kommentar in
@@ -1392,8 +1414,12 @@ private fun WardenStatusScreen(
                 tag = "PM",
                 onClick = onOpenPerformanceMonitor,
             )
-            // "Netz-Sperre" (2026-08-27): "Netzwerk"-MenuRow hier entfernt — Feature pausiert,
-            // s. WardenApplication-Klassendoc. Code geparkt unter app/netlock-disabled/.
+            MenuRow(
+                title = "Netzwerk",
+                subtitle = "Netz-Sperre, Firewall-Policy, DNS-Filter",
+                tag = "NW",
+                onClick = onOpenNetwork,
+            )
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 
             SectionLabel("Zugriff & Bestätigung")

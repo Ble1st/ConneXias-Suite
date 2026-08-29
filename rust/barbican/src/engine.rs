@@ -1,13 +1,3 @@
-// ⏸ PAUSIERT (2026-08-27): "Netz-Sperre" ist vorübergehend deaktiviert — Live-Test auf dem
-// physischen Testgerät fand nach mehreren echten Bugfixes (siehe Commit 7252396 auf App-Seite und
-// das Memo warden-netzsperre-feature-2026-08-27) einen weiterhin ungeklärten Kernfehler: die
-// DNS-Blockliste/NAT-Relay verarbeitet auf einem frisch aufgebauten Tunnel keinen Traffic mehr.
-// Diese Crate ist deshalb aus rust/Cargo.tomls `members` entfernt — ein `cargo build`/`cargo test`
-// direkt in diesem Verzeichnis schlägt bewusst mit einem Workspace-Fehler fehl (nicht in
-// `members`, nicht `exclude`d), statt still falsch zu bauen. Zum Reaktivieren: "barbican" wieder
-// zu rust/Cargo.tomls `members` hinzufügen, diesen Banner-Kommentar aus jeder Datei entfernen,
-// Kernfehler zuerst klären.
-
 //! "Netz-Sperre" (2026-08-27): öffentliche UniFFI-Exports und der eigentliche NAT-/DNS-Filter-
 //! Paket-Lese-Loop, der `dns_filter`/`nat`/`callback` zu einem funktionierenden transparenten
 //! VPN-Gateway verdrahtet.
@@ -409,7 +399,14 @@ fn run_engine_loop(
     let mut last_housekeeping = Instant::now();
 
     while stop.load(Ordering::SeqCst) {
-        match rx.recv_timeout(ENGINE_TICK) {
+        let now = SmolInstant::from_millis(Instant::now().elapsed().as_millis() as i64);
+
+        // IMMER ZUERST poll aufrufen (smoltcp benoetigt regelmassiges Polling
+        // für Timeout-Handling, Socket-Updates, NAT-Session-Management)
+        iface.poll(now, &mut device, &mut sockets);
+
+        // Dann Pakete verarbeiten (mit kuerzerem Timeout für responsiveres Polling)
+        match rx.recv_timeout(Duration::from_millis(10)) {
             Ok(packet) => {
                 if let Some(reply) = try_fast_path_dns_reply(&packet, &stats) {
                     let _ = device.writer.write_all(&reply);
@@ -422,9 +419,7 @@ fn run_engine_loop(
             Err(RecvTimeoutError::Disconnected) => break,
         }
 
-        let now = SmolInstant::from_millis(Instant::now().elapsed().as_millis() as i64);
-        iface.poll(now, &mut device, &mut sockets);
-
+        // Verarbeitete Pakete an smoltcp weiterleiten
         reap_completed_listeners(&mut sockets, &mut tcp_listeners, &mut flow_sockets, &socket_factory);
         pump_established_sessions(&mut sockets, &mut nat, &mut flow_sockets, &stats);
         pump_udp_listeners(

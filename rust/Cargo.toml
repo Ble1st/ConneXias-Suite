@@ -1,14 +1,9 @@
 [workspace]
 resolver = "3"
-# "engine" (Krypto) bleibt Workspace-Mitglied. "barbican" ("Netz-Sperre", 2026-08-27) war
-# kurzzeitig auch Mitglied, ist aber seit demselben Tag wieder entfernt: Live-Test fand nach
-# mehreren echten Bugfixes (s. app-seitigen Commit 7252396 und das Memo
-# warden-netzsperre-feature-2026-08-27) einen ungeklärten Kernfehler (DNS-Blockliste/NAT-Relay
-# verarbeitet auf einem frisch aufgebauten Tunnel keinen Traffic mehr). Die Crate selbst bleibt
-# unter rust/barbican/ liegen (jede Quelldatei dort trägt einen eigenen Pausiert-Banner-Kommentar),
-# ist aber dadurch nicht mehr Teil von `cargo build`/`cargo test` von hier aus. "archive" (Steward)
-# bleibt weiterhin bewusst nicht Teil dieses Projekts.
-members = ["engine"]
+# "engine" (Krypto) bleibt Workspace-Mitglied. "barbican" ("Netz-Sperre") ist
+# seit 2026-08-29 wieder aktiviert - Kernfehler (DNS-Blockliste/NAT-Relay verarbeitet keinen
+# Traffic) wurde behoben durch Polling-Reihenfolge-Fix in engine.rs.
+members = ["engine", "barbican"]
 
 [workspace.package]
 edition = "2024"

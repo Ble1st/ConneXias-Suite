@@ -55,6 +55,15 @@ android {
         ndk {
             abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
         }
+        
+        // UniFFI-Bindings für Barbican (Netz-Sperre)
+        sourceSets {
+            getByName("main") {
+                java {
+                    srcDir("src/main/uniffi")
+                }
+            }
+        }
     }
 
     buildTypes {

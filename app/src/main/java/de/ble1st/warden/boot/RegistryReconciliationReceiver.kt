@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import de.ble1st.warden.domain.registry.SafeguardRegistry
 import de.ble1st.warden.logging.HashChainLogStore
+import de.ble1st.warden.netlock.NetLockdownController
 import de.ble1st.warden.pin.WardenLockScreenTextStorage
 import de.ble1st.warden.registry.LockScreenInfoManager
 import de.ble1st.warden.registry.OrganizationNameManager
@@ -51,10 +52,12 @@ class RegistryReconciliationReceiver : BroadcastReceiver() {
         reconcileLockScreenInfo(context, logStore)
         reconcileOrganizationName(context, logStore)
         reconcileSupportMessage(context, logStore)
-        // "Netz-Sperre" (2026-08-27): reconcileNetLockdown()-Aufruf entfernt — Feature pausiert
-        // (ungeklärter Kernfehler im Live-Test, s. WardenApplication-Klassendoc), Code geparkt
-        // unter app/netlock-disabled/. Bei Reaktivierung: Aufruf hier + die zugehörige private
-        // Methode (nutzte NetLockdownController(context).reconcile()) wiederherstellen.
+        // "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers
+        reconcileNetLockdown(context, logStore)
+    }
+
+    private fun reconcileNetLockdown(context: Context, logStore: HashChainLogStore) {
+        NetLockdownController(context).reconcile()
     }
 
     /** [LockScreenInfoManager] ist kein [de.ble1st.warden.domain.registry.Safeguard] (Freitext

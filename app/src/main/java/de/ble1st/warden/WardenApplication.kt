@@ -7,6 +7,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.util.Log
 import de.ble1st.warden.logging.HashChainLogStore
+import de.ble1st.warden.netlock.NetLockdownController
+import de.ble1st.warden.netlock.NetworkFirewallPolicyController
 import de.ble1st.warden.logging.SecurityEventStorage
 import de.ble1st.warden.logging.SecurityEventStore
 import de.ble1st.warden.profile.AutoProfileWorker
@@ -153,10 +155,10 @@ class WardenApplication : Application() {
      * (weiterhin gebunden, aber ohne jede Referenz, um sie je wieder zu entschärfen) — s.
      * [SentinelWatchdogController]-Klassendoc. */
     val sentinelWatchdogController: SentinelWatchdogController by lazy { SentinelWatchdogController(this) }
-
-    // "Netz-Sperre" (2026-08-27) — pausiert, s. Klassendoc oben: netLockdownController/
-    // networkFirewallPolicyController-Properties entfernt, Code geparkt unter
-    // app/netlock-disabled/.
+    
+    // "Netz-Sperre" (2026-08-29) — reaktiviert nach Fix des Kernfehlers
+    val netLockdownController: NetLockdownController by lazy { NetLockdownController(this) }
+    val networkFirewallPolicyController: NetworkFirewallPolicyController by lazy { NetworkFirewallPolicyController(this) }
 
     override fun onCreate() {
         super.onCreate()
