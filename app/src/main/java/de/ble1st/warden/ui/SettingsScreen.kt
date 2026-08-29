@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.domain.cellsecurity.CellSecurityReaction
 import de.ble1st.warden.domain.sim.SimChangeReaction
 import de.ble1st.warden.domain.profile.AutoProfileConfig
 import de.ble1st.warden.ui.theme.WardenAccent
@@ -66,6 +67,8 @@ fun SettingsScreen(
     onFailedAttemptsRebootThresholdChange: (Int?) -> Unit,
     simChangeReaction: SimChangeReaction?,
     onSimChangeReactionChange: (SimChangeReaction?) -> Unit,
+    cellSecurityReaction: CellSecurityReaction?,
+    onCellSecurityReactionChange: (CellSecurityReaction?) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
     onBack: () -> Unit,
@@ -153,6 +156,11 @@ fun SettingsScreen(
             SimChangeField(
                 selectedReaction = simChangeReaction,
                 onSelect = onSimChangeReactionChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            CellSecurityField(
+                selectedReaction = cellSecurityReaction,
+                onSelect = onCellSecurityReactionChange,
                 modifier = Modifier.padding(top = 16.dp),
             )
             AutoProfileField(

@@ -420,7 +420,9 @@ override fun onUpdate(...) {
 
 ## 📚 Referenzen
 
-- [Haupt-Umsetzungsplan](./umsetzungsplan-7-features.md)
+- Haupt-Umsetzungsplan (`umsetzungsplan-7-features.md`) — nach Umsetzung von Feature 1, 3, 5
+  gelöscht 2026-08-29 (Feature 6 bewusst ausgelassen, s. `CLAUDE.md` "Security Score Dashboard"),
+  Details in den jeweiligen Memory-Einträgen statt in einem separaten Plandokument
 - [Barbican-Kernfehler-Analyse](./phase-0-barbican-analyse.md)
 - [Barbican-Design-Dokument](./phase-0-design-barbican.md)
 - [CLAUDE.md (Design-Guidelines)](../CLAUDE.md)

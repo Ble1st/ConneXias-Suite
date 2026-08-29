@@ -13,4 +13,4 @@
 # Methoden ansonsten als toten Code an.
 -keep class uniffi.connexias_barbican.** { *; }
 -keepclassmembers class uniffi.connexias_barbican.** { *; }
--keep class de.ble1st.warden.netlock.WardenVpnService { *; }
+-keep class de.ble1st.warden.vpn.WardenVpnService { *; }

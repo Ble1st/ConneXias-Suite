@@ -1,9 +1,7 @@
 package de.ble1st.warden.netlock
 
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.net.VpnService
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
@@ -42,20 +40,16 @@ class NetLockdownController(context: Context) {
 
     fun arm(): ArmResult = try {
         val allowedPackages = currentFirewallAllowedPackages()
-        
-        // VPN-Berechtigung vorbereiten (nur für Nicht-Device-Owner nötig, aber Samsung
-        // könnte es auch bei Device-Owner verlangen). Ergebnis wird ignoriert, da
-        // Device-Owner setAlwaysOnVpnPackage ohne Consent erlaubt.
-        val prepareIntent = VpnService.prepare(appContext)
-        if (prepareIntent != null) {
-            // Consent nötig - für Device Owner sollte das nicht passieren, aber falls doch
-            // den User zur VPN-Einstellung navigieren
-            Log.w(TAG, "VpnService.prepare() erfordert Consent trotz Device Owner - navigiert zur System-Einstellung")
-            prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            appContext.startActivity(prepareIntent)
-            return ArmResult.Failed("VPN-Consent erforderlich")
-        }
-        
+        // Bewusst KEIN `VpnService.prepare(appContext)`-Aufruf hier (kurzzeitig in Commit e5dbe70
+        // versucht, wieder entfernt 2026-08-29): `prepare()` fragt eine komplett andere, ältere
+        // Consent-Buchführung ab (den "vom Nutzer zuletzt bestätigten VPN-App"-Zustand) als
+        // `setAlwaysOnVpnPackage()` — für Warden, das nie über den `prepare()`-Consent-Dialog
+        // gelaufen ist, liefert `prepare()` auf dem allerersten Scharfschalten praktisch immer
+        // einen nicht-null Consent-Intent zurück, unabhängig vom Device-Owner-Status. Ein Abbruch
+        // an dieser Stelle (wie in e5dbe70) hätte [arm] dadurch strukturell nie ein einziges Mal
+        // erfolgreich durchlaufen lassen — [authorizer].apply() darunter ist der tatsächlich
+        // zuständige, laut AOSP-Javadoc consent-freie Weg für einen Device-Owner-Aufrufer (s.
+        // [NetLockdownAuthorizer]-Klassendoc), das war schon vor e5dbe70 korrekt.
         authorizer.apply(allowedPackages)
         // Der Always-On-VPN-Service wird nach setAlwaysOnVpnPackage vom System gestartet — Warden
         // muss WardenVpnService nicht selbst starten (dasselbe Prinzip wie im Quellprojekt, dort
@@ -113,6 +107,20 @@ class NetLockdownController(context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Lockdown-Allowlist-Resync fehlgeschlagen", e)
         }
+    }
+
+    /** Gegenstück zu [resyncLockdownAllowlist] für die andere Hälfte des Tunnel-Zustands: muss
+     * nach jeder Änderung der Domain-Blockliste ([DomainBlocklistStore.addDomain]/[removeDomain])
+     * aufgerufen werden, damit ein bereits laufender Tunnel die neue Liste übernimmt. Anders als
+     * [resyncLockdownAllowlist] löst das **keinen** TUN-Neuaufbau aus (s. [WardenVpnService
+     * .updateBlocklist]-Kommentar) — die Rust-Seite liest die Blockliste bei jeder DNS-Anfrage
+     * frisch aus einem vom Tunnel-Lebenszyklus unabhängigen Speicher, ein `setBlocklist`-Aufruf
+     * wirkt sofort, ohne eine einzige bestehende NAT-Session zu unterbrechen. No-op, wenn Lockdown
+     * gerade nicht scharf ist: dann liest der nächste reguläre [arm] die dann bereits aktuelle
+     * Liste ohnehin frisch ein. */
+    fun resyncBlocklist() {
+        if (!authorizer.isActive()) return
+        appContext.startService(Intent(appContext, WardenVpnService::class.java).setAction(WardenVpnService.ACTION_UPDATE_BLOCKLIST))
     }
 
     private fun currentFirewallAllowedPackages(): Set<String> =

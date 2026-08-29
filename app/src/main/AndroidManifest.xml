@@ -35,6 +35,21 @@
          Anrufliste oder Standort. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
+    <!-- "Mobilfunkzellen-Auffälligkeitserkennung" (2026-08-29, Feature 2 aus
+         docs/umsetzungsplan-7-features.md): TelephonyManager.getAllCellInfo() verlangt seit
+         Android 10 zusätzlich zu READ_PHONE_STATE ausdrücklich ACCESS_FINE_LOCATION (grobe
+         Standortfreigabe reicht laut Android-API-Doku nicht) — Zellstandort-Information gilt
+         seitdem selbst als Standort-Datum. Als Device Owner gewährt Warden sich nur die feine
+         Variante selbst (setPermissionGrantState, s. CellObservationReader) — ohne Nutzerdialog,
+         aber auch ohne stillen Zwang: fehlt die Berechtigung oder ist der System-Standortschalter
+         aus, liefert der Reader bewusst "nicht ermittelbar" statt eines Messwerts. Warden selbst
+         fragt an keiner anderen Stelle den tatsächlichen GPS-/Netz-Standort ab.
+         ACCESS_COARSE_LOCATION steht nur zusätzlich hier, weil Android 12+/Lints
+         CoarseFineLocation-Regel das bei FINE ausdrücklich verlangt (Nutzer sollen FINE auf
+         COARSE herabstufen können) — Warden gewährt/nutzt sie selbst nirgends. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": PackageInstaller.uninstall() für die
          "Deinstallieren"-Aktion (AppUninstaller). Für eine normale App würde das nur einen
          Bestätigungsdialog freischalten — als Device Owner läuft die Deinstallation damit still,
@@ -65,12 +80,19 @@
         android:name="de.ble1st.warden.permission.SENTINEL_SIGNAL"
         android:protectionLevel="signature" />
 
-    <!-- "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers -->
-    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
+    <!-- "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers. Absichtlich KEIN
+         `<uses-permission android:name="android.permission.BIND_VPN_SERVICE" />` hier: das ist
+         eine `signature|privileged`-Permission, die einer Drittanbieter-App (Device Owner
+         eingeschlossen) nie gewährt wird — Lint bricht `./gradlew build` deshalb mit
+         `ProtectedPermissions` ab, sobald sie hier steht (live geprüft 2026-08-29, Regression aus
+         Commit 20b5415/e5dbe70). Sie wird trotzdem nicht gebraucht: das `android:permission`-
+         Attribut unten am `<service>` reicht aus, weil derselbe App-UID (Warden startet seinen
+         eigenen VPN-Service) den Permission-Check des Systems automatisch besteht, unabhängig
+         davon, ob die aufrufende App die Permission selbst hält (`checkComponentPermission`s
+         Same-UID-Kurzschluss) — genau der offizielle `VpnService`-Musteraufbau. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 

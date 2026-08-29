@@ -340,6 +340,9 @@ class SuspiciousAppScanController(
                     TAG,
                     "Gefährliche Rechte automatisch entzogen: pkg=${finding.packageName} rechte=$revoked",
                 )
+                // Merken, was entzogen wurde — sonst kann [trust] es später nicht wiederherstellen
+                // (2026-08-29, Lückenschluss Feature 3, s. RevokedPermissionStore-Klassendoc).
+                RevokedPermissionStore.record(context, finding.packageName, revoked)
             }
         }
     }
@@ -349,8 +352,61 @@ class SuspiciousAppScanController(
         appManagementController.setFrozen(packageName, false)
         notifier.cancel(packageName)
         notifiedStore.clear(packageName)
+        // Gegenstück zum Entzug in [enforce]: ein Fehlalarm soll gefährliche Rechte nicht
+        // dauerhaft auf DENIED zurücklassen, nur weil der Fund inzwischen als vertrauenswürdig
+        // markiert wurde (2026-08-29, Lückenschluss Feature 3 "Permission Auto-Block").
+        val toRestore = RevokedPermissionStore.consume(context, packageName)
+        if (toRestore.isNotEmpty()) {
+            val restored = runCatching { permissionRevoker.restoreDefaultGrantState(packageName, toRestore) }
+                .getOrDefault(emptyList())
+            if (restored.isNotEmpty()) {
+                logStore.append(
+                    Log.WARN,
+                    TAG,
+                    "Automatisch entzogene Rechte wiederhergestellt: pkg=$packageName rechte=$restored",
+                )
+            }
+        }
         logStore.append(Log.WARN, TAG, "Als vertrauenswürdig markiert (Verdachtsscanner): pkg=$packageName")
     }
+
+    /**
+     * Manuelles Gegenstück zum automatischen Pfad in [enforce] (2026-08-29, Feature 3 "Permission
+     * Auto-Block" — der im Plan vorgesehene manuelle Baustein neben der bereits bestehenden
+     * automatischen Durchsetzung). Vom Permission-Audit-Bildschirm aus pro App aufrufbar, unabhängig
+     * von einem Verdachtsscanner-Fund — der Nutzer kann eine beliebige Fremd-App als "zu
+     * freizügig" einstufen, ohne dass sie erst als Verdachtsfund auffallen muss. Nutzt denselben
+     * [RevokedPermissionStore], damit ein späteres [trust] (falls die App auch als Verdachtsfund
+     * auftaucht) dieselben Rechte wiederherstellen kann wie bei einem automatischen Entzug.
+     */
+    fun manuallyRevokeDangerousPermissions(packageName: String): List<String> {
+        val revoked = runCatching { permissionRevoker.revokeDangerousPermissions(packageName) }
+            .getOrDefault(emptyList())
+        if (revoked.isNotEmpty()) {
+            RevokedPermissionStore.record(context, packageName, revoked)
+            logStore.append(Log.WARN, TAG, "Gefährliche Rechte manuell entzogen: pkg=$packageName rechte=$revoked")
+        }
+        return revoked
+    }
+
+    /** Gegenstück zu [manuallyRevokeDangerousPermissions] — stellt genau die über
+     * [RevokedPermissionStore] gemerkten Rechte wieder her, nicht alle aktuell deklarierten
+     * gefährlichen Rechte der App (die könnten inzwischen andere sein). */
+    fun manuallyRestoreDangerousPermissions(packageName: String): List<String> {
+        val toRestore = RevokedPermissionStore.consume(context, packageName)
+        if (toRestore.isEmpty()) return emptyList()
+        val restored = runCatching { permissionRevoker.restoreDefaultGrantState(packageName, toRestore) }
+            .getOrDefault(emptyList())
+        if (restored.isNotEmpty()) {
+            logStore.append(Log.WARN, TAG, "Gefährliche Rechte manuell wiederhergestellt: pkg=$packageName rechte=$restored")
+        }
+        return restored
+    }
+
+    /** Für die Anzeige im Permission-Audit-Bildschirm: ob für dieses Paket aktuell manuell/
+     * automatisch entzogene Rechte gemerkt sind, ohne sie zu konsumieren. */
+    fun hasRevokedPermissions(packageName: String): Boolean =
+        RevokedPermissionStore.peek(context, packageName).isNotEmpty()
 
     /** Von [SuspiciousAppActionReceiver] aufgerufen — Nutzer hat "Einfrieren" in der
      * Sicherheitsbenachrichtigung angetippt. [AppManagementController.setFrozen] prüft

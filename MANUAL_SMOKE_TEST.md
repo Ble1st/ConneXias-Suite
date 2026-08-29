@@ -399,6 +399,78 @@ Log da ist), und ein laufender Kiosk darf durch sie **nicht** beendet werden. Le
 beim regulären Kiosk-Drill mitprüfen: während der Kiosk aktiv ist, kommt die Meldung ebenfalls an —
 der Wächter muss scharf bleiben.
 
+### P-12 — Mobilfunkzellen-Auffälligkeitserkennung
+
+Prüft die 2026-08-29 umgesetzte Funktion (Feature 2 aus `docs/umsetzungsplan-7-features.md`, lokal
+statt gegen den im Plan fälschlich vorausgesetzten "Barbican-Server" umgesetzt). Ein echter
+IMSI-Catcher lässt sich naturgemäß nicht auf Bestellung erzeugen — dieser Test prüft deshalb nur
+die Mechanik (Baseline, Persistenz, Benachrichtigung, Reaktionskette), nicht die Trefferquote gegen
+eine echte Fake-Basisstation.
+
+1. Einstellungen ▸ "Reaktion auf Mobilfunkzellen-Auffälligkeiten" auf "Nur melden" stellen.
+2. Erwartet: sofort ein Audit-Log-Eintrag "Mobilfunkzellen-Baseline gesetzt". Falls stattdessen gar
+   nichts passiert: `adb shell dumpsys package de.ble1st.warden | grep ACCESS_FINE_LOCATION` prüfen
+   (Selbstfreigabe fehlgeschlagen?) und ob der System-Standortschalter überhaupt an ist — beides
+   sind laut `CellObservationReader`-Klassendoc bewusste, stille Abbruchbedingungen ohne Fehlerdialog.
+3. Flugmodus kurz ein- und wieder ausschalten (erzwingt einen echten Zellwechsel) und ca. eine
+   Minute warten (nächster periodischer `CellSecurityWorker`-Lauf oder App neu öffnen, um den
+   Sofortlauf über den Einstellungen-Screen erneut anzustoßen).
+4. Erwartet: **kein** neuer "Auffälligkeit erkannt"-Eintrag für den bloßen Zellwechsel (Zell-ID
+   *und* Gebietscode ändern sich normalerweise zusammen — das ist laut `CellSecurityDecision`
+   explizit der Nicht-Fund-Fall).
+5. Reaktion auf "Netz-Sperre aktivieren" umstellen. Erwartet: sofort wieder ein
+   "Baseline gesetzt"-Eintrag (Umschalten verwirft den alten Messwert, s. Klassendoc).
+6. Wer ein zweites, absichtlich altes 2G-only-Testgerät als Vergleich hat, kann `GENERATION_
+   DOWNGRADE` durch Erzwingen von "Nur 2G" im Mobilfunk-Menü (Entwickleroptionen ▸ bevorzugter
+   Netzwerktyp) provozieren — erwartet: ein `WARNING`-Log-Eintrag, aber **keine** Netz-Sperre (der
+   Indikator allein reicht laut Klassendoc nicht für `CRITICAL`).
+
+**Nicht Bestandteil dieses Tests:** ob die vier Indikatoren tatsächlich einen realen IMSI-Catcher
+erkennen würden — das ist ohne eine kontrollierte Rogue-Basestation nicht verifizierbar, s.
+`CellSecurityDecision`-Klassendoc ("Verdachts-Indikator, keine belastbare Erkennung").
+
+### P-13 — Permission Auto-Block: manueller Entzug/Wiederherstellung
+
+Prüft den 2026-08-29 geschlossenen Lückenschluss (Feature 3 aus
+`docs/umsetzungsplan-7-features.md`): `SuspiciousAppScanController.trust()` konnte zuvor automatisch
+entzogene gefährliche Rechte nicht zurückgeben, weil nirgendwo gespeichert war, welche das waren.
+
+1. Eine Fremd-App mit mindestens einem gefährlichen Recht (z. B. Kamera- oder Standort-Zugriff)
+   installieren, Permission-Audit öffnen, "Scannen" tippen, die App aufklappen.
+2. "Gefährliche Rechte sperren" tippen. Erwartet: die Zeile zeigt sofort "gesperrt", ein
+   Audit-Log-Eintrag "Gefährliche Rechte manuell entzogen" erscheint. `adb shell dumpsys package
+   <paket> | grep -A2 "runtime permissions"` bestätigt `granted=false` für das betroffene Recht.
+3. Die Ziel-App öffnen und die entzogene Berechtigung anfordern (z. B. Kamera-Funktion antippen) —
+   erwartet: Anfrage wird kommentarlos verweigert, kein Systemdialog (Device-Owner-`DENIED`
+   überschreibt die normale Laufzeitanfrage).
+4. Zurück in Warden: "Rechte wiederherstellen" tippen. Erwartet: Zeile zeigt kein "gesperrt" mehr,
+   Log-Eintrag "Gefährliche Rechte manuell wiederhergestellt". Die Ziel-App fragt beim nächsten
+   Zugriffsversuch wieder normal (nicht automatisch gewährt — `PERMISSION_GRANT_STATE_DEFAULT`, kein
+   `GRANTED`).
+5. Automatischer Pfad: eine App mit einem `WARNING`+-Verdachtssignal (z. B. Geräteadmin-Fähigkeit)
+   im Sicherheits-Scanner auslösen, Auto-Freeze-Scanner aktiviert lassen. Erwartet: Log-Einträge für
+   sowohl automatisches Einfrieren als auch "Gefährliche Rechte automatisch entzogen". Den Fund dann
+   im Sicherheits-Scanner als vertrauenswürdig markieren — erwartet: zusätzlicher Log-Eintrag
+   "Automatisch entzogene Rechte wiederhergestellt", und das Permission-Audit zeigt die App danach
+   nicht mehr als "gesperrt".
+
+### P-14 — Sicherheits-Score
+
+Prüft das 2026-08-29 umgesetzte Dashboard (Feature 5). Reine Aggregation bereits bestehender
+Scan-Ergebnisse — kein neuer Erkennungsmechanismus, entsprechend kein "Trefferquote"-Aspekt wie bei
+P-12.
+
+1. Menüpunkt "Sicherheits-Score" öffnen, "Berechnen" tippen. Erwartet: eine Zahl 0–100 plus
+   Einstufung (Sehr gut/Gut/Verbesserungswürdig/Kritisch) und vier Kategorie-Balken (Bedrohungen,
+   Rechte-Hygiene, Geräte-Integrität, Härtung).
+2. Kein Device Owner aktiv simulieren (`dpm remove-active-admin`, falls testOnly) oder eine der
+   zugrunde liegenden Berechtigungen entziehen — erwartet: "Berechnung fehlgeschlagen"-Zustand statt
+   eines geratenen/teilweise falschen Werts (Fail-Safe-Prinzip, s. `SecurityScoreCalculator`-Doc).
+3. Einen Safeguard aus dem Katalog ein-/ausschalten, "Neu berechnen" tippen — erwartet: der
+   Härtung-Balken bewegt sich sichtbar (Anteil aktiver Katalog-Einträge).
+4. Einen `CRITICAL`-Verdachtsfund provozieren (z. B. Signaturwechsel simulieren, falls aus P-Reihen
+   oben vorbereitet) — erwartet: Bedrohungen-Balken fällt auf 0, unabhängig von sonstigen Funden.
+
 ## Bewusst nicht scharf geschaltet
 
 **Seit "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26) gibt es einen echten, zweistufigen

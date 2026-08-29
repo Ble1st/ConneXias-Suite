@@ -54,4 +54,22 @@ class DangerousPermissionRevoker(private val context: Context) {
             }.getOrDefault(false)
         }
     }
+
+    /**
+     * Gegenstück zu [revokeDangerousPermissions] (2026-08-29, Lückenschluss Feature 3 "Permission
+     * Auto-Block" — s. [RevokedPermissionStore]-Klassendoc). Setzt jedes übergebene Recht auf
+     * [DevicePolicyManager.PERMISSION_GRANT_STATE_DEFAULT] zurück, **nicht** auf `GRANTED`: das
+     * würde ein Recht erzwingen, das die App zur Laufzeit vielleicht nie erneut anfragt oder
+     * braucht. `DEFAULT` gibt lediglich die normale Laufzeit-Anfrage wieder frei — exakt der
+     * Zustand vor dem automatischen Entzug, keine zusätzliche Gewährung. Best-effort pro Recht,
+     * dieselbe Haltung wie beim Entzug selbst.
+     */
+    fun restoreDefaultGrantState(packageName: String, permissions: List<String>): List<String> {
+        val dpm = context.getSystemService(DevicePolicyManager::class.java) ?: return emptyList()
+        return permissions.filter { permission ->
+            runCatching {
+                dpm.setPermissionGrantState(admin, packageName, permission, DevicePolicyManager.PERMISSION_GRANT_STATE_DEFAULT)
+            }.getOrDefault(false)
+        }
+    }
 }

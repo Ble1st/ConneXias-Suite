@@ -49,14 +49,24 @@ import de.ble1st.warden.ui.theme.mono
  * [SecurityScannerScreen]s "Jetzt scannen" (Feature 10) — nur ohne den zusätzlichen
  * Pull-to-Refresh-Weg, dieser Bildschirm hat keinen laufenden Hintergrund-Scanner, dessen Ergebnis
  * "aktuell gehalten" werden müsste.
+ *
+ * Seit 2026-08-29 trägt jede Zeile mit gefährlichen Rechten zusätzlich einen manuellen
+ * "Gefährliche Rechte sperren"/"wiederherstellen"-Knopf (Feature 3 "Permission Auto-Block" aus
+ * `docs/umsetzungsplan-7-features.md`) — die automatische Durchsetzung existierte bereits vorher
+ * für Verdachtsscanner-Funde ([de.ble1st.warden.appmanagement.SuspiciousAppScanController.enforce]),
+ * dieser Bildschirm macht denselben Mechanismus manuell für jede beliebige Fremd-App erreichbar,
+ * ohne dass sie erst als Fund auffallen muss.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PermissionAuditScreen(
     findings: List<PermissionAuditInfo>?,
     scanInProgress: Boolean,
+    revokedPackages: Set<String>,
     onBack: () -> Unit,
     onScan: () -> Unit,
+    onRevoke: (String) -> Unit,
+    onRestore: (String) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -157,7 +167,12 @@ fun PermissionAuditScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     items(visible, key = { it.packageName }) { info ->
-                        PermissionAuditRow(info)
+                        PermissionAuditRow(
+                            info = info,
+                            revoked = info.packageName in revokedPackages,
+                            onRevoke = { onRevoke(info.packageName) },
+                            onRestore = { onRestore(info.packageName) },
+                        )
                     }
                 }
             }
@@ -166,7 +181,12 @@ fun PermissionAuditScreen(
 }
 
 @Composable
-private fun PermissionAuditRow(info: PermissionAuditInfo) {
+private fun PermissionAuditRow(
+    info: PermissionAuditInfo,
+    revoked: Boolean,
+    onRevoke: () -> Unit,
+    onRestore: () -> Unit,
+) {
     // rememberSaveable statt remember (Vorschlag V-10, 2026-08-29): eine aufgeklappte Zeile in
     // einer LazyColumn verliert ihren Zustand, sobald sie aus dem Sichtfenster scrollt — beim
     // Zurückscrollen war sie wieder zu. Mit dem `key = { it.packageName }` der LazyColumn hat
@@ -197,12 +217,13 @@ private fun PermissionAuditRow(info: PermissionAuditInfo) {
                 Text(text = info.label, style = MaterialTheme.typography.bodyLarge)
                 Text(text = info.packageName, style = MaterialTheme.typography.bodySmall.mono())
                 Text(
-                    text = "${info.dangerousPermissions.size} gefährlich · ${info.specialPermissions.size} speziell",
+                    text = "${info.dangerousPermissions.size} gefährlich · ${info.specialPermissions.size} speziell" +
+                        if (revoked) " · gesperrt" else "",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (info.tooManyDangerousPermissions) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                    color = when {
+                        revoked -> MaterialTheme.colorScheme.error
+                        info.tooManyDangerousPermissions -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
             }
@@ -217,6 +238,24 @@ private fun PermissionAuditRow(info: PermissionAuditInfo) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+            // Feature 3 "Permission Auto-Block" (2026-08-29): manueller Baustein neben der
+            // bereits bestehenden automatischen Durchsetzung in
+            // SuspiciousAppScanController.enforce() — hier kann der Nutzer eine beliebige
+            // Fremd-App sperren, ohne dass sie erst als Verdachtsfund auffallen muss.
+            // Systemapps sind aus der Liste bereits ausgeschlossen (s. Screen-Klassendoc), ein
+            // Entzug bei sich selbst ist also strukturell nicht erreichbar. Kein zusätzliches
+            // Bestätigungsdialog nötig: DevicePolicyManager.setPermissionGrantState ist jederzeit
+            // rückgängig zu machen (kein WIPE_DATA-artiger Point of no return), und dieser
+            // Bildschirm ist ohnehin nur über den WardenLock-Gate der App erreichbar.
+            if (info.dangerousPermissions.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (revoked) {
+                        TextButton(onClick = onRestore) { Text("Rechte wiederherstellen") }
+                    } else {
+                        TextButton(onClick = onRevoke) { Text("Gefährliche Rechte sperren") }
+                    }
+                }
             }
             if (info.specialPermissions.isNotEmpty()) {
                 Text(

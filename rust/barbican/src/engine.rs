@@ -76,7 +76,12 @@ const MAX_IDLE_LISTENERS_PER_PORT: usize = 4;
 const TCP_BUFFER_SIZE: usize = 32 * 1024;
 const UDP_BUFFER_SIZE: usize = 4096;
 const CHANNEL_CAPACITY: usize = 512;
-const ENGINE_TICK: Duration = Duration::from_millis(50);
+/// Kanal-Timeout des Engine-Loops (2026-08-29 von 50ms auf 10ms reduziert, s. Kommentar an der
+/// `recv_timeout`-Aufrufstelle unten — `iface.poll()` läuft seit demselben Fix vor jedem
+/// `recv_timeout`, nicht mehr danach, und ist deshalb nicht mehr von diesem Wert abhängig; er
+/// bestimmt nur noch, wie schnell ein neu eintreffendes Paket die Housekeeping-Schritte danach
+/// erreicht).
+const ENGINE_TICK: Duration = Duration::from_millis(10);
 
 #[derive(Debug, uniffi::Error)]
 pub enum TunnelError {
@@ -406,7 +411,7 @@ fn run_engine_loop(
         iface.poll(now, &mut device, &mut sockets);
 
         // Dann Pakete verarbeiten (mit kuerzerem Timeout für responsiveres Polling)
-        match rx.recv_timeout(Duration::from_millis(10)) {
+        match rx.recv_timeout(ENGINE_TICK) {
             Ok(packet) => {
                 if let Some(reply) = try_fast_path_dns_reply(&packet, &stats) {
                     let _ = device.writer.write_all(&reply);

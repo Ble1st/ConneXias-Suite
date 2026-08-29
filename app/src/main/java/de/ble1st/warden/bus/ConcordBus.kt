@@ -212,6 +212,25 @@ class ConcordBus(
             true
         }
 
+    /** Feature 3 ("Permission Auto-Block", 2026-08-29) — manueller Baustein neben der bereits
+     * bestehenden automatischen Durchsetzung in [SuspiciousAppScanController.enforce]: der Nutzer
+     * kann einer beliebigen Fremd-App ihre gefährlichen Rechte entziehen, ohne auf einen
+     * Verdachtsfund zu warten. S. [de.ble1st.warden.ui.PermissionAuditScreen]. */
+    fun revokeDangerousPermissions(targetPackage: String): List<String> =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "revokeDangerousPermissions") {
+            suspiciousAppScanController.manuallyRevokeDangerousPermissions(targetPackage)
+        }
+
+    fun restoreDangerousPermissions(targetPackage: String): List<String> =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "restoreDangerousPermissions") {
+            suspiciousAppScanController.manuallyRestoreDangerousPermissions(targetPackage)
+        }
+
+    fun hasRevokedPermissions(targetPackage: String): Boolean =
+        authorize(BusCommand.READ, "hasRevokedPermissions") {
+            suspiciousAppScanController.hasRevokedPermissions(targetPackage)
+        }
+
     /** Feature 10 ("manuelle Sofort-Scan-Auslösung", 2026-08-22) — löst einen vollständigen
      * Scan-Lauf sofort aus, statt auf den nächsten periodischen WorkManager-Slot zu warten. */
     fun runImmediateSuspiciousAppScan(): List<SuspiciousAppFindingInfo> =

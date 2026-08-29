@@ -37,7 +37,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -61,15 +60,20 @@ import de.ble1st.warden.appmanagement.InstalledAppEntry
 import de.ble1st.warden.appmanagement.InstalledAppLister
 import de.ble1st.warden.appmanagement.PermissionAuditInfo
 import de.ble1st.warden.appmanagement.PermissionAuditScanner
+import de.ble1st.warden.domain.score.SecurityScoreBreakdown
+import de.ble1st.warden.score.SecurityScoreCalculator
 import de.ble1st.warden.appmanagement.SentinelInstallStatus
 import de.ble1st.warden.appmanagement.SentinelInstallStatusReader
 import de.ble1st.warden.appmanagement.SentinelSilentInstaller
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.autoreboot.AutoRebootStorage
+import de.ble1st.warden.domain.cellsecurity.CellSecurityReaction
 import de.ble1st.warden.domain.sim.SimChangeReaction
 import de.ble1st.warden.domain.profile.AutoProfileConfig
 import de.ble1st.warden.profile.AutoProfileStorage
 import de.ble1st.warden.failedattempts.FailedAttemptsRebootStorage
+import de.ble1st.warden.cellsecurity.CellSecurityController
+import de.ble1st.warden.cellsecurity.CellSecurityStorage
 import de.ble1st.warden.sim.SimChangeController
 import de.ble1st.warden.sim.SimChangeStorage
 import de.ble1st.warden.bus.ConcordBus
@@ -131,6 +135,7 @@ import de.ble1st.warden.registry.UserRestrictionSafeguard
 import de.ble1st.warden.registry.WardenFactoryResetProtectionStorage
 import de.ble1st.warden.registry.WardenOrganizationNameStorage
 import de.ble1st.warden.registry.WardenSupportMessageStorage
+import de.ble1st.warden.netlock.DomainBlocklistStore
 import de.ble1st.warden.netlock.FirewallMode
 import de.ble1st.warden.netlock.NetworkFirewallPolicyController
 import de.ble1st.warden.netlock.NetLockdownController
@@ -293,6 +298,11 @@ class WardenStatusActivity : ComponentActivity() {
             var simChangeReaction by remember {
                 mutableStateOf(SimChangeStorage.loadReaction(applicationContext))
             }
+            // "Mobilfunkzellen-Auffälligkeitserkennung" (2026-08-29) — reiner Soll-Wert,
+            // dieselbe Verkabelung wie simChangeReaction darüber.
+            var cellSecurityReaction by remember {
+                mutableStateOf(CellSecurityStorage.loadReaction(applicationContext))
+            }
             // "Automatische Profilumschaltung" (2026-08-28) — reiner Soll-Wert wie die übrigen
             // Härtungs-Felder; angewendet wird ausschließlich vom periodischen Worker.
             var autoProfileConfig by remember {
@@ -451,6 +461,21 @@ class WardenStatusActivity : ComponentActivity() {
                                 .onFailure { Log.w(TAG, "SIM-Baseline konnte nicht sofort gesetzt werden", it) }
                         }
                     },
+                    cellSecurityReaction = cellSecurityReaction,
+                    onCellSecurityReactionChange = { updated ->
+                        // Dieselbe Begründung wie bei onSimChangeReactionChange oben: Ausschalten
+                        // verwirft den letzten Messwert, sonst gälte beim Wiedereinschalten die
+                        // erste gemessene Zelle sofort als Auffälligkeit.
+                        if (updated == null) {
+                            CellSecurityStorage.clearObservation(applicationContext)
+                        }
+                        cellSecurityReaction = updated
+                        CellSecurityStorage.saveReaction(applicationContext, updated)
+                        if (updated != null) {
+                            runCatching { CellSecurityController(applicationContext).checkAndMaybeReact(BuildConfig.DEBUG) }
+                                .onFailure { Log.w(TAG, "Zellen-Baseline konnte nicht sofort gesetzt werden", it) }
+                        }
+                    },
                     failedAttemptsRebootThreshold = failedAttemptsRebootThreshold,
                     secureLockScreenConfigured = secureLockScreenConfigured,
                     onFailedAttemptsRebootThresholdChange = { updated ->
@@ -564,6 +589,7 @@ private sealed class WardenScreen {
     data object PermissionAudit : WardenScreen()
     data object PerformanceMonitor : WardenScreen()
     data object Network : WardenScreen()
+    data object SecurityScore : WardenScreen()
 }
 
 /** Architektur-Review 2026-08-24 (F-3) — `WardenScreen` selbst ist keine der sonst über
@@ -582,6 +608,11 @@ private val WardenScreenSaver: Saver<WardenScreen, String> = Saver(
             "Settings" -> WardenScreen.Settings
             "PermissionAudit" -> WardenScreen.PermissionAudit
             "PerformanceMonitor" -> WardenScreen.PerformanceMonitor
+            // "Network" fehlte hier bislang (Bestandslücke, beim Ergänzen von "SecurityScore"
+            // 2026-08-29 mitkorrigiert) — ohne diesen Zweig fiel eine Prozess-Tod-Wiederherstellung
+            // auf dem Netzwerk-Bildschirm fälschlich auf WardenScreen.Status zurück.
+            "Network" -> WardenScreen.Network
+            "SecurityScore" -> WardenScreen.SecurityScore
             else -> WardenScreen.Status
         }
     },
@@ -614,6 +645,8 @@ private fun WardenRoot(
     onFailedAttemptsRebootThresholdChange: (Int?) -> Unit,
     simChangeReaction: SimChangeReaction?,
     onSimChangeReactionChange: (SimChangeReaction?) -> Unit,
+    cellSecurityReaction: CellSecurityReaction?,
+    onCellSecurityReactionChange: (CellSecurityReaction?) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
 ) {
@@ -698,6 +731,7 @@ private fun WardenRoot(
                 onOpenPermissionAudit = { screen = WardenScreen.PermissionAudit },
                 onOpenPerformanceMonitor = { screen = WardenScreen.PerformanceMonitor },
                 onOpenNetwork = { screen = WardenScreen.Network },
+                onOpenSecurityScore = { screen = WardenScreen.SecurityScore },
             )
         }
         WardenScreen.AppManagement -> {
@@ -1022,6 +1056,8 @@ private fun WardenRoot(
                 onFailedAttemptsRebootThresholdChange = onFailedAttemptsRebootThresholdChange,
                 simChangeReaction = simChangeReaction,
                 onSimChangeReactionChange = onSimChangeReactionChange,
+                cellSecurityReaction = cellSecurityReaction,
+                onCellSecurityReactionChange = onCellSecurityReactionChange,
                 autoProfileConfig = autoProfileConfig,
                 onAutoProfileConfigChange = onAutoProfileConfigChange,
                 onBack = { screen = WardenScreen.Status },
@@ -1032,24 +1068,56 @@ private fun WardenRoot(
             val scanScope = rememberCoroutineScope()
             var findings by remember { mutableStateOf<List<PermissionAuditInfo>?>(null) }
             var scanInProgress by remember { mutableStateOf(false) }
+            // Feature 3 "Permission Auto-Block" (2026-08-29): welche Pakete aktuell gesperrte
+            // Rechte haben, wird separat von RevokedPermissionStore nachgeschlagen statt aus
+            // findings abgeleitet — ein Scan-Ergebnis kennt den Sperrzustand nicht, das ist reiner
+            // ConcordBus-Zustand. Bei jedem (Neu-)Scan neu ermittelt, damit ein manuelles
+            // Sperren/Wiederherstellen sofort in der Liste sichtbar wird.
+            var revokedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+            fun refreshRevokedState(candidates: List<PermissionAuditInfo>) {
+                scanScope.launch {
+                    revokedPackages = withContext(Dispatchers.IO) {
+                        candidates.filter { runCatching { concordBus.hasRevokedPermissions(it.packageName) }.getOrDefault(false) }
+                            .map { it.packageName }
+                            .toSet()
+                    }
+                }
+            }
+
             PermissionAuditScreen(
                 findings = findings,
                 scanInProgress = scanInProgress,
+                revokedPackages = revokedPackages,
                 onBack = { screen = WardenScreen.Status },
                 onScan = {
                     if (!scanInProgress) {
                         scanScope.launch {
                             scanInProgress = true
                             try {
-                                findings = withContext(Dispatchers.IO) {
+                                val result = withContext(Dispatchers.IO) {
                                     runCatching { PermissionAuditScanner(appContext).scan() }
                                         .onFailure { Log.e("WardenStatus", "Permission-Audit fehlgeschlagen", it) }
                                         .getOrNull()
                                 }
+                                findings = result
+                                if (result != null) refreshRevokedState(result)
                             } finally {
                                 scanInProgress = false
                             }
                         }
+                    }
+                },
+                onRevoke = { packageName ->
+                    scanScope.launch {
+                        withContext(Dispatchers.IO) { runCatching { concordBus.revokeDangerousPermissions(packageName) } }
+                        findings?.let { refreshRevokedState(it) }
+                    }
+                },
+                onRestore = { packageName ->
+                    scanScope.launch {
+                        withContext(Dispatchers.IO) { runCatching { concordBus.restoreDangerousPermissions(packageName) } }
+                        findings?.let { refreshRevokedState(it) }
                     }
                 },
             )
@@ -1121,24 +1189,102 @@ private fun WardenRoot(
             val netLockdownController = remember { NetLockdownController(appContext) }
             val networkFirewallPolicyController = remember { NetworkFirewallPolicyController(appContext) }
             val apps by remember { mutableStateOf(networkFirewallPolicyController.listApps()) }
-            val lockdownActive by remember {
-                derivedStateOf { netLockdownController.isActive() }
+            // 2026-08-29 (Reaktivierungs-Fix): `netLockdownController.isActive()` liest live über
+            // DPM/`getAlwaysOnVpnPackage` — kein Compose-`State`, das `derivedStateOf` (Commit
+            // e5dbe70) beobachten könnte. Ohne einen selbst gehaltenen Snapshot-State blieb der
+            // Schalter dauerhaft auf dem beim ersten Rendern gelesenen Wert stehen, egal was
+            // `onToggleLockdown` danach auslöste — dasselbe "UI reagiert nicht"-Symptom, das
+            // e5dbe70 eigentlich beheben sollte. Stattdessen: eigener `mutableStateOf`, einmal per
+            // `LaunchedEffect` initial befüllt und nach jedem Arm/Disarm explizit mit dem
+            // tatsächlichen `isActive()`-Ist-Zustand aktualisiert (nie optimistisch auf den
+            // gewünschten Zielwert gesetzt) — dieselbe "Ist-Zustand ist immer die Wahrheit"-Regel
+            // wie beim Safeguard-Registry (s. CLAUDE.md).
+            var lockdownActive by remember { mutableStateOf<Boolean?>(null) }
+            val networkScope = rememberCoroutineScope()
+            LaunchedEffect(Unit) {
+                lockdownActive = withContext(Dispatchers.IO) { netLockdownController.isActive() }
             }
-            
+
+            // 2026-08-29 (Verdrahtungs-Lücke gefunden und geschlossen): die Blocklisten-UI rief
+            // vorher nirgendwo `DomainBlocklistStore` auf — `userBlocklistDomains`/
+            // `defaultBlocklistSize` standen fest auf leer/0 und `onAddDomain`/`onRemoveDomain`
+            // waren No-ops. Der Speicher und die Rust-Engine-Verkabelung ([WardenVpnService
+            // .startTunnel]) waren dabei die ganze Zeit vollständig funktionsfähig — nur der
+            // Bildschirm hing an nichts. Dieselbe "IO-Dispatcher + Neuladen nach jeder Änderung"-
+            // Struktur wie bei [apps]/[lockdownActive] oben.
+            val blocklistStore = remember { DomainBlocklistStore(DomainBlocklistStore.buildEnvelopeFile(appContext)) }
+            var userDomains by remember { mutableStateOf<Set<String>>(emptySet()) }
+            LaunchedEffect(Unit) {
+                userDomains = withContext(Dispatchers.IO) { blocklistStore.loadUserDomains() }
+            }
+
             NetworkScreen(
                 lockdownActive = lockdownActive,
                 onToggleLockdown = { enabled ->
-                    if (enabled) netLockdownController.arm() else netLockdownController.disarm()
+                    networkScope.launch {
+                        withContext(Dispatchers.IO) {
+                            if (enabled) netLockdownController.arm() else netLockdownController.disarm()
+                        }
+                        lockdownActive = withContext(Dispatchers.IO) { netLockdownController.isActive() }
+                    }
                 },
                 apps = apps,
                 appsLoadFailed = false,
                 modeFor = { pkg -> networkFirewallPolicyController.modeFor(pkg) },
                 onSetMode = { pkg, mode -> networkFirewallPolicyController.setMode(pkg, mode) },
-                userBlocklistDomains = setOf(), // TODO: Aus Store laden
-                defaultBlocklistSize = 0, // TODO: Aus Store laden
-                onAddDomain = { domain -> /* TODO */ },
-                onRemoveDomain = { domain -> /* TODO */ },
+                userBlocklistDomains = userDomains,
+                defaultBlocklistSize = DomainBlocklistStore.DEFAULT_TRACKER_DOMAINS.size,
+                onAddDomain = { domain ->
+                    networkScope.launch {
+                        withContext(Dispatchers.IO) {
+                            blocklistStore.addDomain(domain)
+                            netLockdownController.resyncBlocklist()
+                        }
+                        userDomains = withContext(Dispatchers.IO) { blocklistStore.loadUserDomains() }
+                    }
+                },
+                onRemoveDomain = { domain ->
+                    networkScope.launch {
+                        withContext(Dispatchers.IO) {
+                            blocklistStore.removeDomain(domain)
+                            netLockdownController.resyncBlocklist()
+                        }
+                        userDomains = withContext(Dispatchers.IO) { blocklistStore.loadUserDomains() }
+                    }
+                },
                 onBack = { screen = WardenScreen.Status }
+            )
+        }
+        WardenScreen.SecurityScore -> {
+            val appContext = LocalContext.current.applicationContext
+            val scoreScope = rememberCoroutineScope()
+            var breakdown by remember { mutableStateOf<SecurityScoreBreakdown?>(null) }
+            var calculationFailed by remember { mutableStateOf(false) }
+            var calculationInProgress by remember { mutableStateOf(false) }
+            SecurityScoreScreen(
+                breakdown = breakdown,
+                calculationFailed = calculationFailed,
+                calculationInProgress = calculationInProgress,
+                onBack = { screen = WardenScreen.Status },
+                onCalculate = {
+                    if (!calculationInProgress) {
+                        scoreScope.launch {
+                            calculationInProgress = true
+                            calculationFailed = false
+                            try {
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching { SecurityScoreCalculator(appContext, concordBus).calculate() }
+                                        .onFailure { Log.e("WardenStatus", "Sicherheits-Score-Berechnung fehlgeschlagen", it) }
+                                        .getOrNull()
+                                }
+                                breakdown = result
+                                calculationFailed = result == null
+                            } finally {
+                                calculationInProgress = false
+                            }
+                        }
+                    }
+                },
             )
         }
     }
@@ -1345,6 +1491,7 @@ private fun WardenStatusScreen(
     onOpenPermissionAudit: () -> Unit,
     onOpenPerformanceMonitor: () -> Unit,
     onOpenNetwork: () -> Unit,
+    onOpenSecurityScore: () -> Unit,
 ) {
     // Punkt 4 ("weitere App-UI-Verschönerungen", 2026-08-22) — haptisches Feedback für die einzige
     // sofort (ohne Bestätigungsschritt) ausgeführte Dashboard-Aktion, s. NumpadButton-Kommentar in
@@ -1423,6 +1570,12 @@ private fun WardenStatusScreen(
                 subtitle = "Netz-Sperre, Firewall-Policy, DNS-Filter",
                 tag = "NW",
                 onClick = onOpenNetwork,
+            )
+            MenuRow(
+                title = "Sicherheits-Score",
+                subtitle = "Bedrohungen, Rechte, Integrität, Härtung in einer Zahl",
+                tag = "SCR",
+                onClick = onOpenSecurityScore,
             )
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 

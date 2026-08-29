@@ -12,6 +12,8 @@ import de.ble1st.warden.netlock.NetworkFirewallPolicyController
 import de.ble1st.warden.logging.SecurityEventStorage
 import de.ble1st.warden.logging.SecurityEventStore
 import de.ble1st.warden.profile.AutoProfileWorker
+import de.ble1st.warden.cellsecurity.CellSecurityStartupWorker
+import de.ble1st.warden.cellsecurity.CellSecurityWorker
 import de.ble1st.warden.sim.SimChangeStartupWorker
 import de.ble1st.warden.sim.SimChangeWorker
 import de.ble1st.warden.logging.LogStorage
@@ -293,6 +295,16 @@ class WardenApplication : Application() {
             SimChangeStartupWorker.scheduleOnce(this)
         } catch (e: Exception) {
             Log.w("WardenApplication", "SIM-Wechsel-Prüfung beim Start übersprungen", e)
+        }
+        try {
+            // "Mobilfunkzellen-Auffälligkeitserkennung" (2026-08-29) — dieselbe Begründung wie
+            // die SIM-Wechsel-Prüfung direkt darüber: periodischer Worker plus ein verzögerter
+            // Sofortlauf nach dem Prozessstart, statt bis zu 15 Minuten auf den ersten
+            // periodischen Lauf zu warten.
+            CellSecurityWorker.schedule(this)
+            CellSecurityStartupWorker.scheduleOnce(this)
+        } catch (e: Exception) {
+            Log.w("WardenApplication", "Mobilfunkzellen-Prüfung beim Start übersprungen", e)
         }
         try {
             // "Automatische Profilumschaltung" (2026-08-28) — nur planen, nicht sofort ausführen:

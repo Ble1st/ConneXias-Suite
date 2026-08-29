@@ -67,6 +67,10 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
                 }
                 return START_STICKY
             }
+            ACTION_UPDATE_BLOCKLIST -> {
+                worker.execute { updateBlocklist() }
+                return START_STICKY
+            }
         }
         worker.execute { startTunnel() }
         return START_STICKY
@@ -155,6 +159,19 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
     // (mit einem bereits toten Lese-Thread, also ohne jeglichen Traffic) fälschlich weiter als
     // aktiv erschien. Fix: den fd zuerst schließen — das entsperrt den Lese-Thread sofort, danach
     // kehrt `stopCapturedTunnel()`s Join tatsächlich zurück.
+    // 2026-08-29 (gefundene Verdrahtungs-Ineffizienz): vor diesem Fix löste jede Blocklisten-
+    // Änderung [ACTION_RELOAD_TUNNEL] aus — einen vollen TUN-Abbau/-Neuaufbau, der jede laufende
+    // NAT-Session killt, nur um eine Domain-Liste zu aktualisieren. `engine.rs`s `BLOCKLIST` ist
+    // ein vom Tunnel-Lebenszyklus unabhängiges `RwLock` (`current_blocklist()` liest bei jeder
+    // einzelnen DNS-Anfrage frisch, s. `try_fast_path_dns_reply`) — [BarbicanEngine.setBlocklist]
+    // wirkt sofort auf die nächste Anfrage, ganz ohne den Tunnel anzufassen. Läuft ausschließlich
+    // auf [worker], liest den Store also nicht parallel zu einem laufenden `startTunnel()`.
+    private fun updateBlocklist() {
+        if (tunInterface == null) return
+        val blocklistStore = DomainBlocklistStore(DomainBlocklistStore.buildEnvelopeFile(this))
+        BarbicanEngine.setBlocklist(blocklistStore.effectiveBlocklist())
+    }
+
     private fun stopTunnel(releaseForeground: Boolean = true) {
         tunInterface?.close()
         tunInterface = null
@@ -291,5 +308,9 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
         const val UPSTREAM_DNS_IPV4 = "1.1.1.1"
         const val ACTION_STOP_TUNNEL = "de.ble1st.warden.vpn.action.STOP_TUNNEL"
         const val ACTION_RELOAD_TUNNEL = "de.ble1st.warden.vpn.action.RELOAD_TUNNEL"
+        /** s. [updateBlocklist]-Kommentar — bewusst getrennt von [ACTION_RELOAD_TUNNEL]: eine
+         * Blocklisten-Änderung braucht anders als eine Firewall-Allowlist-Änderung keinen
+         * TUN-Neuaufbau. */
+        const val ACTION_UPDATE_BLOCKLIST = "de.ble1st.warden.vpn.action.UPDATE_BLOCKLIST"
     }
 }

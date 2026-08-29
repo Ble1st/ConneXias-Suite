@@ -10,8 +10,8 @@ import de.ble1st.warden.netlock.NetLockdownAuthorizer
  * Baut den konkreten [CompositeSafeguard] aus sechs Einzel-Safeguards: [UsbDataSignalingSafeguard],
  * [UserRestrictionSafeguard.safeBootDisabled], [UserRestrictionSafeguard.factoryResetDisabled],
  * [UserRestrictionSafeguard.debuggingFeaturesDisabled], [WardenLockTaskAuthorizer],
- * [NetLockdownAuthorizer]. Factory-reset / safe-boot also exist as standalone reversible catalog Factory-reset /
- * safe-boot also exist as standalone reversible catalog entries for Alltag; the bundle still
+ * [NetLockdownAuthorizer]. Factory-reset / safe-boot also exist as standalone reversible catalog
+ * entries for Alltag; the bundle still
  * reapplies them plus USB-debug kill. `DISALLOW_OEM_UNLOCK` is hidden and immutable for Device
  * Owner — debugging-features-off is the public path that also hides the OEM-unlock toggle.
  *

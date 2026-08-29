@@ -59,11 +59,10 @@ object SafeguardCatalog {
         // (SentinelInstallResultReceiver), nicht erst hier — s. SentinelUninstallProtectionSafeguard
         // -Klassendoc. Registrierung hier sorgt für Boot-Reconciliation + MasterSwitch-Abdeckung.
         SentinelUninstallProtectionSafeguard(context),
-        // "Netz-Sperre" (2026-08-27, seit demselben Tag pausiert — s. WardenApplication-
-        // Klassendoc, Code geparkt unter app/netlock-disabled/): der folgende Absatz erklärt
-        // weiterhin, warum NetLockdownAuthorizer NICHT hier registriert werden sollte, FALLS das
-        // Feature reaktiviert wird — aktuell existiert die Klasse im aktiven Build gar nicht mehr.
-        // NetLockdownAuthorizer ist bewusst NICHT hier registriert,
+        // "Netz-Sperre" (2026-08-27, Kernfehler behoben und reaktiviert 2026-08-29 — s.
+        // WardenApplication-Klassendoc): NetLockdownAuthorizer existiert im aktiven Build (auch
+        // als DeviceLockdownBundle-Mitglied, s. dortige members-Liste) und ist trotzdem bewusst
+        // NICHT hier registriert,
         // obwohl es die "beides" (Standalone + DeviceLockdownBundle-Mitglied) genannte
         // Nutzeranforderung zunächst nahelegt — anders als die simplen Boolean-Toggles um es herum
         // braucht dessen *korrektes* apply() eine Lockdown-Allowlist (s. dessen Klassendoc), die
