@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,6 +74,9 @@ fun SafeguardsScreen(
     onSaveFactoryResetProtectionAccounts: (String) -> Unit,
     lockdownModeActive: Boolean?,
     profileApplyWarning: String?,
+    /** Zuletzt angewandtes Profil (manuell oder automatisch); `null` = noch nie eines angewandt.
+     * Vorschlag V-1 (2026-08-29), s. [ProfilePicker]-Doc. */
+    activeProfile: WardenProfile?,
     onApplyProfile: (WardenProfile) -> Unit,
     emergencyDrillConfirmed: Boolean,
     emergencyDrillConfirmedAtText: String?,
@@ -117,7 +121,7 @@ fun SafeguardsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
-            ProfilePicker(onApplyProfile = onApplyProfile)
+            ProfilePicker(activeProfile = activeProfile, onApplyProfile = onApplyProfile)
             if (profileApplyWarning != null) {
                 Text(
                     text = "⚠ $profileApplyWarning",
@@ -463,8 +467,21 @@ private fun LockdownTriggerProfilePicker(
     }
 }
 
+/**
+ * **Zeigt seit 2026-08-29 (V-1) das aktive Profil an.** Vorher standen hier drei gleichwertige
+ * Knöpfe ohne jede Markierung — die Frage "in welchem Profil bin ich gerade?" war aus der UI
+ * überhaupt nicht zu beantworten. Das wiegt schwerer, seit `AutoProfileController` das Profil auch
+ * *ohne Zutun* umschaltet (Nachtfenster, Eskalation bei kritischem Fund): eine automatische
+ * Umschaltung war bis hierher unsichtbar, solange man nicht das Audit-Log öffnete.
+ *
+ * [activeProfile] ist `AutoProfileStorage.loadLastEffective` — das zuletzt *überhaupt* angewandte
+ * Profil, manuell wie automatisch (`ConcordBus.applyProfile` schreibt es, s. dessen Doc). `null`
+ * heißt "seit der Installation wurde nie ein Profil angewandt", nicht "Alltag": einzelne Schalter
+ * können längst gesetzt sein, ohne dass je ein Profil lief — die Anzeige rät das nicht.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProfilePicker(onApplyProfile: (WardenProfile) -> Unit) {
+private fun ProfilePicker(activeProfile: WardenProfile?, onApplyProfile: (WardenProfile) -> Unit) {
     var pending by remember { mutableStateOf<WardenProfile?>(null) }
     Text(
         text = "Profil",
@@ -479,11 +496,28 @@ private fun ProfilePicker(onApplyProfile: (WardenProfile) -> Unit) {
     )
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
         for (profile in WardenProfile.entries) {
-            TextButton(onClick = { pending = profile }) {
-                Text(profile.label)
-            }
+            // FilterChip statt TextButton: der ausgewählte Zustand ist hier eine echte Information,
+            // und `selected` trägt ihn auch an Vorlesehilfen weiter ("ausgewählt") — ein fett
+            // gesetzter Knopftext täte das nicht.
+            FilterChip(
+                selected = profile == activeProfile,
+                onClick = { pending = profile },
+                label = { Text(profile.label) },
+            )
         }
     }
+    Text(
+        text = if (activeProfile == null) {
+            "Aktiv: keins — seit der Installation wurde nie ein Profil angewandt. Einzelne " +
+                "Schalter unten können trotzdem gesetzt sein."
+        } else {
+            "Aktiv: ${activeProfile.label}. Eine automatische Umschaltung (Nachtfenster, " +
+                "Eskalation bei kritischem Fund) ändert diese Anzeige mit."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+    )
     val profile = pending
     if (profile != null) {
         AlertDialog(

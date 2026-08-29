@@ -68,7 +68,17 @@ fun SectionLabel(text: String) {
  * vollständige Beschreibung.
  */
 @Composable
-fun MenuRow(title: String, onClick: () -> Unit, subtitle: String? = null, badge: String? = null, tag: String? = null) {
+fun MenuRow(
+    title: String,
+    onClick: () -> Unit,
+    subtitle: String? = null,
+    badge: String? = null,
+    /** Vorschlag V-2 (2026-08-29): färbt das Badge in die Fehlerfarbe. Bewusst ein eigener
+     * Schalter statt "Badge > 0 ⇒ rot" — die Dringlichkeit hängt am Schweregrad, nicht an der
+     * Anzahl, und ein dauerhaft rotes Badge für harmlose Info-Funde nutzt die Farbe ab. */
+    badgeAlarming: Boolean = false,
+    tag: String? = null,
+) {
     val spoken = buildString {
         append(title)
         subtitle?.let { append(", ").append(it) }
@@ -91,7 +101,16 @@ fun MenuRow(title: String, onClick: () -> Unit, subtitle: String? = null, badge:
                 Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        badge?.let { Badge { Text(it) } }
+        badge?.let {
+            if (badgeAlarming) {
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ) { Text(it) }
+            } else {
+                Badge { Text(it) }
+            }
+        }
         Icon(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,

@@ -26,6 +26,7 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -60,6 +61,8 @@ fun AppManagementScreen(
     apps: List<AppManagementInfo>,
     loadFailed: Boolean,
     onBack: () -> Unit,
+    /** Vorschlag V-6 (2026-08-29): lädt die Liste neu, ohne den Bildschirm zu verlassen. */
+    onRetry: () -> Unit,
     onToggleFrozen: (packageName: String, frozen: Boolean) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -113,6 +116,7 @@ fun AppManagementScreen(
                 ErrorStateRow(
                     headline = "App-Liste konnte nicht geladen werden",
                     detail = "Vermutlich kein Device Owner aktiv — s. Statusanzeige.",
+                    onRetry = onRetry,
                 )
             }
             SystemAppFilterRow(showSystemApps = showSystemApps, onShowSystemAppsChange = { showSystemApps = it })
@@ -122,8 +126,36 @@ fun AppManagementScreen(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Suchen") },
                 singleLine = true,
+                // Vorschlag V-4 (2026-08-29): dieselbe Leeren-Schaltfläche wie in der
+                // Safeguard-Suche — eine Suche auf einem Touch-Gerät zeichenweise zurückzulöschen
+                // ist der unnötigste Teil dieses Bildschirms.
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        TextButton(onClick = { query = "" }) { Text("Leeren") }
+                    }
+                },
+            )
+            // Vorschlag V-4: Trefferzahl. Ohne sie war nicht zu sehen, wie viele Apps der
+            // Systemapp-Filter gerade ausblendet — auf einem realen Gerät sind das die meisten.
+            Text(
+                text = "${filtered.size} von ${apps.size} Apps" +
+                    if (!showSystemApps) " (Systemapps ausgeblendet)" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             HorizontalDivider()
+            if (filtered.isEmpty() && !loadFailed) {
+                // Vorher blieb hier eine leere Fläche stehen — nicht davon zu unterscheiden, dass
+                // der Bildschirm hängt oder das Laden fehlgeschlagen ist.
+                EmptyStateRow(
+                    headline = if (query.isBlank()) {
+                        "Keine Apps in dieser Auswahl" +
+                            if (!showSystemApps) " — Systemapps sind ausgeblendet." else "."
+                    } else {
+                        "Keine App passt zu \"$query\"."
+                    },
+                )
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -212,8 +244,17 @@ private fun AppManagementRowContent(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
             .heightIn(min = 48.dp)
-            .semantics {
-                contentDescription = "App-Verwaltung ${app.label}"
+            // Vorschlag V-5 (2026-08-29), dasselbe Problem wie U-7 in MenuComponents: ein
+            // `semantics {}` ohne `mergeDescendants` *ersetzt* die Kinderknoten nicht, es tritt
+            // neben sie — eine Vorlesehilfe las hier nacheinander die Beschreibung, den App-Namen
+            // und den (zeichenweise vorgelesenen) Paketnamen. Mit `mergeDescendants = true` bleibt
+            // eine Zeile ein Knoten; der Switch ist ein eigener anklickbarer Semantikknoten und
+            // wird deshalb weiterhin nicht mit eingezogen, bleibt also einzeln erreichbar.
+            .semantics(mergeDescendants = true) {
+                contentDescription = buildString {
+                    append("App-Verwaltung ").append(app.label).append(", ").append(app.packageName)
+                    if (app.protected) append(", geschützt — kann nicht eingefroren werden")
+                }
                 stateDescription = if (app.frozen) "eingefroren" else "aktiv"
             },
         verticalAlignment = Alignment.CenterVertically,

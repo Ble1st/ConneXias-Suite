@@ -81,6 +81,7 @@ import de.ble1st.warden.domain.presence.DestructiveCommandGuard
 import de.ble1st.warden.domain.presence.SensitiveAction
 import de.ble1st.warden.domain.presence.SensitiveActionDecisionResult
 import de.ble1st.warden.domain.presence.SensitiveActionOutcome
+import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.domain.profile.WardenProfile
 import de.ble1st.warden.performance.AppUsageInfo
 import de.ble1st.warden.performance.AppUsageReader
@@ -366,7 +367,7 @@ class WardenStatusActivity : ComponentActivity() {
                             SensitiveAction.LOCKDOWN_TASK_ENGAGE.confirmationPhrase,
                             sessionAuthenticated = wardenLockSession.isAuthenticated(),
                         )
-                        describeKioskDashboardDecision(outcome)
+                        outcome
                     },
                     // Kein EXTRA_PRESENCE_REQUEST — echte Ersteinrichtung/Verify/PIN-Änderung, im
                     // Presence-Request-Modus verweigert WardenPinActivity das bewusst (Klassendoc).
@@ -594,7 +595,7 @@ private fun WardenRoot(
     onOpenSensitiveAction: () -> Unit,
     onOpenPinManagement: () -> Unit,
     onOpenLog: () -> Unit,
-    onKioskNow: () -> String,
+    onKioskNow: () -> SensitiveActionOutcome,
     accent: WardenAccent,
     onAccentChange: (WardenAccent) -> Unit,
     lockScreenText: String?,
@@ -653,6 +654,11 @@ private fun WardenRoot(
             // Frisch bei jedem Wieder-Betreten dieses Zweigs gelesen (dieselbe Begründung wie
             // findingsResult oben), kein Cross-Activity-Refresh-Mechanismus nötig.
             val statusContext = LocalContext.current.applicationContext
+            // Vorschlag V-1 (2026-08-29): dasselbe "zuletzt angewandte Profil" wie im
+            // Safeguards-Bildschirm, hier auf der Statuskarte. Reines SharedPreferences-Lesen,
+            // kein DPM-Aufruf — deshalb ohne LaunchedEffect/IO-Dispatcher, anders als
+            // findingsResult darüber.
+            val activeProfile = remember { AutoProfileStorage.loadLastEffective(statusContext) }
             val lockdownTriggerProfile = remember { LockdownTriggerProfileStore.load(statusContext) }
             val kioskQuickTriggerVisible = remember(lockdownTriggerProfile) {
                 LockdownTriggerProfilePolicy.quickTriggerEntryPointsEnabled(lockdownTriggerProfile) &&
@@ -666,6 +672,11 @@ private fun WardenRoot(
                 buildType = buildType,
                 suspiciousFindingCount = findingsResult?.size ?: 0,
                 findingsLoadFailed = findingsResult == null,
+                // Vorschlag V-2 (2026-08-29): der Schweregrad ist im Fund längst enthalten, kam
+                // auf dem Dashboard aber nie an — "3" sah dort genauso aus, egal ob dahinter drei
+                // harmlose Infos oder ein kritischer Signaturwechsel standen.
+                highestFindingSeverity = findingsResult?.maxByOrNull { it.severity.ordinal }?.severity,
+                activeProfile = activeProfile,
                 onOpenFailsafe = onOpenFailsafe,
                 onOpenSensitiveAction = onOpenSensitiveAction,
                 onOpenPinManagement = onOpenPinManagement,
@@ -709,6 +720,13 @@ private fun WardenRoot(
                     apps = appsResult.orEmpty(),
                     loadFailed = appsResult == null,
                     onBack = { screen = WardenScreen.Status },
+                    // Vorschlag V-6 (2026-08-29): derselbe Ladevorgang wie im LaunchedEffect oben,
+                    // nur erneut angestoßen — kein zweiter Ladepfad, der auseinanderlaufen könnte.
+                    onRetry = {
+                        appManagementScope.launch {
+                            appsResult = withContext(Dispatchers.IO) { loadManagedAppsSafely(concordBus) }
+                        }
+                    },
                     onToggleFrozen = { packageName, frozen ->
                         appManagementScope.launch {
                             withContext(Dispatchers.IO) {
@@ -744,6 +762,15 @@ private fun WardenRoot(
                 LoadingScreen(title = "Sicherheits-Scanner", onBack = { screen = WardenScreen.Status })
             } else {
                 SecurityScannerScreen(
+                    // Vorschlag V-6 (2026-08-29): wiederholt genau die drei Lesevorgänge des
+                    // LaunchedEffect oben, ohne einen neuen Scan auszulösen.
+                    onRetry = {
+                        scanScope.launch {
+                            enabled = withContext(Dispatchers.IO) { loadScannerEnabledSafely(concordBus) }
+                            findingsResult = withContext(Dispatchers.IO) { loadFindingsSafely(concordBus) }
+                            integrityStatus = withContext(Dispatchers.IO) { loadDeviceIntegrityStatusSafely(concordBus) }
+                        }
+                    },
                     scannerEnabled = enabled,
                     findings = findingsResult.orEmpty(),
                     findingsLoadFailed = findingsResult == null,
@@ -953,6 +980,7 @@ private fun WardenRoot(
                     sentinelLockTaskAuthorized = loaded.sentinelLockTaskAuthorized,
                     sentinelInstallStatus = loaded.sentinelInstallStatus,
                     sentinelPinConfigured = loaded.sentinelPinConfigured,
+                    activeProfile = loaded.activeProfile,
                     onInstallSentinel = {
                         // Nur der synchrone Teil (Session erzeugt/committet) ist hier sichtbar —
                         // das eigentliche Ergebnis kommt asynchron über
@@ -1141,6 +1169,9 @@ private data class SafeguardsSnapshot(
     /** `null` = Sentinel hat sich noch nie gemeldet, *nicht* "keine PIN" — s.
      * [SentinelPinStateStore] (Vorschlag U-8). */
     val sentinelPinConfigured: Boolean?,
+    /** Zuletzt angewandtes Profil, manuell oder automatisch; `null` = noch nie eines angewandt
+     * (Vorschlag V-1, 2026-08-29). */
+    val activeProfile: WardenProfile?,
     val factoryResetProtectionAccounts: String,
     val factoryResetProtectionAgentAvailable: Boolean,
 )
@@ -1163,6 +1194,7 @@ private fun loadSafeguardsSnapshotSafely(bus: ConcordBus, context: Context): Saf
         sentinelLockTaskAuthorized = loadSentinelLockTaskAuthorizedSafely(context),
         sentinelInstallStatus = SentinelInstallStatusReader(context).currentStatus(),
         sentinelPinConfigured = SentinelPinStateStore.pinConfigured(context),
+        activeProfile = AutoProfileStorage.loadLastEffective(context),
         factoryResetProtectionAccounts = WardenFactoryResetProtectionStorage.load(context).joinToString("\n"),
         factoryResetProtectionAgentAvailable = FactoryResetProtectionSafeguard(context).isFrpAgentAvailable(),
     )
@@ -1267,6 +1299,11 @@ private fun WardenStatusScreen(
     buildType: String,
     suspiciousFindingCount: Int,
     findingsLoadFailed: Boolean,
+    /** Höchster Schweregrad unter den aktuellen Funden, `null` wenn keine Funde vorliegen oder
+     * das Laden fehlschlug (Vorschlag V-2, 2026-08-29). */
+    highestFindingSeverity: ThreatSeverity?,
+    /** Zuletzt angewandtes Profil; `null` = noch nie eines angewandt (Vorschlag V-1). */
+    activeProfile: WardenProfile?,
     onOpenFailsafe: () -> Unit,
     onOpenSensitiveAction: () -> Unit,
     onOpenPinManagement: () -> Unit,
@@ -1278,7 +1315,7 @@ private fun WardenStatusScreen(
     onLockNow: () -> Unit,
     kioskQuickTriggerVisible: Boolean,
     kioskTriggerProfile: LockdownTriggerProfile,
-    onKioskNow: () -> String,
+    onKioskNow: () -> SensitiveActionOutcome,
     onOpenPermissionAudit: () -> Unit,
     onOpenPerformanceMonitor: () -> Unit,
     // "Netz-Sperre" (2026-08-27): onOpenNetwork-Parameter hier entfernt — Feature pausiert.
@@ -1311,6 +1348,7 @@ private fun WardenStatusScreen(
                 versionName = versionName,
                 isDebuggableOs = isDebuggableOs,
                 buildType = buildType,
+                activeProfile = activeProfile,
             )
 
             SectionLabel("Geräteschutz")
@@ -1322,11 +1360,24 @@ private fun WardenStatusScreen(
             MenuRow(
                 title = "Sicherheits-Scanner",
                 tag = "SC",
+                // Vorschlag V-2 (2026-08-29): Anzahl UND Schweregrad. Die Zahl allein beantwortet
+                // die eigentliche Frage nicht — ein kritischer Fund (frisch aktivierter
+                // Geräteadmin, Signaturwechsel) verlangt sofortiges Handeln, drei Infos
+                // ("unbekannte Installationsquelle") auf einem Gerät, das selbst als Sideload-APK
+                // läuft, gar keins.
+                subtitle = when {
+                    findingsLoadFailed -> null
+                    highestFindingSeverity != null -> "Höchster Schweregrad: ${severityLabel(highestFindingSeverity)}"
+                    else -> null
+                },
                 badge = when {
                     findingsLoadFailed -> "!"
                     suspiciousFindingCount > 0 -> suspiciousFindingCount.toString()
                     else -> null
                 },
+                // Rot nur bei kritischem Fund oder Lesefehler — sonst verliert die Farbe genau
+                // die Dringlichkeit, die sie transportieren soll.
+                badgeAlarming = findingsLoadFailed || highestFindingSeverity == ThreatSeverity.CRITICAL,
                 onClick = onOpenSecurityScanner,
             )
             MenuRow(
@@ -1369,7 +1420,11 @@ private fun WardenStatusScreen(
             // LOCKDOWN_TASK_ENGAGE anders als LOCK_NOW schwer rückgängig zu machen ist.
             if (kioskQuickTriggerVisible) {
                 var showKioskConfirm by remember { mutableStateOf(false) }
-                var kioskStatusMessage by remember { mutableStateOf("") }
+                // Vorschlag V-7 (2026-08-29): das Ergebnis statt nur seines Texts. Befund Q-5 hat
+                // dafür gesorgt, dass ein fehlgeschlagenes Scharfschalten hier nicht mehr als
+                // Erfolg *formuliert* wird — es sah aber weiterhin genauso aus, weil beide Fälle
+                // in derselben gedämpften Farbe standen.
+                var kioskOutcome by remember { mutableStateOf<SensitiveActionOutcome?>(null) }
                 MenuRow(
                     title = "Kiosk jetzt",
                     subtitle = "Sentinel-Lock-Task sofort aktivieren",
@@ -1379,15 +1434,20 @@ private fun WardenStatusScreen(
                             showKioskConfirm = true
                         } else {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            kioskStatusMessage = onKioskNow()
+                            kioskOutcome = onKioskNow()
                         }
                     },
                 )
-                if (kioskStatusMessage.isNotEmpty()) {
+                kioskOutcome?.let { outcome ->
+                    val failed = outcome !is SensitiveActionOutcome.ExecutedSuccessfully
                     Text(
-                        text = kioskStatusMessage,
+                        text = describeKioskDashboardDecision(outcome),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (failed) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                 }
                 if (showKioskConfirm) {
@@ -1404,7 +1464,7 @@ private fun WardenStatusScreen(
                             TextButton(onClick = {
                                 showKioskConfirm = false
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                kioskStatusMessage = onKioskNow()
+                                kioskOutcome = onKioskNow()
                             }) { Text("Ja") }
                         },
                         dismissButton = {
@@ -1424,7 +1484,13 @@ private fun WardenStatusScreen(
 }
 
 @Composable
-private fun StatusCard(isDeviceOwner: Boolean, versionName: String, isDebuggableOs: Boolean, buildType: String) {
+private fun StatusCard(
+    isDeviceOwner: Boolean,
+    versionName: String,
+    isDebuggableOs: Boolean,
+    buildType: String,
+    activeProfile: WardenProfile?,
+) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -1439,6 +1505,15 @@ private fun StatusCard(isDeviceOwner: Boolean, versionName: String, isDebuggable
             )
             Text(
                 text = "Version $versionName",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Vorschlag V-1 (2026-08-29): das aktive Profil gehört auf den ersten Bildschirm.
+            // AutoProfileController schaltet es auch ohne Zutun um (Nachtfenster, Eskalation bei
+            // kritischem Fund) — ohne diese Zeile war eine automatische Umschaltung nur im
+            // Audit-Log zu sehen. "keins" statt eines geratenen Vorgabewerts, s. ProfilePicker.
+            Text(
+                text = "Profil: " + (activeProfile?.label ?: "keins angewandt"),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
