@@ -10,7 +10,7 @@ import de.ble1st.warden.logging.HashChainLogStore
 import de.ble1st.warden.logging.SecurityEventStorage
 import de.ble1st.warden.logging.SecurityEventStore
 import de.ble1st.warden.profile.AutoProfileWorker
-import de.ble1st.warden.sim.SimChangeController
+import de.ble1st.warden.sim.SimChangeStartupWorker
 import de.ble1st.warden.sim.SimChangeWorker
 import de.ble1st.warden.logging.LogStorage
 import de.ble1st.warden.admin.WardenDeviceAdminReceiver
@@ -128,9 +128,7 @@ class WardenApplication : Application() {
      * Wipe-guard anchor passed (s. [HashChainLogStore]-Klassendoc "Wipe-Guard") — the app's real
      * audit trail is exactly the store a full-segment-deletion attack targets, unlike the
      * anchor-less instrumented-test instances. */
-    val auditLogStore: HashChainLogStore by lazy {
-        HashChainLogStore(LogStorage.buildEnvelopeFile(this), wipeGuardAnchorFile = LogStorage.buildWipeGuardAnchorFile(this))
-    }
+    val auditLogStore: HashChainLogStore by lazy { LogStorage.buildAuditLogStore(this) }
 
     /** WardenLock (Finalisierungsphase, 2026-08-24, auf Nutzerwunsch) — s. [WardenLockSession]-
      * Klassendoc. `by lazy` wie die übrigen App-weiten Instanzen; die eigentliche Invalidierung
@@ -265,8 +263,14 @@ class WardenApplication : Application() {
             // hier — SIM tauschen setzt in aller Regel einen Neustart voraus) läge der erste
             // periodische Lauf sonst bis zu 15 Minuten später. Der Aufruf ist billig und tut ohne
             // eingeschaltete Funktion gar nichts.
+            //
+            // Befund Q-6 (2026-08-29): dieser Sofortlauf rief bis hierher synchron
+            // SimChangeController.checkAndMaybeReact() direkt hier auf — genau im frühen
+            // Boot-Fenster, in dem die Carrier-Config häufig noch nicht geladen ist
+            // (SimFingerprintReader/SimChangeStartupWorker-Klassendoc). Jetzt über
+            // SimChangeStartupWorker mit kurzer Startverzögerung statt synchron und sofort.
             SimChangeWorker.schedule(this)
-            SimChangeController(this).checkAndMaybeReact(BuildConfig.DEBUG)
+            SimChangeStartupWorker.scheduleOnce(this)
         } catch (e: Exception) {
             Log.w("WardenApplication", "SIM-Wechsel-Prüfung beim Start übersprungen", e)
         }
@@ -303,6 +307,6 @@ fun wardenAuditLog(context: Context): HashChainLogStore {
     return if (app is WardenApplication) {
         app.auditLogStore
     } else {
-        HashChainLogStore(LogStorage.buildEnvelopeFile(app), wipeGuardAnchorFile = LogStorage.buildWipeGuardAnchorFile(app))
+        LogStorage.buildAuditLogStore(app)
     }
 }

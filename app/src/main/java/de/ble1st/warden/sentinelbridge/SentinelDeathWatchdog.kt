@@ -108,7 +108,7 @@ class SentinelDeathWatchdog(
         deathTimestampsMillis.add(now)
         logStore.append(Log.WARN, TAG, "Sentinel-Prozess gestorben (linkToDeath), deaths=${deathTimestampsMillis.size}")
         if (SentinelWatchdogDecision.shouldEscalate(deathTimestampsMillis, now)) {
-            logStore.append(Log.ERROR, TAG, "Eskalation: 3 Deaths in 60s — Lock-Task-Whitelist zurückziehen/Masterschalter")
+            logStore.append(Log.ERROR, TAG, "Eskalation: 3 Deaths in 60s — Lock-Task-Whitelist wird zurückgezogen")
             onEscalate()
         }
     }

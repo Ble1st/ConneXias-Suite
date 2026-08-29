@@ -5,6 +5,7 @@ import de.ble1st.warden.domain.failsafe.FailsafeChallengeTtl
 import de.ble1st.warden.domain.failsafe.FailsafeDecision
 import de.ble1st.warden.domain.failsafe.FailsafeDecisionResult
 import de.ble1st.warden.domain.failsafe.FailsafeDeviceCredentialPolicy
+import de.ble1st.warden.domain.failsafe.FailsafeResponseMessage
 import de.ble1st.warden.registry.MasterSwitchResult
 
 /**
@@ -27,10 +28,18 @@ import de.ble1st.warden.registry.MasterSwitchResult
  * bei `Rejected` bleibt sie bestehen, damit ein Vertipper bei der Response-Eingabe nicht gleich
  * die ganze Challenge verbrennt und ein neuer Offline-Signiervorgang nötig wird.
  *
- * Weak device credentials are rejected *before* verify so a valid signed response can be
- * retried with a stronger PIN. An expired challenge is cleared so a stolen signature cannot
- * wait for a later clock change. If credential reset fails after Accepted, the challenge is
- * kept so the owner can retry the OS lock reset without re-signing.
+ * Eine zu schwache Geräte-PIN wird *vor* der Verifikation abgelehnt, damit eine gültige signierte
+ * Antwort mit einer stärkeren PIN erneut eingereicht werden kann. Eine abgelaufene Challenge wird
+ * gelöscht, damit eine entwendete Signatur nicht auf eine spätere Uhrumstellung warten kann.
+ *
+ * **Geändert 2026-08-28 (aus der Code-/Sicherheitsanalyse):** früher blieb die Challenge nach
+ * einem `Accepted` mit fehlgeschlagenem Credential-Reset bewusst stehen, damit die Betreiberin den
+ * OS-Sperren-Reset ohne erneutes Signieren wiederholen konnte. Diese Bequemlichkeit war ein
+ * offenes Wiedereinreichungs-Fenster: die zugehörige Antwort existiert außerhalb des Geräts (sie
+ * wird abgelesen und abgetippt), und bis zum TTL-Ablauf blieb sie damit gültig. Jetzt wird die
+ * Challenge bei `Accepted` **unbedingt und zuerst** verbraucht — ein fehlgeschlagener Reset
+ * kostet einen neuen Durchlauf inklusive Signieren. Zusammen mit der Credential-Bindung in
+ * [FailsafeResponseMessage] ist eine einmal eingereichte Antwort damit endgültig verbraucht.
  */
 class OfflineFailsafeExecutor(
     private val challengeStore: FailsafeChallengeStore,
@@ -69,8 +78,15 @@ class OfflineFailsafeExecutor(
         val pendingChallenge = record?.challenge
         val trustedPublicKey = keyStore.configuredPublicKey()
 
+        // Seit 2026-08-28 wird nicht mehr die nackte Challenge geprüft, sondern die Nachricht, die
+        // die neue Geräte-PIN mitbindet — s. FailsafeResponseMessage-Klassendoc für den Fund und
+        // das Format.
         val decision = FailsafeDecision.evaluate(pendingChallenge, trustedPublicKey) { challenge, publicKey ->
-            verifier.verify(challenge, response, publicKey)
+            verifier.verify(
+                message = FailsafeResponseMessage.build(challenge, newDeviceCredential),
+                response = response,
+                publicKey = publicKey,
+            )
         }
 
         val result = when (decision) {
@@ -78,12 +94,18 @@ class OfflineFailsafeExecutor(
             FailsafeDecisionResult.NoChallengePending -> OfflineFailsafeResult.NoChallengePending
             FailsafeDecisionResult.Rejected -> OfflineFailsafeResult.Rejected
             FailsafeDecisionResult.Accepted -> {
+                // Challenge zuerst verbrauchen, vor jeder Wirkung (2026-08-28): vorher wurde sie
+                // nur bei *erfolgreichem* Credential-Reset gelöscht — ein fehlgeschlagener Reset
+                // ließ also eine bereits akzeptierte Challenge weiter gültig stehen, samt der
+                // dazugehörigen, außerhalb des Geräts existierenden Antwort. Zusammen mit der
+                // fehlenden Credential-Bindung war das ein offenes Wiedereinreichungs-Fenster bis
+                // zum TTL-Ablauf. Eine Challenge ist ein Einmal-Nachweis; ein Absturz zwischen
+                // hier und dem Reset kostet einen neuen Durchlauf, aber lässt nichts Gültiges
+                // liegen.
+                challengeStore.clearChallenge()
                 val revertResults = revertAllSafeguards()
                 val credentialResetSucceeded = resetDeviceCredential(newDeviceCredential)
                 resetLocalPinSecrets()
-                if (credentialResetSucceeded) {
-                    challengeStore.clearChallenge()
-                }
                 OfflineFailsafeResult.Accepted(revertResults, credentialResetSucceeded)
             }
         }

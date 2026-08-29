@@ -33,6 +33,10 @@ import de.ble1st.warden.domain.securitylog.SecurityLogCodec
 import de.ble1st.warden.logging.LogEntry
 import de.ble1st.warden.logging.SecurityEventStore
 import de.ble1st.warden.wardenSecurityEvents
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -110,9 +114,11 @@ class LogViewerActivity : FragmentActivity() {
                             when (result) {
                                 is PresenceManager.Result.Success -> {
                                     val consumed = result.proof.consume()
-                                    onResult(
-                                        if (consumed) LogAccessOutcome.Granted.from(logStore, securityEventStore) else LogAccessOutcome.Denied,
-                                    )
+                                    if (consumed) {
+                                        loadGrantedOffMainThread(logStore, securityEventStore, onResult)
+                                    } else {
+                                        onResult(LogAccessOutcome.Denied)
+                                    }
                                 }
                                 PresenceManager.Result.Unavailable ->
                                     onResult(LogAccessOutcome.Unavailable)
@@ -123,7 +129,11 @@ class LogViewerActivity : FragmentActivity() {
                     },
                     onRequestPinPresence = { onResult ->
                         pendingPinPresenceResult = { granted ->
-                            onResult(if (granted) LogAccessOutcome.Granted.from(logStore, securityEventStore) else LogAccessOutcome.Denied)
+                            if (granted) {
+                                loadGrantedOffMainThread(logStore, securityEventStore, onResult)
+                            } else {
+                                onResult(LogAccessOutcome.Denied)
+                            }
                         }
                         pinPresenceLauncher.launch(
                             Intent(this, WardenPinActivity::class.java).apply {
@@ -140,6 +150,25 @@ class LogViewerActivity : FragmentActivity() {
         super.onResume()
         finishIfWardenLockSessionMissing(wardenLockSession)
     }
+
+    /**
+     * Beide Presence-Wege (Biometrie-Callback und PIN-Rückgabe) laufen auf dem Main-Thread — das
+     * eigentliche Laden gehört dort nicht hin (2026-08-28, Befund Q-3, s.
+     * [LogAccessOutcome.Granted.from]). `lifecycleScope` statt eines eigenen Scopes, damit ein
+     * Wegdrehen der Activity das Laden mit beendet, statt ein Ergebnis an eine tote UI zu liefern.
+     */
+    private fun loadGrantedOffMainThread(
+        logStore: HashChainLogStore,
+        securityEventStore: SecurityEventStore,
+        onResult: (LogAccessOutcome) -> Unit,
+    ) {
+        lifecycleScope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                LogAccessOutcome.Granted.from(logStore, securityEventStore)
+            }
+            onResult(outcome)
+        }
+    }
 }
 
 private sealed class LogAccessOutcome {
@@ -147,17 +176,32 @@ private sealed class LogAccessOutcome {
         val entries: List<LogEntry>,
         val chain: ChainVerificationResult,
         val systemEvents: SecurityLogCodec.DecodeResult,
+        val discardedThroughSequence: Long?,
     ) : LogAccessOutcome() {
         companion object {
-            /** Ein Lesefehler des System-Ereignisprotokolls darf die Audit-Log-Einsicht nicht
+            /**
+             * Ein Lesefehler des System-Ereignisprotokolls darf die Audit-Log-Einsicht nicht
              * verhindern — beides sind unabhängige Dateien, und der Presence-Nachweis wurde für
              * beide gleichermaßen erbracht. Der Fehlerfall wird als leeres Ergebnis mit
-             * `skippedLines = -1` sichtbar gemacht statt still verschluckt. */
+             * `skippedLines = -1` sichtbar gemacht statt still verschluckt.
+             *
+             * **Muss auf [Dispatchers.IO] laufen** (2026-08-28, Befund Q-3): entschlüsselt jedes
+             * Archivsegment plus bis zu 2000 Systemereignisse. Vorher lief das im
+             * Biometrie-Callback auf dem Main-Executor — und zusätzlich doppelt, weil
+             * `verifyChainIntegrity()` die Kette intern noch einmal von der Platte las. Jetzt wird
+             * einmal geladen und die geladene Liste an [HashChainLogStore.verifyLoadedChain]
+             * gereicht.
+             */
             fun from(logStore: HashChainLogStore, securityEventStore: SecurityEventStore): Granted {
                 val entries = logStore.entries()
                 val systemEvents = runCatching { securityEventStore.read() }
                     .getOrElse { SecurityLogCodec.DecodeResult(emptyList(), -1) }
-                return Granted(entries, logStore.verifyChainIntegrity(), systemEvents)
+                return Granted(
+                    entries = entries,
+                    chain = logStore.verifyLoadedChain(entries),
+                    systemEvents = systemEvents,
+                    discardedThroughSequence = runCatching { logStore.discardedThroughSequence() }.getOrNull(),
+                )
             }
         }
     }
@@ -239,6 +283,19 @@ private fun AuditLogList(granted: LogAccessOutcome.Granted) {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
+        }
+        // Aufbewahrungsgrenze (2026-08-28, Befund Q-3): dass die Liste nicht bei #0 anfängt, muss
+        // hier erklärt dastehen — sonst sieht ein regulär verworfener Anfang für die Betreiberin
+        // genauso aus wie ein gelöschter, und genau diese Unterscheidung ist der Zweck der Kette.
+        granted.discardedThroughSequence?.let { sequence ->
+            item {
+                Text(
+                    text = "Ältere Einträge bis #$sequence wurden nach der Aufbewahrungsgrenze " +
+                        "verworfen; die Kette schließt lückenlos daran an.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         items(granted.entries.asReversed()) { entry ->
             Text(

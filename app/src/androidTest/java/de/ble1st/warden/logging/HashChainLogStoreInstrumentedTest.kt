@@ -212,4 +212,58 @@ class HashChainLogStoreInstrumentedTest {
             testDir.listFiles { f -> f.name.contains(".archive.") }?.size,
         )
     }
+
+    // ---- Aufbewahrungsgrenze (2026-08-28, Befund Q-3) ----
+
+    private fun newRetentionAnchorFile() = EnvelopeFile(
+        dataFile = File(testDir, "chain.retention.envelope"),
+        wrappedDekFile = File(testDir, "chain.retention.dek"),
+        wrapper = kek,
+        context = "warden:log:retention:v1".toByteArray(),
+    )
+
+    @Test
+    fun retentionDiscardsOldestSegmentsAndKeepsTheChainVerifiable() {
+        val store = HashChainLogStore(
+            newEnvelopeFile(),
+            segmentCapacity = 2,
+            retentionAnchorFile = newRetentionAnchorFile(),
+            keepArchivedSegments = 1,
+        )
+        repeat(7) { store.append(priority = 3, tag = "Warden", message = "e$it") }
+
+        // 7 Einträge bei Kapazität 2: drei Archive entstünden, eines darf bleiben.
+        assertEquals(1, testDir.listFiles { f -> f.name.contains(".archive.") }?.size)
+        // Genau das ist der Punkt: verworfen ist verworfen, aber die Kette bleibt prüfbar.
+        assertTrue(
+            "Aufbewahrungsgrenze darf die Manipulationserkennung nicht aushebeln",
+            store.verifyChainIntegrity() is ChainVerificationResult.Valid,
+        )
+        assertEquals(3L, store.discardedThroughSequence())
+        assertEquals(listOf("e4", "e5", "e6"), store.entries().map { it.message })
+    }
+
+    /** Ohne Retention-Anker sieht eine Kürzung genauso aus wie ein Angriff — und muss es auch. */
+    @Test
+    fun truncationWithoutTheAnchorStillBreaksVerification() {
+        val store = HashChainLogStore(newEnvelopeFile(), segmentCapacity = 2)
+        repeat(6) { store.append(priority = 3, tag = "Warden", message = "e$it") }
+
+        val oldest = testDir.listFiles { f -> f.name.contains(".archive.") }!!.sortedBy { it.name }.first()
+        assertTrue(oldest.delete())
+
+        assertTrue(
+            "eine Kürzung ohne Anker muss weiterhin als Bruch gemeldet werden",
+            store.verifyChainIntegrity() is ChainVerificationResult.Broken,
+        )
+    }
+
+    @Test
+    fun retentionIsOffByDefault() {
+        val store = HashChainLogStore(newEnvelopeFile(), segmentCapacity = 2)
+        repeat(7) { store.append(priority = 3, tag = "Warden", message = "e$it") }
+
+        assertEquals(3, testDir.listFiles { f -> f.name.contains(".archive.") }?.size)
+        assertEquals(null, store.discardedThroughSequence())
+    }
 }

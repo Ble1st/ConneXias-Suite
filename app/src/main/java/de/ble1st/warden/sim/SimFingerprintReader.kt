@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import android.util.Log
 import de.ble1st.warden.admin.WardenDeviceAdminReceiver
 import de.ble1st.warden.domain.sim.SimChangeDecision
@@ -19,10 +20,28 @@ import java.security.MessageDigest
  * nicht-privilegierte Apps nur noch einen gekürzten/leeren Wert — die klassische
  * "Seriennummer der SIM" ist für eine normale Device-Owner-App schlicht nicht mehr lesbar.
  * Stattdessen ein zusammengesetzter Abdruck aus den Feldern, die mit `READ_PHONE_STATE`
- * tatsächlich verfügbar bleiben: Subscription-ID (vergibt das System pro SIM neu, eine fremde
- * SIM bekommt eine andere), Carrier-ID sowie MCC/MNC (Land und Netzbetreiber). Ein Tausch gegen
- * eine SIM desselben Betreibers ändert immer noch die Subscription-ID — der Abdruck reagiert also
- * auch dort, wo MCC/MNC gleich blieben.
+ * tatsächlich verfügbar bleiben: MCC/MNC (Land und Netzbetreiber) sowie — sobald bekannt — die
+ * Carrier-ID.
+ *
+ * **Korrektur 2026-08-29 (Befund Q-6): `subscriptionId` bewusst nicht mehr Teil des Abdrucks.**
+ * Der ursprüngliche Abdruck enthielt zusätzlich die `subscriptionId` — mit der Begründung, ein
+ * Tausch gegen eine SIM desselben Betreibers ändere zumindest die Subscription-ID, auch wenn
+ * MCC/MNC gleich blieben. Das Problem: `subscriptionId` ist eine rein lokale, vom System pro
+ * Subscription vergebene Datenbank-ID — eine eSIM-Neuprovisionierung oder ein Zurücksetzen der
+ * Telefonie-Datenbank kann sie ändern, **ohne dass die physische/eSIM-Karte selbst gewechselt
+ * hat**. Bei der konfigurierbaren Reaktion [de.ble1st.warden.domain.sim.SimChangeReaction.NEUSTART]
+ * bedeutet das: ein reiner Software-Vorgang löst einen echten Geräte-Neustart aus. Der reduzierte
+ * Abdruck (MCC/MNC + optionale Carrier-ID) nimmt dafür in Kauf, dass ein Tausch gegen eine SIM
+ * *desselben* Betreibers mit gleicher Carrier-ID nicht mehr erkannt wird — ein Fehlalarm mit
+ * Neustart-Reaktion wiegt für dieses Projekt schwerer als eine verpasste Erkennung in diesem
+ * Sonderfall.
+ *
+ * **Carrier-ID nur, wenn bekannt** ([android.telephony.TelephonyManager.UNKNOWN_CARRIER_ID]):
+ * direkt nach dem Boot liefert `SubscriptionInfo.getCarrierId()` häufig noch `UNKNOWN_CARRIER_ID`,
+ * bis die Carrier-Config nachgeladen ist — ein zu diesem Zeitpunkt gebildeter Abdruck würde sich
+ * allein dadurch von einem Sekunden später gebildeten unterscheiden. Das eigentliche Boot-Fenster-
+ * Problem (der allererste Prüflauf könnte so einen echten Wechsel vortäuschen) löst nicht dieser
+ * Reader, sondern der verzögerte Startlauf in [de.ble1st.warden.sim.SimChangeStartupWorker].
  *
  * **Gehasht statt roh gespeichert:** verglichen wird ohnehin nur auf Gleichheit, also gibt es
  * keinen Grund, Netzbetreiber-Kennungen im Klartext in einer Preferences-Datei liegen zu lassen.
@@ -49,7 +68,8 @@ class SimFingerprintReader(private val context: Context) {
         val subscriptionManager = context.getSystemService(SubscriptionManager::class.java) ?: return null
         val descriptors = try {
             subscriptionManager.activeSubscriptionInfoList.orEmpty().map { info ->
-                "${info.subscriptionId}:${info.carrierId}:${info.mccString.orEmpty()}:${info.mncString.orEmpty()}"
+                val carrierPart = if (info.carrierId != TelephonyManager.UNKNOWN_CARRIER_ID) ":${info.carrierId}" else ""
+                "${info.mccString.orEmpty()}:${info.mncString.orEmpty()}$carrierPart"
             }
         } catch (e: SecurityException) {
             // Explizites catch statt runCatching — Android Lints MissingPermission-Prüfung

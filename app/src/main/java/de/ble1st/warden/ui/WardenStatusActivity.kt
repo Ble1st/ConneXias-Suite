@@ -80,6 +80,7 @@ import de.ble1st.warden.domain.pin.LockdownTriggerProfilePolicy
 import de.ble1st.warden.domain.presence.DestructiveCommandGuard
 import de.ble1st.warden.domain.presence.SensitiveAction
 import de.ble1st.warden.domain.presence.SensitiveActionDecisionResult
+import de.ble1st.warden.domain.presence.SensitiveActionOutcome
 import de.ble1st.warden.domain.profile.WardenProfile
 import de.ble1st.warden.performance.AppUsageInfo
 import de.ble1st.warden.performance.AppUsageReader
@@ -359,12 +360,12 @@ class WardenStatusActivity : ComponentActivity() {
                     // ohnehin erst nach isAuthenticated() gerendert wird (identische Begründung
                     // wie beim bereits ungegateten onLockNow unten).
                     onKioskNow = {
-                        val decision = kioskExecutor.executeWithSessionPresence(
+                        val outcome = kioskExecutor.executeWithSessionPresence(
                             SensitiveAction.LOCKDOWN_TASK_ENGAGE,
                             SensitiveAction.LOCKDOWN_TASK_ENGAGE.confirmationPhrase,
                             sessionAuthenticated = wardenLockSession.isAuthenticated(),
                         )
-                        describeKioskDashboardDecision(decision)
+                        describeKioskDashboardDecision(outcome)
                     },
                     // Kein EXTRA_PRESENCE_REQUEST — echte Ersteinrichtung/Verify/PIN-Änderung, im
                     // Presence-Request-Modus verweigert WardenPinActivity das bewusst (Klassendoc).
@@ -789,149 +790,170 @@ private fun WardenRoot(
         }
         WardenScreen.Safeguards -> {
             val appContext = LocalContext.current.applicationContext
+            // Befund Q-2 (2026-08-28, aus der Code-/Sicherheitsanalyse): vorher las jeder der 33
+            // Schalter seinen Zustand einzeln und **synchron im Kompositions-Body** — 33
+            // DPM-Binder-Aufrufe plus 33 vollständige Log-Schreibzyklen auf dem Main-Thread, bei
+            // jedem Bildschirmaufbau und nach jedem `catalogGeneration++` erneut. Jetzt derselbe
+            // Aufbau wie in den übrigen Screens dieser Datei: ein `LaunchedEffect` auf
+            // `Dispatchers.IO`, ein einziger gebündelter Bus-Aufruf
+            // (`ConcordBus.safeguardStates`), und ein Lade-Gate (`snapshot == null`), damit
+            // "lädt noch" nie fälschlich als "Lesen fehlgeschlagen" erscheint.
+            val safeguardScope = rememberCoroutineScope()
             var catalogGeneration by remember { mutableIntStateOf(0) }
-            var lockdownModeActive by remember { mutableStateOf(loadLockdownModeActiveSafely(concordBus)) }
-            var frpAccounts by remember {
-                mutableStateOf(
-                    WardenFactoryResetProtectionStorage.load(appContext).joinToString("\n"),
-                )
-            }
-            var frpAgentAvailable by remember {
-                mutableStateOf(FactoryResetProtectionSafeguard(appContext).isFrpAgentAvailable())
-            }
+            var snapshot by remember { mutableStateOf<SafeguardsSnapshot?>(null) }
             var profileApplyWarning by remember { mutableStateOf<String?>(null) }
             // "LockMode/Threat-Protection-Ausbau" (2026-08-25) — reine lokale SharedPreferences-
-            // Werte (kein DPM-Zugriff wie die übrigen Toggles oben), deshalb ohne
-            // rememberSafeguardToggle/ConcordBus direkt hier geladen/geschrieben.
+            // Werte (kein DPM-Zugriff wie die übrigen Toggles oben), deshalb ohne den
+            // Snapshot/ConcordBus direkt hier geladen/geschrieben.
             var emergencyDrillConfirmed by remember { mutableStateOf(WardenLockTaskDrillStorage.isConfirmed(appContext)) }
             var autoEngageOnCriticalThreat by remember { mutableStateOf(WardenLockTaskAutoEngageStore.isEnabled(appContext)) }
-            var sentinelLockTaskAuthorized by remember { mutableStateOf(loadSentinelLockTaskAuthorizedSafely(appContext)) }
-            var sentinelInstallStatus by remember { mutableStateOf(SentinelInstallStatusReader(appContext).currentStatus()) }
             // "Lockdown-Auslöse-Profil" (2026-08-27) — dieselbe Store-→-Compose-State-→-Write-
             // through-Verkabelung wie autoEngageOnCriticalThreat direkt darüber.
             var lockdownTriggerProfile by remember { mutableStateOf(LockdownTriggerProfileStore.load(appContext)) }
-            key(catalogGeneration) {
+            LaunchedEffect(catalogGeneration) {
+                snapshot = withContext(Dispatchers.IO) { loadSafeguardsSnapshotSafely(concordBus, appContext) }
+            }
+            val loaded = snapshot
+            if (loaded == null) {
+                LoadingScreen(title = "Safeguards", onBack = { screen = WardenScreen.Status })
+            } else key(catalogGeneration) {
+                /** Ein Schalter aus dem bereits geladenen Snapshot — s. Kommentar oben. Das
+                 * Umschalten selbst läuft auf IO und stößt über `catalogGeneration++` genau einen
+                 * neuen Sammel-Lesevorgang an, statt pro Schalter noch einmal einzeln zu lesen. */
+                fun toggle(safeguardId: String) = SafeguardToggleState(
+                    locked = loaded.safeguardStates[safeguardId],
+                    onToggle = { requested ->
+                        safeguardScope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    if (requested) {
+                                        concordBus.applySafeguard(safeguardId)
+                                    } else {
+                                        concordBus.revertSafeguard(safeguardId)
+                                    }
+                                }.onFailure {
+                                    Log.e("WardenStatus", "Safeguard-Schalter ($safeguardId) fehlgeschlagen", it)
+                                }
+                            }
+                            catalogGeneration++
+                        }
+                    },
+                )
+                /** "USB automatisch sperren bei Bildschirmsperre" (2026-08-22) — dasselbe
+                 * Muster wie [toggle], aber gegen [ConcordBus.isUsbAutoLockEnabled]/
+                 * [ConcordBus.setUsbAutoLockEnabled] statt gegen die `Safeguard`-Registry: das
+                 * schaltet keine Safeguard-`apply()`/`revert()`, sondern nur eine lokale
+                 * Präferenz, die [de.ble1st.warden.usb.UsbAutoLockController] periodisch ausliest. */
+                val usbAutoLockToggle = SafeguardToggleState(
+                    locked = loaded.usbAutoLockEnabled,
+                    onToggle = { requested ->
+                        safeguardScope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching { concordBus.setUsbAutoLockEnabled(requested) }
+                                    .onFailure { Log.e("WardenStatus", "USB-Auto-Lock-Schalter fehlgeschlagen", it) }
+                            }
+                            catalogGeneration++
+                        }
+                    },
+                )
                 SafeguardsScreen(
-                    cameraLocked = rememberSafeguardToggle(concordBus, CameraSafeguard.ID),
-                    screenCaptureLocked = rememberSafeguardToggle(concordBus, ScreenCaptureSafeguard.ID),
-                    microphoneMuted = rememberSafeguardToggle(concordBus, UserRestrictionSafeguard.MICROPHONE_MUTED_ID),
-                    clockIntegrity = rememberSafeguardToggle(concordBus, UserRestrictionSafeguard.CONFIG_DATE_TIME_DISABLED_ID),
-                    selfUninstallProtection = rememberSafeguardToggle(concordBus, SelfUninstallProtectionSafeguard.ID),
-                    forceStopProtection = rememberSafeguardToggle(concordBus, ForceStopProtectionSafeguard.ID),
-                    credentialConfigLockdown = rememberSafeguardToggle(concordBus, UserRestrictionSafeguard.CREDENTIAL_CONFIG_DISABLED_ID),
-                    physicalMediaMountLockdown = rememberSafeguardToggle(concordBus, UserRestrictionSafeguard.PHYSICAL_MEDIA_MOUNT_DISABLED_ID),
-                    keyguardHardening = rememberSafeguardToggle(concordBus, KeyguardHardeningSafeguard.ID),
-                    accessibilityLockdown = rememberSafeguardToggle(concordBus, AccessibilityLockdownSafeguard.ID),
-                    inputMethodLockdown = rememberSafeguardToggle(concordBus, InputMethodLockdownSafeguard.ID),
-                    securityLogging = rememberSafeguardToggle(concordBus, SecurityLoggingSafeguard.ID),
-                    networkLogging = rememberSafeguardToggle(concordBus, NetworkLoggingSafeguard.ID),
-                    passwordComplexity = rememberSafeguardToggle(concordBus, PasswordComplexitySafeguard.ID),
-                    autoLockTimeout = rememberSafeguardToggle(concordBus, AutoLockTimeoutSafeguard.ID),
-                    backupServiceLockdown = rememberSafeguardToggle(concordBus, BackupServiceLockdownSafeguard.ID),
-                    systemUpdatePolicy = rememberSafeguardToggle(concordBus, SystemUpdatePolicySafeguard.ID),
-                    lockScreenPrivacy = rememberSafeguardToggle(concordBus, LockScreenPrivacySafeguard.ID),
-                    usbAutoLock = rememberUsbAutoLockToggle(concordBus),
-                    usbPermanentlyDisabled = rememberSafeguardToggle(concordBus, UsbDataSignalingSafeguard.ID),
-                    sentinelUninstallProtection = rememberSafeguardToggle(concordBus, SentinelUninstallProtectionSafeguard.ID),
-                    installUnknownSourcesDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.INSTALL_UNKNOWN_SOURCES_DISABLED_ID,
-                    ),
-                    factoryResetDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.FACTORY_RESET_DISABLED_ID,
-                    ),
-                    safeBootDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.SAFE_BOOT_DISABLED_ID,
-                    ),
-                    factoryResetProtection = rememberSafeguardToggle(
-                        concordBus,
-                        FactoryResetProtectionSafeguard.ID,
-                    ),
-                    modifyAccountsDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.MODIFY_ACCOUNTS_DISABLED_ID,
-                    ),
-                    debuggingFeaturesDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.DEBUGGING_FEATURES_DISABLED_ID,
-                    ),
+                    cameraLocked = toggle(CameraSafeguard.ID),
+                    screenCaptureLocked = toggle(ScreenCaptureSafeguard.ID),
+                    microphoneMuted = toggle(UserRestrictionSafeguard.MICROPHONE_MUTED_ID),
+                    clockIntegrity = toggle(UserRestrictionSafeguard.CONFIG_DATE_TIME_DISABLED_ID),
+                    selfUninstallProtection = toggle(SelfUninstallProtectionSafeguard.ID),
+                    forceStopProtection = toggle(ForceStopProtectionSafeguard.ID),
+                    credentialConfigLockdown = toggle(UserRestrictionSafeguard.CREDENTIAL_CONFIG_DISABLED_ID),
+                    physicalMediaMountLockdown = toggle(UserRestrictionSafeguard.PHYSICAL_MEDIA_MOUNT_DISABLED_ID),
+                    keyguardHardening = toggle(KeyguardHardeningSafeguard.ID),
+                    accessibilityLockdown = toggle(AccessibilityLockdownSafeguard.ID),
+                    inputMethodLockdown = toggle(InputMethodLockdownSafeguard.ID),
+                    securityLogging = toggle(SecurityLoggingSafeguard.ID),
+                    networkLogging = toggle(NetworkLoggingSafeguard.ID),
+                    passwordComplexity = toggle(PasswordComplexitySafeguard.ID),
+                    autoLockTimeout = toggle(AutoLockTimeoutSafeguard.ID),
+                    backupServiceLockdown = toggle(BackupServiceLockdownSafeguard.ID),
+                    systemUpdatePolicy = toggle(SystemUpdatePolicySafeguard.ID),
+                    lockScreenPrivacy = toggle(LockScreenPrivacySafeguard.ID),
+                    usbAutoLock = usbAutoLockToggle,
+                    usbPermanentlyDisabled = toggle(UsbDataSignalingSafeguard.ID),
+                    sentinelUninstallProtection = toggle(SentinelUninstallProtectionSafeguard.ID),
+                    installUnknownSourcesDisabled = toggle(UserRestrictionSafeguard.INSTALL_UNKNOWN_SOURCES_DISABLED_ID),
+                    factoryResetDisabled = toggle(UserRestrictionSafeguard.FACTORY_RESET_DISABLED_ID),
+                    safeBootDisabled = toggle(UserRestrictionSafeguard.SAFE_BOOT_DISABLED_ID),
+                    factoryResetProtection = toggle(FactoryResetProtectionSafeguard.ID),
+                    modifyAccountsDisabled = toggle(UserRestrictionSafeguard.MODIFY_ACCOUNTS_DISABLED_ID),
+                    debuggingFeaturesDisabled = toggle(UserRestrictionSafeguard.DEBUGGING_FEATURES_DISABLED_ID),
                     // "Fehlende Restriction-Abdeckung" (2026-08-28) — s. Factory-Docs in
                     // UserRestrictionSafeguard.
-                    addUserDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.ADD_USER_DISABLED_ID,
-                    ),
-                    cellular2gDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.CELLULAR_2G_DISABLED_ID,
-                    ),
-                    configVpnDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.CONFIG_VPN_DISABLED_ID,
-                    ),
-                    usbFileTransferDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.USB_FILE_TRANSFER_DISABLED_ID,
-                    ),
-                    nfcRadioDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.NFC_RADIO_DISABLED_ID,
-                    ),
-                    bluetoothSharingDisabled = rememberSafeguardToggle(
-                        concordBus,
-                        UserRestrictionSafeguard.BLUETOOTH_SHARING_DISABLED_ID,
-                    ),
-                    factoryResetProtectionAccounts = frpAccounts,
-                    factoryResetProtectionAgentAvailable = frpAgentAvailable,
+                    addUserDisabled = toggle(UserRestrictionSafeguard.ADD_USER_DISABLED_ID),
+                    cellular2gDisabled = toggle(UserRestrictionSafeguard.CELLULAR_2G_DISABLED_ID),
+                    configVpnDisabled = toggle(UserRestrictionSafeguard.CONFIG_VPN_DISABLED_ID),
+                    usbFileTransferDisabled = toggle(UserRestrictionSafeguard.USB_FILE_TRANSFER_DISABLED_ID),
+                    nfcRadioDisabled = toggle(UserRestrictionSafeguard.NFC_RADIO_DISABLED_ID),
+                    bluetoothSharingDisabled = toggle(UserRestrictionSafeguard.BLUETOOTH_SHARING_DISABLED_ID),
+                    factoryResetProtectionAccounts = loaded.factoryResetProtectionAccounts,
+                    factoryResetProtectionAgentAvailable = loaded.factoryResetProtectionAgentAvailable,
                     onSaveFactoryResetProtectionAccounts = { raw ->
-                        when (val decision = FactoryResetProtectionAccounts.evaluateRaw(raw)) {
-                            is FactoryResetProtectionDecision.Valid -> {
-                                WardenFactoryResetProtectionStorage.save(appContext, decision.accounts)
-                                frpAccounts = decision.accounts.joinToString("\n")
-                                runCatching {
-                                    concordBus.applySafeguard(FactoryResetProtectionSafeguard.ID)
-                                    concordBus.applySafeguard(UserRestrictionSafeguard.MODIFY_ACCOUNTS_DISABLED_ID)
-                                }.onFailure { Log.e("WardenStatus", "FRP-Konten-Abgleich fehlgeschlagen", it) }
-                                frpAgentAvailable = FactoryResetProtectionSafeguard(appContext).isFrpAgentAvailable()
-                                if (!frpAgentAvailable) {
-                                    Log.w("WardenStatus", "FRP aktiviert, aber Google-Play-Dienste nicht gefunden — Policy wird vermutlich nicht durchgesetzt")
+                        // Speichern schreibt Storage *und* DPM — beides auf IO, das Ergebnis holt
+                        // der Sammel-Lesevorgang über catalogGeneration++ zurück (2026-08-28,
+                        // Befund Q-2); vorher lief der ganze Block synchron in der Komposition.
+                        safeguardScope.launch {
+                            withContext(Dispatchers.IO) {
+                                when (val decision = FactoryResetProtectionAccounts.evaluateRaw(raw)) {
+                                    is FactoryResetProtectionDecision.Valid -> {
+                                        WardenFactoryResetProtectionStorage.save(appContext, decision.accounts)
+                                        runCatching {
+                                            concordBus.applySafeguard(FactoryResetProtectionSafeguard.ID)
+                                            concordBus.applySafeguard(UserRestrictionSafeguard.MODIFY_ACCOUNTS_DISABLED_ID)
+                                        }.onFailure { Log.e("WardenStatus", "FRP-Konten-Abgleich fehlgeschlagen", it) }
+                                        if (!FactoryResetProtectionSafeguard(appContext).isFrpAgentAvailable()) {
+                                            Log.w("WardenStatus", "FRP aktiviert, aber Google-Play-Dienste nicht gefunden — Policy wird vermutlich nicht durchgesetzt")
+                                        }
+                                    }
+                                    FactoryResetProtectionDecision.Empty -> {
+                                        WardenFactoryResetProtectionStorage.save(appContext, emptyList())
+                                        runCatching {
+                                            concordBus.revertSafeguard(FactoryResetProtectionSafeguard.ID)
+                                        }.onFailure { Log.e("WardenStatus", "FRP-Konten-Abgleich fehlgeschlagen", it) }
+                                    }
+                                    FactoryResetProtectionDecision.TooMany ->
+                                        Log.w("WardenStatus", "FRP: höchstens ${FactoryResetProtectionAccounts.MAX_ACCOUNTS} Konten")
+                                    FactoryResetProtectionDecision.TooLong ->
+                                        Log.w("WardenStatus", "FRP: Konto zu lang (max ${FactoryResetProtectionAccounts.MAX_ACCOUNT_LENGTH})")
                                 }
                             }
-                            FactoryResetProtectionDecision.Empty -> {
-                                WardenFactoryResetProtectionStorage.save(appContext, emptyList())
-                                frpAccounts = ""
-                                runCatching {
-                                    concordBus.revertSafeguard(FactoryResetProtectionSafeguard.ID)
-                                }.onFailure { Log.e("WardenStatus", "FRP-Konten-Abgleich fehlgeschlagen", it) }
-                            }
-                            FactoryResetProtectionDecision.TooMany ->
-                                Log.w("WardenStatus", "FRP: höchstens ${FactoryResetProtectionAccounts.MAX_ACCOUNTS} Konten")
-                            FactoryResetProtectionDecision.TooLong ->
-                                Log.w("WardenStatus", "FRP: Konto zu lang (max ${FactoryResetProtectionAccounts.MAX_ACCOUNT_LENGTH})")
+                            catalogGeneration++
                         }
-                        catalogGeneration++
                     },
-                    lockdownModeActive = lockdownModeActive,
+                    lockdownModeActive = loaded.lockdownModeActive,
                     profileApplyWarning = profileApplyWarning,
                     onApplyProfile = { profile: WardenProfile ->
-                        runCatching { concordBus.applyProfile(profile) }
-                            .onSuccess { result ->
-                                profileApplyWarning = when {
-                                    result.failed.isNotEmpty() ->
-                                        "Profil ${profile.label}: fehlgeschlagen für ${result.failed.joinToString()}"
-                                    result.skipped.isNotEmpty() ->
-                                        "Profil ${profile.label}: ohne FRP-Konten angewendet — " +
-                                            "Kontosperre nach Reset bleibt aus, bis Konten hinterlegt sind."
-                                    else -> null
-                                }
+                        // Ein Profil-Apply schaltet den gesamten Katalog um — der teuerste
+                        // DPM-Block dieses Bildschirms und deshalb erst recht nicht auf dem
+                        // Main-Thread (2026-08-28, Befund Q-2).
+                        safeguardScope.launch {
+                            profileApplyWarning = withContext(Dispatchers.IO) {
+                                runCatching { concordBus.applyProfile(profile) }
+                                    .fold(
+                                        onSuccess = { result ->
+                                            when {
+                                                result.failed.isNotEmpty() ->
+                                                    "Profil ${profile.label}: fehlgeschlagen für ${result.failed.joinToString()}"
+                                                result.skipped.isNotEmpty() ->
+                                                    "Profil ${profile.label}: ohne FRP-Konten angewendet — " +
+                                                        "Kontosperre nach Reset bleibt aus, bis Konten hinterlegt sind."
+                                                else -> null
+                                            }
+                                        },
+                                        onFailure = {
+                                            Log.e("WardenStatus", "Profil-Anwendung fehlgeschlagen", it)
+                                            "Profil ${profile.label}: Anwendung fehlgeschlagen."
+                                        },
+                                    )
                             }
-                            .onFailure {
-                                Log.e("WardenStatus", "Profil-Anwendung fehlgeschlagen", it)
-                                profileApplyWarning = "Profil ${profile.label}: Anwendung fehlgeschlagen."
-                            }
-                        catalogGeneration++
+                            catalogGeneration++
+                        }
                     },
                     emergencyDrillConfirmed = emergencyDrillConfirmed,
                     emergencyDrillConfirmedAtText = WardenLockTaskDrillStorage.confirmedAtMillis(appContext)
@@ -954,8 +976,8 @@ private fun WardenRoot(
                         WardenLockTaskAutoEngageStore.setEnabled(appContext, requested)
                         autoEngageOnCriticalThreat = requested
                     },
-                    sentinelLockTaskAuthorized = sentinelLockTaskAuthorized,
-                    sentinelInstallStatus = sentinelInstallStatus,
+                    sentinelLockTaskAuthorized = loaded.sentinelLockTaskAuthorized,
+                    sentinelInstallStatus = loaded.sentinelInstallStatus,
                     onInstallSentinel = {
                         // Nur der synchrone Teil (Session erzeugt/committet) ist hier sichtbar —
                         // das eigentliche Ergebnis kommt asynchron über
@@ -966,9 +988,7 @@ private fun WardenRoot(
                         runCatching { SentinelSilentInstaller(appContext).install() }
                             .onFailure { Log.e("WardenStatus", "Sentinel-Silent-Install nicht auslösbar", it) }
                     },
-                    onRefreshSentinelInstallStatus = {
-                        sentinelInstallStatus = SentinelInstallStatusReader(appContext).currentStatus()
-                    },
+                    onRefreshSentinelInstallStatus = { catalogGeneration++ },
                     lockdownTriggerProfile = lockdownTriggerProfile,
                     onLockdownTriggerProfileChange = { selected ->
                         LockdownTriggerProfileStore.save(appContext, selected)
@@ -1127,39 +1147,48 @@ private fun LoadingScreen(title: String, onBack: () -> Unit) {
     }
 }
 
-/** Tier 1/2/3/5 (2026-08-22) — generisches Gegenstück zum `screenCaptureResult`-Muster oben, für
- * acht weitere, gleich verkabelte [SafeguardToggleState]-Schalter (s. dortiges Klassendoc). */
-@Composable
-private fun rememberSafeguardToggle(concordBus: ConcordBus, safeguardId: String): SafeguardToggleState {
-    var result by remember { mutableStateOf(loadSafeguardActiveSafely(concordBus, safeguardId)) }
-    return SafeguardToggleState(
-        locked = result,
-        onToggle = { requested ->
-            runCatching {
-                if (requested) concordBus.applySafeguard(safeguardId) else concordBus.revertSafeguard(safeguardId)
-            }.onFailure { Log.e("WardenStatus", "Safeguard-Schalter ($safeguardId) fehlgeschlagen", it) }
-            result = loadSafeguardActiveSafely(concordBus, safeguardId)
-        },
+/**
+ * Ein vollständiger Lesezyklus des Safeguards-Screens (2026-08-28, Befund Q-2) — dieselbe
+ * "ein Snapshot statt N zeitversetzter Einzelwerte"-Idee wie [PerformanceSnapshot], hier
+ * zusätzlich motiviert durch die Kosten: [safeguardStates] ersetzt 33 einzeln autorisierte
+ * Bus-Aufrufe durch einen.
+ *
+ * `null` in [safeguardStates] heißt weiterhin "dieser eine Zustand ist nicht lesbar" und nicht
+ * "aus"; fehlt eine ID ganz (sie ist nicht registriert), liefert der Zugriff ebenfalls `null` —
+ * beides rendert die UI als "nicht lesbar", nie als "in Ordnung".
+ */
+private data class SafeguardsSnapshot(
+    val safeguardStates: Map<String, Boolean?>,
+    val usbAutoLockEnabled: Boolean?,
+    val lockdownModeActive: Boolean?,
+    val sentinelLockTaskAuthorized: Boolean?,
+    val sentinelInstallStatus: SentinelInstallStatus,
+    val factoryResetProtectionAccounts: String,
+    val factoryResetProtectionAgentAvailable: Boolean,
+)
+
+/**
+ * Lädt [SafeguardsSnapshot] — **muss auf [Dispatchers.IO] laufen** (DPM-Binder-Aufrufe für jeden
+ * Katalogeintrag plus PackageManager). Die Liste der IDs kommt aus
+ * [ConcordBus.listSafeguards]: so deckt der Sammel-Lesevorgang automatisch jeden registrierten
+ * Safeguard ab und kann nicht gegenüber dem Katalog veralten, wie es eine hier gepflegte
+ * Aufzählung könnte.
+ */
+private fun loadSafeguardsSnapshotSafely(bus: ConcordBus, context: Context): SafeguardsSnapshot {
+    val states = runCatching { bus.safeguardStates(bus.listSafeguards()) }
+        .onFailure { Log.e("WardenStatus", "Safeguard-Zustände nicht ladbar", it) }
+        .getOrDefault(emptyMap())
+    return SafeguardsSnapshot(
+        safeguardStates = states,
+        usbAutoLockEnabled = loadUsbAutoLockEnabledSafely(bus),
+        lockdownModeActive = loadLockdownModeActiveSafely(bus),
+        sentinelLockTaskAuthorized = loadSentinelLockTaskAuthorizedSafely(context),
+        sentinelInstallStatus = SentinelInstallStatusReader(context).currentStatus(),
+        factoryResetProtectionAccounts = WardenFactoryResetProtectionStorage.load(context).joinToString("\n"),
+        factoryResetProtectionAgentAvailable = FactoryResetProtectionSafeguard(context).isFrpAgentAvailable(),
     )
 }
 
-/** "USB automatisch sperren bei Bildschirmsperre" (2026-08-22) — dasselbe generische
- * [SafeguardToggleState]-Muster wie [rememberSafeguardToggle], aber gegen
- * [ConcordBus.isUsbAutoLockEnabled]/[ConcordBus.setUsbAutoLockEnabled] statt gegen die
- * `Safeguard`-Registry: diese Funktion schaltet keine Safeguard-`apply()`/`revert()`, sondern nur
- * eine lokale Präferenz, die [de.ble1st.warden.usb.UsbAutoLockController] periodisch ausliest. */
-@Composable
-private fun rememberUsbAutoLockToggle(concordBus: ConcordBus): SafeguardToggleState {
-    var result by remember { mutableStateOf(loadUsbAutoLockEnabledSafely(concordBus)) }
-    return SafeguardToggleState(
-        locked = result,
-        onToggle = { requested ->
-            runCatching { concordBus.setUsbAutoLockEnabled(requested) }
-                .onFailure { Log.e("WardenStatus", "USB-Auto-Lock-Schalter fehlgeschlagen", it) }
-            result = loadUsbAutoLockEnabledSafely(concordBus)
-        },
-    )
-}
 
 private fun loadUsbAutoLockEnabledSafely(bus: ConcordBus): Boolean? =
     runCatching { bus.isUsbAutoLockEnabled() }
@@ -1173,7 +1202,7 @@ private fun loadUsbAutoLockEnabledSafely(bus: ConcordBus): Boolean? =
  * [de.ble1st.warden.appmanagement.AppFreezeManager.isFrozen]/`isApplicationHidden` für jede Zeile
  * wirft) die restliche Statusanzeige nicht mit einem Absturz begraben soll.
  *
- * [loadManagedAppsSafely]/[loadFindingsSafely]/[loadSafeguardActiveSafely]/[loadScannerEnabledSafely]
+ * [loadManagedAppsSafely]/[loadFindingsSafely]/[loadScannerEnabledSafely]
  * liefern bewusst `T?` statt direkt `T`: `null` markiert "Lesen fehlgeschlagen", ein
  * leerer/negativer Wert bleibt "wirklich so" — sonst sieht ein fehlgeschlagener Scan/Safeguard-Read
  * für den Nutzer identisch aus wie "alles in Ordnung".
@@ -1191,11 +1220,6 @@ private fun loadScannerEnabledSafely(bus: ConcordBus): Boolean? =
 private fun loadFindingsSafely(bus: ConcordBus): List<SuspiciousAppFindingInfo>? =
     runCatching { bus.listSuspiciousAppFindings() }
         .onFailure { Log.e("WardenStatus", "Funde-Liste nicht ladbar (kein Device Owner mehr?)", it) }
-        .getOrNull()
-
-private fun loadSafeguardActiveSafely(bus: ConcordBus, safeguardId: String): Boolean? =
-    runCatching { bus.isSafeguardActive(safeguardId) }
-        .onFailure { Log.e("WardenStatus", "Safeguard-Status ($safeguardId) nicht ladbar", it) }
         .getOrNull()
 
 private fun loadDeviceIntegrityStatusSafely(bus: ConcordBus): DeviceIntegrityStatus? =
@@ -1234,14 +1258,25 @@ private fun loadSentinelLockTaskAuthorizedSafely(context: Context): Boolean? =
         .getOrNull()
 
 /** "Lockdown-Auslöse-Profil" (2026-08-27) — Statuszeile für den Dashboard-Button "Kiosk jetzt",
- * spiegelt `de.ble1st.warden.presence.SensitiveActionActivity`s privates `describeDecision` (nur
- * für `LOCKDOWN_TASK_ENGAGE` aufgerufen, deshalb ohne dessen `WIPE_DATA`-Sonderfall). */
-private fun describeKioskDashboardDecision(decision: SensitiveActionDecisionResult): String = when (decision) {
-    SensitiveActionDecisionResult.Approved -> "✓ Bestätigt — real ausgeführt und protokolliert."
-    SensitiveActionDecisionResult.ExecutionBlocked -> "⚠ Debug-Build — destruktive Kommandos hart abgeschaltet (F.4)."
-    SensitiveActionDecisionResult.RateLimited -> "⚠ Zu viele Versuche — bitte kurz warten."
-    SensitiveActionDecisionResult.WrongConfirmationText -> "⚠ Interner Fehler: Bestätigungstext stimmte nicht."
-    SensitiveActionDecisionResult.PresenceNotProven -> "⚠ Presence-Nachweis fehlgeschlagen."
+ * spiegelt `de.ble1st.warden.presence.SensitiveActionActivity`s private `describeOutcome` (nur für
+ * `LOCKDOWN_TASK_ENGAGE` aufgerufen, deshalb ohne dessen `WIPE_DATA`-Sonderfall).
+ *
+ * **Befund Q-5 (2026-08-29):** nimmt jetzt [SensitiveActionOutcome] statt der reinen
+ * Vorab-Entscheidung entgegen, s. `SensitiveActionActivity.describeOutcome`-KDoc für die volle
+ * Begründung — ein real fehlgeschlagenes `SentinelLockdownEngager.engage()` zeigte hier vorher
+ * trotzdem "✓ real ausgeführt". */
+private fun describeKioskDashboardDecision(outcome: SensitiveActionOutcome): String = when (outcome) {
+    is SensitiveActionOutcome.Denied -> when (outcome.reason) {
+        SensitiveActionDecisionResult.ExecutionBlocked -> "⚠ Debug-Build — destruktive Kommandos hart abgeschaltet (F.4)."
+        SensitiveActionDecisionResult.RateLimited -> "⚠ Zu viele Versuche — bitte kurz warten."
+        SensitiveActionDecisionResult.WrongConfirmationText -> "⚠ Interner Fehler: Bestätigungstext stimmte nicht."
+        SensitiveActionDecisionResult.PresenceNotProven -> "⚠ Presence-Nachweis fehlgeschlagen."
+        SensitiveActionDecisionResult.Approved ->
+            error("SensitiveActionOutcome.Denied wird nie mit reason=Approved erzeugt, s. dessen Klassendoc")
+    }
+    SensitiveActionOutcome.ExecutedSuccessfully -> "✓ Bestätigt — real ausgeführt und protokolliert."
+    is SensitiveActionOutcome.ExecutedWithError -> "⚠ Bestätigt, aber Ausführung fehlgeschlagen: ${outcome.detail}"
+    SensitiveActionOutcome.ExecutedAsStub -> error("Kiosk-Dashboard-Knopf löst nie WIPE_DATA aus")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

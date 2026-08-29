@@ -21,6 +21,10 @@ import java.time.LocalTime
  * Bedrohungs-Eskalation eingeschaltet und der Fund verschwindet, bleibt `MAXIMAL` stehen, bis die
  * Besitzerin selbst zurückschaltet — das Zurücknehmen einer Verschärfung ist eine Entscheidung,
  * die niemand automatisch treffen sollte, während eventuell noch aufgeräumt wird.
+ *
+ * **Und kein Downgrade einer manuellen Härtung (2026-08-28, Befund Q-1):** deshalb geht neben
+ * `lastAutoApplied` auch das zuletzt überhaupt angewendete Profil in die Entscheidung ein — die
+ * Begründung und die Beispielabläufe stehen im Klassendoc von [AutoProfileDecision].
  */
 class AutoProfileController(private val context: Context) {
 
@@ -43,6 +47,7 @@ class AutoProfileController(private val context: Context) {
             minuteOfDay = LocalTime.now().let { it.hour * 60 + it.minute },
             criticalFindingPresent = criticalFindingPresent,
             lastAutoApplied = AutoProfileStorage.loadLastApplied(context),
+            effectiveProfile = AutoProfileStorage.loadLastEffective(context),
         ) ?: return
 
         val logStore = wardenAuditLog(context)

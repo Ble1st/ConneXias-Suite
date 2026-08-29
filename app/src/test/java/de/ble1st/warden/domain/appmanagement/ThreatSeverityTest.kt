@@ -1,6 +1,7 @@
 package de.ble1st.warden.domain.appmanagement
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ThreatSeverityTest {
@@ -31,5 +32,18 @@ class ThreatSeverityTest {
     fun highestPicksWorstSignal() {
         val signals = setOf(SuspiciousSignal.OVERLAY_PERMISSION_DECLARED, SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED)
         assertEquals(ThreatSeverity.CRITICAL, ThreatSeverity.highest(signals))
+    }
+
+    /**
+     * Befund S-7 (2026-08-28): [SuspiciousAppScanController.enforce] filtert per
+     * `ThreatSeverity.highest(...) < ThreatSeverity.WARNING`, verlässt sich also auf Kotlins
+     * `Comparable`-Implementierung über die Deklarationsreihenfolge des Enums. Dieser Test hält
+     * fest, dass diese Reihenfolge tatsächlich der Schwere entspricht — eine spätere Umsortierung
+     * der drei Werte würde den Filter sonst stillschweigend falsch herum laufen lassen.
+     */
+    @Test
+    fun declarationOrderMatchesSeverity() {
+        assertTrue(ThreatSeverity.INFO < ThreatSeverity.WARNING)
+        assertTrue(ThreatSeverity.WARNING < ThreatSeverity.CRITICAL)
     }
 }

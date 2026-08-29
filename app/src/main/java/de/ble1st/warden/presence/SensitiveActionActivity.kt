@@ -41,6 +41,7 @@ import de.ble1st.warden.admin.WardenDeviceAdminReceiver
 import de.ble1st.warden.domain.presence.DestructiveCommandGuard
 import de.ble1st.warden.domain.presence.SensitiveAction
 import de.ble1st.warden.domain.presence.SensitiveActionDecisionResult
+import de.ble1st.warden.domain.presence.SensitiveActionOutcome
 import de.ble1st.warden.domain.pin.LockdownTriggerProfile
 import de.ble1st.warden.domain.pin.LockdownTriggerProfilePolicy
 import de.ble1st.warden.domain.registry.SafeguardRegistry
@@ -169,12 +170,12 @@ class SensitiveActionActivity : FragmentActivity() {
                     initialAction = preselectedAction,
                     lockdownTriggerProfile = lockdownTriggerProfile,
                     onConfirmSession = { action, confirmationText, onResult ->
-                        val decision = executor.executeWithSessionPresence(
+                        val outcome = executor.executeWithSessionPresence(
                             action,
                             confirmationText,
                             sessionAuthenticated = wardenLockSession.isAuthenticated(),
                         )
-                        onResult(describeDecision(action, decision))
+                        onResult(describeOutcome(action, outcome))
                     },
                     onConfirmBiometric = { action, confirmationText, onResult ->
                         presenceManager.request(
@@ -183,8 +184,8 @@ class SensitiveActionActivity : FragmentActivity() {
                         ) { result ->
                             when (result) {
                                 is PresenceManager.Result.Success -> {
-                                    val decision = executor.execute(action, confirmationText, result.proof)
-                                    onResult(describeDecision(action, decision))
+                                    val outcome = executor.execute(action, confirmationText, result.proof)
+                                    onResult(describeOutcome(action, outcome))
                                 }
                                 PresenceManager.Result.Unavailable ->
                                     onResult("⚠ Keine Biometrie eingerichtet — Aktion nicht möglich.")
@@ -195,8 +196,8 @@ class SensitiveActionActivity : FragmentActivity() {
                     },
                     onConfirmPin = { action, confirmationText, onResult ->
                         pendingPinPresenceResult = { granted ->
-                            val decision = executor.executeWithPinPresence(action, confirmationText, granted)
-                            onResult(describeDecision(action, decision))
+                            val outcome = executor.executeWithPinPresence(action, confirmationText, granted)
+                            onResult(describeOutcome(action, outcome))
                         }
                         pinPresenceLauncher.launch(
                             Intent(this, WardenPinActivity::class.java).apply {
@@ -299,16 +300,24 @@ private fun describeAction(action: SensitiveAction): String = when (action) {
             "installierte Sentinel-App. Ausstieg nur über Sentinels eigene PIN auf dem Gerät selbst."
 }
 
-private fun describeDecision(action: SensitiveAction, decision: SensitiveActionDecisionResult): String = when (decision) {
-    SensitiveActionDecisionResult.Approved -> if (action == SensitiveAction.WIPE_DATA) {
-        "✓ Bestätigt — Stub protokolliert (wipeData() bewusst weiterhin nicht verkabelt)."
-    } else {
-        "✓ Bestätigt — real ausgeführt und protokolliert."
-    }
+/** Befund Q-5 (2026-08-29): nimmt jetzt [SensitiveActionOutcome] statt der reinen
+ * Vorab-Entscheidung entgegen — sonst zeigte ein real fehlgeschlagenes `reboot()`/
+ * `MasterSwitch.disarm()`/… hier trotzdem "✓ real ausgeführt", weil der alte Rückgabewert
+ * ([SensitiveActionDecisionResult]) die Ausführung selbst gar nicht kannte. */
+private fun describeOutcome(action: SensitiveAction, outcome: SensitiveActionOutcome): String = when (outcome) {
+    is SensitiveActionOutcome.Denied -> describeDeniedReason(outcome.reason)
+    SensitiveActionOutcome.ExecutedSuccessfully -> "✓ Bestätigt — real ausgeführt und protokolliert."
+    is SensitiveActionOutcome.ExecutedWithError -> "⚠ Bestätigt, aber Ausführung fehlgeschlagen: ${outcome.detail}"
+    SensitiveActionOutcome.ExecutedAsStub -> "✓ Bestätigt — Stub protokolliert (wipeData() bewusst weiterhin nicht verkabelt)."
+}
+
+private fun describeDeniedReason(reason: SensitiveActionDecisionResult): String = when (reason) {
     SensitiveActionDecisionResult.ExecutionBlocked -> "⚠ Debug-Build — destruktive Kommandos hart abgeschaltet (F.4)."
     SensitiveActionDecisionResult.RateLimited -> "⚠ Zu viele Versuche — bitte kurz warten."
     SensitiveActionDecisionResult.WrongConfirmationText -> "⚠ Bestätigungstext stimmte nicht."
     SensitiveActionDecisionResult.PresenceNotProven -> "⚠ Presence-Nachweis fehlgeschlagen."
+    SensitiveActionDecisionResult.Approved ->
+        error("SensitiveActionOutcome.Denied wird nie mit reason=Approved erzeugt, s. dessen Klassendoc")
 }
 
 @Composable

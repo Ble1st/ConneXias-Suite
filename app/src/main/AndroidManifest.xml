@@ -190,14 +190,28 @@
             android:exported="false"
             android:theme="@style/Theme.Warden" />
 
-        <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": Sofort-Aktionen aus
-             SuspiciousAppNotifiers Benachrichtigung ("Einfrieren"/"Deinstallieren") sowie der
-             asynchrone PackageInstaller-Deinstallations-Ergebnis-Callback. exported="false" — nur
-             Wardens eigene PendingIntents und Androids an dieselbe App gerichteter
-             Ergebnis-Callback lösen diesen Receiver aus. -->
+        <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": "Einfrieren" (reversibel) sowie
+             der asynchrone PackageInstaller-Deinstallations-Ergebnis-Callback aus
+             SuspiciousAppNotifiers Benachrichtigung. exported="false" — nur Wardens eigene
+             PendingIntents und Androids an dieselbe App gerichteter Ergebnis-Callback lösen
+             diesen Receiver aus. "Deinstallieren"/"Daten löschen" laufen seit der
+             Code-/Sicherheitsanalyse (2026-08-28, Befund S-5) nicht mehr über diesen Receiver,
+             sondern über SuspiciousAppActionConfirmActivity darunter. -->
         <receiver
             android:name=".appmanagement.SuspiciousAppActionReceiver"
             android:exported="false" />
+
+        <!-- Befund S-5 (2026-08-28, aus der Code-/Sicherheitsanalyse): die beiden nicht (oder
+             kaum) rückholbaren Benachrichtigungsaktionen ("Deinstallieren", "Daten löschen")
+             liefen bisher direkt auf SuspiciousAppActionReceiver — ein Tap am entsperrten Gerät,
+             kein Presence-Nachweis, an WardenLockActivity vorbei. Diese Activity erzwingt
+             denselben App-Eintritts-Nachweis wie WardenStatusActivity, bevor sie den Tap
+             überhaupt entgegennimmt — s. Klassendoc. exported="false", nur aus Wardens eigenen
+             PendingIntents erreichbar. -->
+        <activity
+            android:name=".appmanagement.SuspiciousAppActionConfirmActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Warden" />
 
         <!-- "LockMode/Threat-Protection-Ausbau" (2026-08-25): sofortiger Verdachtsscan bei
              App-Installation/-Update/-Deinstallation statt bis zu 15 Minuten auf den nächsten
@@ -229,6 +243,12 @@
             android:permission="de.ble1st.warden.permission.SENTINEL_SIGNAL">
             <intent-filter>
                 <action android:name="de.ble1st.warden.sentinel.action.PIN_VERIFIED" />
+                <!-- 2026-08-28: zweite Action auf demselben signature-geschützten Kanal —
+                     Sentinel hat das Scharfschalten abgelehnt (kein Drill / keine benutzbare
+                     Sentinel-PIN) oder einen unverlassbaren Kiosk aufgegeben. Ohne diesen Weg
+                     bliebe Wardens Watchdog scharf und Sentinels Paket auf der Lock-Task-
+                     Whitelist, obwohl kein Kiosk läuft, s. SentinelSignalReceiver-Klassendoc. -->
+                <action android:name="de.ble1st.warden.sentinel.action.ENGAGE_REFUSED" />
             </intent-filter>
         </receiver>
 

@@ -10,6 +10,7 @@ import de.ble1st.warden.domain.appmanagement.SigningCertChangeDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppFinding
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppScanDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
+import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.domain.appmanagement.VersionDowngradeDecision
 import de.ble1st.warden.domain.pin.WardenLockTaskAutoEngageDecision
 import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
@@ -58,14 +59,28 @@ import de.ble1st.warden.wardenAuditLog
  * eigentliche Bedrohungsmodell (Social-Engineering-App fordert Admin/Accessibility) betrifft
  * praktisch immer nachträglich vom Nutzer installierte, nicht-System-Apps.
  *
- * **[scan] hat seit Feature 4/5 einen dokumentierten Nebeneffekt:** es aktualisiert die
- * Signatur-/Aktivierungs-Baselines ([SigningCertHistoryStore]/[ActivationHistoryStore]) für den
- * *nächsten* Aufruf — die ursprüngliche "reine Erkennung, ohne etwas zu verändern"-Eigenschaft
- * gilt jetzt nur noch bezogen auf den Gerätezustand (DPM/PackageManager/Accessibility), nicht
- * mehr auf Wardens eigenen Baseline-Cache. Bewusst in Kauf genommen statt einer separaten
- * "commit"-Methode: jeder Aufrufer (UI-Öffnen, periodischer Worker, manueller Scan) soll dieselbe,
- * konsistente Baseline vorwärtsbewegen — ein Fenster, in dem zwei Aufrufer unterschiedliche
- * Baselines sähen, wäre die schlechtere Alternative.
+ * **Wer die Baselines vorrücken darf (Korrektur 2026-08-28, aus der Code-/Sicherheitsanalyse):**
+ * ausschließlich [scanAndEnforce] und [runImmediateScan] — also genau die beiden Wege, die einen
+ * Fund auch *behandeln* (durchsetzen und/oder benachrichtigen). [scan]/[scanWithDetails] werten
+ * nur noch aus.
+ *
+ * Vorher committete [scan] selbst, mit der Begründung, alle Aufrufer sollten dieselbe Baseline
+ * teilen. Das war der falsche Kompromiss: die vier `CRITICAL`-Signale
+ * ([SuspiciousSignal.SIGNING_CERT_CHANGED], [SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED],
+ * [SuspiciousSignal.ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED], [SuspiciousSignal.VERSION_DOWNGRADED])
+ * sind **Einmal-Signale** — sie existieren nur, solange die gespeicherte Baseline vom Ist-Zustand
+ * abweicht. Da [scanWithDetails] über [de.ble1st.warden.bus.ConcordBus.listSuspiciousAppFindings]
+ * sowohl vom Dashboard (bei jedem Öffnen) als auch von
+ * [de.ble1st.warden.profile.AutoProfileController] (alle 15 Minuten) aufgerufen wird, verbrauchte
+ * in aller Regel ein *Lesepfad* das Signal, bevor [SuspiciousAppScanWorker] es überhaupt sah:
+ * keine Benachrichtigung, kein Auto-Einfrieren, kein Lock-Task-Auto-Engage für einen
+ * Zertifikatswechsel — und beim Auto-Profil eine Eskalation auf `MAXIMAL`, die beim nächsten Lauf
+ * mangels Fund gleich wieder zurückfiel.
+ *
+ * Der befürchtete Nachteil (zwei Aufrufer sehen unterschiedliche Baselines) tritt dadurch nicht
+ * ein: ein reiner Lesepfad *verändert* jetzt nichts, er sieht denselben offenen Fund so lange, bis
+ * ein behandelnder Lauf ihn quittiert. Genau das ist gewollt — ein noch nicht behandeltes Signal
+ * soll sichtbar bleiben.
  *
  * [trust] friert nicht nur nichts mehr automatisch ein, sondern hebt ein bereits erfolgtes
  * automatisches Einfrieren sofort wieder auf und zieht eine offene Benachrichtigung zurück —
@@ -112,15 +127,17 @@ class SuspiciousAppScanController(
         }
     }
 
-    /** Evaluate + commit baselines. UI list reads use this; scheduled/immediate passes use
-     * [prepareScan] so enforce/notify see the same transition signals before baselines move. */
-    fun scan(): List<SuspiciousAppFinding> {
-        val prepared = prepareScan()
-        prepared.commitBaselines()
-        return prepared.findings
-    }
+    /**
+     * Reine Auswertung **ohne** Baseline-Commit — s. den "Wer die Baselines vorrücken darf"-Absatz
+     * im Klassendoc. Nur [scanAndEnforce] und [runImmediateScan] committen, weil nur sie den Fund
+     * auch tatsächlich behandeln (durchsetzen + benachrichtigen). Jeder reine Lesepfad (UI-Liste,
+     * [de.ble1st.warden.profile.AutoProfileController]) darf ein Transition-Signal sehen, aber
+     * nicht verbrauchen.
+     */
+    fun scan(): List<SuspiciousAppFinding> = prepareScan().findings
 
-    /** Wie [scan], aber angereichert mit Label/Ist-eingefroren für die UI. */
+    /** Wie [scan], aber angereichert mit Label/Ist-eingefroren für die UI — ebenfalls ohne
+     * Baseline-Commit. */
     fun scanWithDetails(): List<SuspiciousAppFindingInfo> = enrich(scan())
 
     /** Erkennung + Durchsetzung. Läuft nur, wenn [isEnabled]. Baselines werden nach dem
@@ -259,8 +276,20 @@ class SuspiciousAppScanController(
         }
     }
 
+    /**
+     * Automatisches Einfrieren wirkt nur ab [ThreatSeverity.WARNING] aufwärts (2026-08-28, aus
+     * der Code-/Sicherheitsanalyse, Befund S-7). Ein Fund entsteht bereits bei einem reinen
+     * `INFO`-Signal ([SuspiciousSignal.UNKNOWN_INSTALL_SOURCE]/
+     * [SuspiciousSignal.OVERLAY_PERMISSION_DECLARED], s. [ThreatSeverity]-Klassendoc) — auf einem
+     * Device-Owner-Gerät, das Warden selbst als rohe APK über GitHub Releases erreicht (also
+     * zwangsläufig sideload-installiert wurde), friert der Scanner ohne diese Schwelle praktisch
+     * jede seitlich installierte App ein, sobald er eingeschaltet wird — inklusive legitimer.
+     * `INFO`-Funde bleiben unverändert sichtbar (Dashboard, Benachrichtigung mit Aktionsknöpfen),
+     * lösen nur keine automatische Aktion mehr aus.
+     */
     private fun enforce(findings: List<SuspiciousAppFinding>) {
         for (finding in findings) {
+            if (ThreatSeverity.highest(finding.signals) < ThreatSeverity.WARNING) continue
             if (appManagementController.isFrozen(finding.packageName)) continue
             appManagementController.setFrozen(finding.packageName, true)
             val actuallyFrozen = appManagementController.isFrozen(finding.packageName)

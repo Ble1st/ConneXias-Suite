@@ -5,17 +5,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** [SentinelLockTaskGate] ist absichtlich trivial — der Test stellt trotzdem strukturell sicher,
- * dass `isLockTaskPermitted` niemals ohne das Bit selbst `true` liefert (kein implizites/
- * gehärtetes "Standard an", s. Klassendoc). */
+ * dass `isLockTaskPermitted` niemals ohne beide Bits `true` liefert (kein implizites/gehärtetes
+ * "Standard an", s. Klassendoc). Die `pinConfigured`-Fälle decken den 2026-08-28 gefundenen
+ * Zustand ab, in dem der Kiosk ohne eingerichtete Sentinel-PIN startete und dort die
+ * Ersteinrichtung anbot — also seinen eigenen Ausstieg. */
 class SentinelLockTaskGateTest {
 
     @Test
-    fun permittedOnlyWhenDrillPassed() {
-        assertTrue(SentinelLockTaskGate.isLockTaskPermitted(emergencyCallDrillPassed = true))
+    fun permittedOnlyWhenDrillPassedAndPinConfigured() {
+        assertTrue(
+            SentinelLockTaskGate.isLockTaskPermitted(
+                emergencyCallDrillPassed = true,
+                pinConfigured = true,
+            ),
+        )
     }
 
     @Test
     fun deniedWhenDrillNotPassed() {
-        assertFalse(SentinelLockTaskGate.isLockTaskPermitted(emergencyCallDrillPassed = false))
+        assertFalse(
+            SentinelLockTaskGate.isLockTaskPermitted(
+                emergencyCallDrillPassed = false,
+                pinConfigured = true,
+            ),
+        )
+    }
+
+    @Test
+    fun deniedWhenPinNotConfigured() {
+        assertFalse(
+            SentinelLockTaskGate.isLockTaskPermitted(
+                emergencyCallDrillPassed = true,
+                pinConfigured = false,
+            ),
+        )
+    }
+
+    @Test
+    fun deniedWhenNeitherConditionHolds() {
+        assertFalse(
+            SentinelLockTaskGate.isLockTaskPermitted(
+                emergencyCallDrillPassed = false,
+                pinConfigured = false,
+            ),
+        )
     }
 }

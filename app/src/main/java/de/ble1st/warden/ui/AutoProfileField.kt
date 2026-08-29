@@ -40,8 +40,9 @@ fun AutoProfileField(
         Text(text = "Automatische Profilumschaltung", style = MaterialTheme.typography.labelLarge)
         Text(
             text = "Schaltet die Härtungsprofile ohne Zutun um — nach Uhrzeit oder wenn der " +
-                "Sicherheits-Scanner einen kritischen Fund führt. Eine Verschärfung wird nie " +
-                "automatisch zurückgenommen, solange der Fund besteht.",
+                "Sicherheits-Scanner einen kritischen Fund führt. Zurücknehmen darf die " +
+                "Automatik nur, was sie selbst gesetzt hat: ein von Hand gewähltes strengeres " +
+                "Profil bleibt stehen, bis Sie es selbst wechseln.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),

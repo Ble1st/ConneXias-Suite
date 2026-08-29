@@ -16,6 +16,26 @@ enum class WardenProfile {
     MAXIMAL,
     ;
 
+    /**
+     * Härtegrad, größer = strenger (2026-08-28, aus der Code-/Sicherheitsanalyse, Befund Q-1).
+     *
+     * Diese Ordnung ist **keine Konvention, sondern eine Tatsache über [WardenProfileSpec]**: die
+     * drei Mengen sind echt ineinander geschachtelt (`ALLTAG ⊂ REISE ⊂ MAXIMAL`), ein höheres
+     * Profil schaltet also ausschließlich zusätzliche Safeguards ein und nie einen ab.
+     * `WardenProfileSpecTest.strengthOrderMatchesSubsetOrder` prüft genau das — ohne diesen Test
+     * könnte eine spätere Umsortierung der Mengen die Ordnung stillschweigend zur Lüge machen,
+     * und [AutoProfileDecision] würde eine Verschärfung für eine Abschwächung halten.
+     *
+     * Bewusst ein eigenes Feld statt `ordinal`: die Deklarationsreihenfolge einer Enum ist keine
+     * Zusage, auf die sich sicherheitsrelevante Logik stützen sollte.
+     */
+    val strength: Int
+        get() = when (this) {
+            ALLTAG -> 0
+            REISE -> 1
+            MAXIMAL -> 2
+        }
+
     val label: String
         get() = when (this) {
             ALLTAG -> "Alltag"

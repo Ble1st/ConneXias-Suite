@@ -132,7 +132,9 @@ fun SecurityScannerScreen(
                     "erkannt bevor die Rechte überhaupt aktiviert wurden. Systemapps sind " +
                     "ausgenommen. Bei jedem Fund erscheint sofort eine Sicherheitsbenachrichtigung " +
                     "mit den Optionen \"Einfrieren\"/\"Deinstallieren\" — unabhängig vom Schalter " +
-                    "unten, der zusätzlich stilles Auto-Einfrieren aktiviert. Jederzeit reversibel " +
+                    "unten, der zusätzlich stilles Auto-Einfrieren aktiviert. Wirkt erst ab Stufe " +
+                    "Warnung — eine reine Info (z. B. unbekannte Installationsquelle) friert " +
+                    "nichts automatisch ein, ist aber weiterhin sichtbar. Jederzeit reversibel " +
                     "über \"Vertrauen\" unten oder die App-Verwaltung.",
                 style = MaterialTheme.typography.bodySmall,
             )

@@ -22,6 +22,7 @@ object AutoProfileStorage {
     private const val KEY_NIGHT_END = "night_end_minute"
     private const val KEY_ESCALATE = "escalate_on_critical"
     private const val KEY_LAST_APPLIED = "last_auto_applied"
+    private const val KEY_LAST_EFFECTIVE = "last_effective_profile"
 
     fun load(context: Context): AutoProfileConfig {
         val prefs = prefs(context)
@@ -55,6 +56,25 @@ object AutoProfileStorage {
      * Profil als "zuletzt automatisch gesetzt" und der erste Lauf täte nichts. */
     fun clearLastApplied(context: Context) {
         prefs(context).edit { remove(KEY_LAST_APPLIED) }
+    }
+
+    /**
+     * Zuletzt **überhaupt** angewendetes Profil — manuell wie automatisch (2026-08-28, Befund
+     * Q-1). Gepflegt wird das ausschließlich in `ConcordBus.applyProfile`, der einen Stelle, durch
+     * die beide Wege müssen; kein Aufrufer soll daran denken müssen.
+     *
+     * `null` heißt "seit der Installation wurde kein Profil angewendet", nicht "Alltag" — die
+     * Unterscheidung zählt, weil [AutoProfileDecision][de.ble1st.warden.domain.profile
+     * .AutoProfileDecision] daraus ableitet, ob es überhaupt eine fremde Härtung zu schützen gibt.
+     *
+     * Bewusst **nicht** von [clearLastApplied] mitgelöscht: das Abschalten der Automatik ändert
+     * nichts daran, welches Profil gerade wirkt.
+     */
+    fun loadLastEffective(context: Context): WardenProfile? =
+        prefs(context).getString(KEY_LAST_EFFECTIVE, null)?.let(::profileOrNull)
+
+    fun saveLastEffective(context: Context, profile: WardenProfile) {
+        prefs(context).edit { putString(KEY_LAST_EFFECTIVE, profile.name) }
     }
 
     private fun profileOrNull(name: String): WardenProfile? =

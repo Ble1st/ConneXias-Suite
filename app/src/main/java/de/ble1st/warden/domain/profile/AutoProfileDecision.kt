@@ -15,10 +15,33 @@ package de.ble1st.warden.domain.profile
  * nicht zurück, solange der Fund besteht — erst wenn er verschwunden (behandelt oder als
  * Fehlalarm markiert) ist, greift wieder der Zeitplan.
  *
- * **Nie herunterstufen ohne Anlass:** hat die Besitzerin von Hand ein strengeres Profil gewählt
- * als der Zeitplan vorsieht, wird das nicht automatisch zurückgenommen — [evaluate] vergleicht
- * gegen das zuletzt *automatisch* gesetzte Profil, nicht gegen den aktuellen Ist-Zustand. Sonst
- * würde eine bewusste Verschärfung beim nächsten periodischen Lauf stillschweigend kassiert.
+ * **Nie herunterstufen ohne Anlass — Korrektur 2026-08-28 (aus der Code-/Sicherheitsanalyse,
+ * Befund Q-1).** Diese Zusage stand schon vorher hier, wurde aber nicht eingehalten: der
+ * Vergleich lief allein gegen `lastAutoApplied`, und genau das sieht eine manuelle Verschärfung
+ * nicht. Beispiel: zuletzt automatisch stand Alltag, mittags schaltet die Besitzerin von Hand auf
+ * Maximal, um 22:00 berechnet der Nachtlauf sein Nachtprofil, das ist ≠ Alltag — und
+ * `WardenProfileApplier.apply()` revertiert jeden Safeguard, der nicht im Zielprofil steht,
+ * schaltet Maximal also **herunter**. Dasselbe beim Wegfall eines kritischen Fundes.
+ *
+ * Deshalb kennt [evaluate] jetzt zwei Zustände statt einem:
+ *
+ *  - `lastAutoApplied` — was diese Automatik zuletzt gesetzt hat. Verhindert wie bisher, dass
+ *    alle 15 Minuten dasselbe Profil erneut angewendet wird, und dass die Automatik eine bewusste
+ *    manuelle Abschwächung gegen den Willen der Besitzerin wieder hochzieht.
+ *  - `effectiveProfile` — welches Profil zuletzt *überhaupt* angewendet wurde, egal ob von Hand
+ *    oder automatisch. Gepflegt wird das strukturell in `ConcordBus.applyProfile`, also an der
+ *    einen Stelle, durch die beide Wege ohnehin müssen — nicht per Konvention an den Aufrufern.
+ *
+ * Die Regel darüber: **abschwächen darf die Automatik nur das, was sie selbst gesetzt hat.**
+ * Verschärfen darf sie immer (die sichere Richtung — ein kritischer Fund soll auch über eine
+ * manuelle Lockerung hinweg greifen). Der reguläre Zeitplan bleibt davon unberührt: läuft
+ * nachts Maximal und morgens Alltag, ist das Herunterschalten erlaubt, weil das wirkende Maximal
+ * genau das ist, was die Automatik nachts selbst gesetzt hat.
+ *
+ * **Bewusste Grenze:** hat die Besitzerin einzelne Safeguards *außerhalb* eines Profils
+ * angeschaltet, nimmt jede Profilanwendung sie zurück — auch eine manuelle. Das liegt in der
+ * Natur eines Profils ("genau diese Menge gilt", s. `WardenProfileApplier`) und ist hier nicht
+ * abgedeckt; die Ordnung oben kennt nur Profile.
  */
 object AutoProfileDecision {
 
@@ -28,6 +51,8 @@ object AutoProfileDecision {
      * @param criticalFindingPresent ob der Verdachtsscanner gerade mindestens einen Fund der
      * Stufe `CRITICAL` führt.
      * @param lastAutoApplied zuletzt von dieser Automatik angewendetes Profil (`null` = noch nie).
+     * @param effectiveProfile zuletzt überhaupt angewendetes Profil, manuell wie automatisch
+     * (`null` = seit der Installation keins) — s. Klassendoc.
      * @return anzuwendendes Profil oder `null`, wenn nichts zu tun ist.
      */
     fun evaluate(
@@ -35,12 +60,31 @@ object AutoProfileDecision {
         minuteOfDay: Int,
         criticalFindingPresent: Boolean,
         lastAutoApplied: WardenProfile?,
+        effectiveProfile: WardenProfile?,
     ): WardenProfile? {
         val target = when {
             config.escalateOnCriticalThreat && criticalFindingPresent -> WardenProfile.MAXIMAL
             else -> scheduledProfile(config, minuteOfDay)
         } ?: return null
-        return target.takeIf { it != lastAutoApplied }
+        if (target == lastAutoApplied) return null
+        if (wouldWeakenForeignHardening(target, lastAutoApplied, effectiveProfile)) return null
+        return target
+    }
+
+    /**
+     * Kern der Korrektur von Q-1: `true`, wenn [target] schwächer wäre als das gerade wirkende
+     * Profil **und** dieses nicht von der Automatik selbst stammt. `effectiveProfile == null`
+     * (noch nie ein Profil angewendet) ist kein Schutzfall — dann gibt es keine fremde Härtung,
+     * die verloren gehen könnte.
+     */
+    private fun wouldWeakenForeignHardening(
+        target: WardenProfile,
+        lastAutoApplied: WardenProfile?,
+        effectiveProfile: WardenProfile?,
+    ): Boolean {
+        if (effectiveProfile == null) return false
+        if (effectiveProfile == lastAutoApplied) return false
+        return target.strength < effectiveProfile.strength
     }
 
     /** `null`, solange die Zeitsteuerung aus ist oder für den aktuellen Abschnitt kein Profil

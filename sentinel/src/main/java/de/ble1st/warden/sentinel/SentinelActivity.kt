@@ -58,7 +58,17 @@ private const val MAX_PIN_LENGTH = 8
  *
  * **Scharfschalten:** [onResume] liest [EXTRA_ENGAGE_LOCKDOWN]/[EXTRA_EMERGENCY_CALL_DRILL_PASSED]
  * und ruft bei `true` [SentinelLockTaskManager.startIfPermitted] — echtes `startLockTask()` läuft
- * nur, wenn Warden das Notruf-Drill-Bit mitgegeben hat (`SentinelLockTaskGate`).
+ * nur, wenn Warden das Notruf-Drill-Bit mitgegeben hat **und** hier lokal eine benutzbare
+ * Sentinel-PIN vorliegt (`SentinelLockTaskGate`, zweite Bedingung seit 2026-08-28 — s. dortiges
+ * Klassendoc für den Fund).
+ *
+ * **Verweigertes Scharfschalten wird zurückgemeldet** ([signalWardenEngageRefused], seit
+ * 2026-08-28): sonst hätte Warden seinen Watchdog scharf und Sentinels Paket auf der
+ * DPM-Lock-Task-Whitelist, während faktisch kein Kiosk läuft — und würde in
+ * `DestructiveActionExecutor` "real angestoßen" protokollieren. `SentinelLockdownEngager.engage()`
+ * kann das nicht selbst merken: es fängt nur `ActivityNotFoundException` ab, ein *gestarteter*,
+ * aber ablehnender Sentinel sieht von dort aus wie ein Erfolg aus. Derselbe `signature`-geschützte
+ * Kanal wie das Entwarn-Signal, nur mit eigener Action.
  *
  * **Entsperren:** bei korrekter PIN **während aktivem Lock-Task**
  * ([ActivityManager.getLockTaskModeState] live abgefragt, kein zwischengespeichertes lokales
@@ -85,16 +95,8 @@ class SentinelActivity : ComponentActivity() {
                     SentinelScreen(
                         pinStore = pinStore,
                         isLockTaskActive = ::isLockTaskActive,
-                        onExitLockdown = {
-                            runCatching {
-                                sendBroadcast(
-                                    Intent().setClassName(WARDEN_PACKAGE_NAME, WARDEN_SIGNAL_RECEIVER_CLASS_NAME)
-                                        .setAction(ACTION_PIN_VERIFIED),
-                                )
-                            }.onFailure { Log.w(TAG, "Entwarn-Signal an Warden fehlgeschlagen (Warden nicht erreichbar?)", it) }
-                            runCatching { SentinelLockTaskManager(this@SentinelActivity).stop() }
-                                .onFailure { Log.e(TAG, "stopLockTask() fehlgeschlagen", it) }
-                        },
+                        onExitLockdown = { exitLockdown(ACTION_PIN_VERIFIED) },
+                        onAbandonCorruptedLockdown = { exitLockdown(ACTION_ENGAGE_REFUSED) },
                     )
                 }
             }
@@ -117,8 +119,63 @@ class SentinelActivity : ComponentActivity() {
         if (!requested) return
         lockdownEngageTriggered = true
         val drillPassed = intent?.getBooleanExtra(EXTRA_EMERGENCY_CALL_DRILL_PASSED, false) == true
-        val started = SentinelLockTaskManager(this).startIfPermitted(emergencyCallDrillPassed = drillPassed)
-        Log.w(TAG, "Scharfschalten angefordert: startLockTask() ${if (started) "ausgelöst" else "abgelehnt (Gate/DPM-Whitelist)"}")
+        // Frisch gelesen, nicht aus dem Compose-State übernommen: zwischen dem Aufbau des
+        // Bildschirms und diesem Aufruf kann eine Ersteinrichtung liegen (derselbe "nie ein
+        // potenziell veraltetes Bit cachen"-Vorbehalt wie überall im Projekt).
+        val pinConfigured = isPinConfigured()
+        val started = SentinelLockTaskManager(this).startIfPermitted(
+            emergencyCallDrillPassed = drillPassed,
+            pinConfigured = pinConfigured,
+        )
+        if (started) {
+            Log.w(TAG, "Scharfschalten angefordert: startLockTask() ausgelöst")
+            return
+        }
+        // Kein stiller Fehlschlag: Warden hält an dieser Stelle bereits Watchdog + DPM-Whitelist
+        // scharf und würde ohne diese Rückmeldung einen Kiosk protokollieren, den es nicht gibt.
+        val reason = when {
+            !drillPassed -> "Notruf-Drill nicht bestätigt"
+            !pinConfigured -> "keine benutzbare Sentinel-PIN eingerichtet"
+            else -> "DPM-Lock-Task-Whitelist fehlt"
+        }
+        Log.w(TAG, "Scharfschalten angefordert: startLockTask() abgelehnt — $reason")
+        signalWardenEngageRefused(reason)
+    }
+
+    /**
+     * Nur ein *verifizierbarer* PIN-Blob zählt. [SentinelPinStateDecision.LoadResult.Corrupted]
+     * gilt hier bewusst als "nicht eingerichtet" — s. [SentinelLockTaskGate]-Klassendoc: mit einem
+     * unlesbaren Blob gäbe es keinen Ausstieg mehr aus dem Kiosk.
+     */
+    private fun isPinConfigured(): Boolean {
+        val pinStore = SentinelPinStorage.openStore(applicationContext)
+        val result = SentinelPinStateDecision.load(pinStore.exists()) { pinStore.load() }
+        return result is SentinelPinStateDecision.LoadResult.Loaded
+    }
+
+    /** Gemeinsamer Ausstieg für beide Wege (korrekte PIN und aufgegebener Kiosk bei beschädigtem
+     * Blob): erst Warden informieren, dann **unabhängig vom Broadcast-Erfolg** lokal
+     * `stopLockTask()` — s. Klassendoc, der lokale Ausweg darf nie von Wardens Erreichbarkeit
+     * abhängen. */
+    private fun exitLockdown(action: String) {
+        runCatching {
+            sendBroadcast(
+                Intent().setClassName(WARDEN_PACKAGE_NAME, WARDEN_SIGNAL_RECEIVER_CLASS_NAME)
+                    .setAction(action),
+            )
+        }.onFailure { Log.w(TAG, "Signal an Warden fehlgeschlagen (Warden nicht erreichbar?)", it) }
+        runCatching { SentinelLockTaskManager(this).stop() }
+            .onFailure { Log.e(TAG, "stopLockTask() fehlgeschlagen", it) }
+    }
+
+    private fun signalWardenEngageRefused(reason: String) {
+        runCatching {
+            sendBroadcast(
+                Intent().setClassName(WARDEN_PACKAGE_NAME, WARDEN_SIGNAL_RECEIVER_CLASS_NAME)
+                    .setAction(ACTION_ENGAGE_REFUSED)
+                    .putExtra(EXTRA_REFUSAL_REASON, reason),
+            )
+        }.onFailure { Log.w(TAG, "Ablehnungs-Signal an Warden fehlgeschlagen", it) }
     }
 
     /** Live abgefragt statt eines lokalen Flags — robust gegen einen zwischenzeitlichen
@@ -141,6 +198,14 @@ class SentinelActivity : ComponentActivity() {
          * übereinstimmen (kein gemeinsames Modul für diese eine Konstante — bewusst, s. Plan). */
         const val ACTION_PIN_VERIFIED = "de.ble1st.warden.sentinel.action.PIN_VERIFIED"
 
+        /** Zweite Action auf demselben `signature`-geschützten Kanal (2026-08-28): Sentinel hat
+         * das Scharfschalten abgelehnt oder einen unverlassbaren Kiosk aufgegeben. Warden
+         * behandelt beides gleich — Watchdog entschärfen, Whitelist zurückziehen, laut
+         * protokollieren. */
+        const val ACTION_ENGAGE_REFUSED = "de.ble1st.warden.sentinel.action.ENGAGE_REFUSED"
+
+        const val EXTRA_REFUSAL_REASON = "refusalReason"
+
         const val TAG = "Sentinel"
     }
 }
@@ -150,6 +215,7 @@ private fun SentinelScreen(
     pinStore: SentinelPinStore,
     isLockTaskActive: () -> Boolean,
     onExitLockdown: () -> Unit,
+    onAbandonCorruptedLockdown: () -> Unit,
 ) {
     fun currentLoadResult() = SentinelPinStateDecision.load(pinStore.exists()) { pinStore.load() }
 
@@ -275,12 +341,37 @@ private fun SentinelScreen(
                     )
                 }
 
-                is SentinelPinStateDecision.LoadResult.Corrupted -> Text(
-                    text = "⚠ Zustand beschädigt",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFB3261E),
-                    modifier = Modifier.padding(top = 16.dp),
-                )
+                // Bis 2026-08-28 stand hier nur der Warntext — ohne Tastenfeld und ohne Ausstieg.
+                // Lief in dem Moment ein Lock-Task, war das Gerät endgültig gefangen: die PIN ist
+                // nicht mehr verifizierbar, Warden ist im Kiosk nicht erreichbar, und
+                // EMERGENCY_PRESERVING_FEATURES lässt nur Keyguard und Notruf offen — es blieb der
+                // Werksreset. Der Knopf unten wiegt diesen Totalverlust gegen den Umstand ab, dass
+                // ein beschädigter Blob ohnehin niemanden mehr aussperrt: wer ihn manipulieren
+                // könnte, bräuchte Schreibzugriff auf Sentinels eigene UID und hätte damit längst
+                // mehr Möglichkeiten als diesen Knopf. Das Gate verhindert seit demselben Tag, dass
+                // dieser Zustand überhaupt noch neu betreten wird (s. SentinelLockTaskGate).
+                is SentinelPinStateDecision.LoadResult.Corrupted -> {
+                    Text(
+                        text = "⚠ Zustand beschädigt — die Sentinel-PIN ist nicht mehr prüfbar.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFB3261E),
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    if (isLockTaskActive()) {
+                        Text(
+                            text = "Der Kiosk lässt sich ohne prüfbare PIN nicht regulär verlassen. " +
+                                "Beenden und in Warden eine neue Sentinel-PIN einrichten.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Button(
+                            onClick = onAbandonCorruptedLockdown,
+                            modifier = Modifier.padding(top = 16.dp),
+                        ) {
+                            Text("Kiosk beenden")
+                        }
+                    }
+                }
             }
         }
     }

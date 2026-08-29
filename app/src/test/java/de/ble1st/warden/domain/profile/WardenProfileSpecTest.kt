@@ -1,5 +1,6 @@
 package de.ble1st.warden.domain.profile
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -84,5 +85,29 @@ class WardenProfileSpecTest {
         }
         assertTrue(catalog.containsAll(WardenProfileSpec.idsOn(WardenProfile.MAXIMAL)))
         assertTrue(WardenProfileSpec.idsOn(WardenProfile.MAXIMAL).containsAll(catalog))
+    }
+
+    /**
+     * Hält [WardenProfile.strength] und [WardenProfileSpec] zusammen (2026-08-28, Befund Q-1):
+     * `AutoProfileDecision` verweigert eine automatische Abschwächung anhand dieser Zahl, also
+     * muss sie der tatsächlichen Schachtelung der Mengen entsprechen. Ohne diesen Test könnte eine
+     * spätere Umsortierung der drei Mengen die Ordnung stillschweigend zur Lüge machen, und die
+     * Automatik würde eine Abschwächung für eine Verschärfung halten.
+     */
+    @Test
+    fun strengthOrderMatchesSubsetOrder() {
+        val byStrength = WardenProfile.entries.sortedBy { it.strength }
+        assertEquals(WardenProfile.entries.size, byStrength.map { it.strength }.toSet().size)
+        for ((weaker, stronger) in byStrength.zipWithNext()) {
+            assertTrue(
+                "$stronger muss alles von $weaker enthalten, fehlt: " +
+                    "${WardenProfileSpec.idsOn(weaker) - WardenProfileSpec.idsOn(stronger)}",
+                WardenProfileSpec.idsOn(stronger).containsAll(WardenProfileSpec.idsOn(weaker)),
+            )
+            assertTrue(
+                "$stronger muss echt mehr schalten als $weaker",
+                WardenProfileSpec.idsOn(stronger).size > WardenProfileSpec.idsOn(weaker).size,
+            )
+        }
     }
 }

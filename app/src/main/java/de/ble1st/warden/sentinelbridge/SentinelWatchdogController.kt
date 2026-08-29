@@ -2,13 +2,7 @@ package de.ble1st.warden.sentinelbridge
 
 import android.content.Context
 import android.util.Log
-import de.ble1st.warden.registry.MasterSwitch
-import de.ble1st.warden.registry.PersistentSafeguardRegistry
-import de.ble1st.warden.registry.RegistryStorage
-import de.ble1st.warden.registry.SafeguardCatalog
-import de.ble1st.warden.registry.SafeguardRegistryStore
 import de.ble1st.warden.registry.WardenLockTaskAuthorizer
-import de.ble1st.warden.domain.registry.SafeguardRegistry
 import de.ble1st.warden.logging.HashChainLogStore
 import de.ble1st.warden.wardenAuditLog
 
@@ -33,16 +27,32 @@ import de.ble1st.warden.wardenAuditLog
  * **Eskalation (Plan-Diagramm "3 Deaths/60s → escalate()"):** [escalate] entfernt Sentinel real
  * aus der DPM-Lock-Task-Whitelist — laut dem im ConneXias-Framework-Quellprojekt empirisch
  * bestätigten Notruf-Drill-Fund der tatsächlich wirksame Weg, einen aktiven Lock-Task-Zustand zu
- * beenden (`adb shell am task lock stop` griff dort nachweislich NICHT). Zusätzlich
- * [MasterSwitch.disarm] (dieselbe "nur revert-Richtung, kein neues Risiko"-Sicherheit wie überall
- * im Projekt).
+ * beenden (`adb shell am task lock stop` griff dort nachweislich NICHT). Genau das und nichts
+ * weiter.
+ *
+ * **Kein `MasterSwitch.disarm()` mehr (Korrektur 2026-08-28, aus der Code-/Sicherheitsanalyse):**
+ * bis dahin revertierte [escalate] zusätzlich den *gesamten* Katalog über
+ * `SafeguardCatalog.registerAll` — inklusive `DeviceLockdownBundle`, Werksreset-Schutz,
+ * Kamerasperre und `SentinelUninstallProtectionSafeguard`. Die Begründung dafür ("nur
+ * revert-Richtung, kein neues Risiko") übersieht, *wer* diesen Pfad auslöst: dreimaliges Sterben
+ * von Sentinels Prozess innerhalb von 60 Sekunden ist genau das, was jemand mit dem Gerät in der
+ * Hand provozieren würde, um aus dem Kiosk herauszukommen. Damit war der Watchdog ein ungegateter
+ * Weg zu exakt dem Effekt, den
+ * [de.ble1st.warden.domain.presence.SensitiveAction.MASTER_SWITCH_REVERT] hinter
+ * Bestätigungsphrase, Presence-Nachweis, Rate-Limit und
+ * [de.ble1st.warden.domain.presence.DestructiveCommandGuard] absichert — ein Widerspruch zur
+ * Projektregel "structural enforcement over documentation".
+ *
+ * Ein Wächter darf im Zweifel *mehr* Härtung stehen lassen, nicht weniger. Das Zurückziehen der
+ * Whitelist genügt für den eigentlichen Zweck (kein Neustart-Loop eines abstürzenden
+ * Kiosk-Prozesses); alles darüber hinaus bleibt der Betreiberin über den presence-gegateten Weg
+ * vorbehalten und wird hier nur laut protokolliert.
  */
 class SentinelWatchdogController(context: Context) {
 
     private val appContext = context.applicationContext
     private val authorizer = WardenLockTaskAuthorizer(appContext)
     private val logStore: HashChainLogStore = wardenAuditLog(appContext)
-    private val masterSwitch: MasterSwitch by lazy { buildMasterSwitch(appContext) }
     private val watchdog = SentinelDeathWatchdog(appContext, logStore, onEscalate = { escalate() })
 
     /** Spiegelt die reale DPM-Whitelist — dieselbe "Wahrheit im System, keine eigene
@@ -66,24 +76,23 @@ class SentinelWatchdogController(context: Context) {
      * Prozess in 60s) inszenieren zu müssen; [SentinelWatchdogDecision.shouldEscalate] selbst ist
      * bereits vollständig JVM-getestet. */
     internal fun escalate() {
-        logStore.append(Log.ERROR, TAG, "Eskalation: Sentinel-Watchdog entfernt DPM-Whitelist + revertiert Registry")
-        authorizer.revert()
-        masterSwitch.disarm()
-    }
-
-    private fun buildMasterSwitch(context: Context): MasterSwitch {
-        val registry = PersistentSafeguardRegistry(
-            SafeguardRegistry(),
-            SafeguardRegistryStore(RegistryStorage.buildEnvelopeFile(context)),
+        logStore.append(
+            Log.ERROR,
+            TAG,
+            "Eskalation: 3 Sentinel-Prozesstode in 60s — Lock-Task-Whitelist wird zurückgezogen. " +
+                "Übrige Safeguards bleiben bewusst scharf (s. Klassendoc); zum Zurücksetzen den " +
+                "presence-gegateten Weg 'Alle Safeguards zurücksetzen' nutzen.",
         )
-        // registerAll (nicht nur ein reduziertes Subset wie im Quellprojekt) — Wardens
-        // MasterSwitch deckt an jeder anderen Stelle im Projekt (FailsafeActivity,
-        // SensitiveActionActivity) ebenfalls den vollen Katalog ab; ein Eskalationspfad, der
-        // weniger zurücksetzt als der reguläre "Alle Safeguards zurücksetzen"-Weg, wäre
-        // inkonsistent.
-        SafeguardCatalog.registerAll(registry, context)
-        registry.load()
-        return MasterSwitch(registry)
+        val outcome = runCatching { authorizer.revert() }
+        logStore.append(
+            if (outcome.isSuccess) Log.WARN else Log.ERROR,
+            TAG,
+            if (outcome.isSuccess) {
+                "Lock-Task-Whitelist zurückgezogen"
+            } else {
+                "Lock-Task-Whitelist konnte NICHT zurückgezogen werden: ${outcome.exceptionOrNull()}"
+            },
+        )
     }
 
     private companion object {

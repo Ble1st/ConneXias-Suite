@@ -58,6 +58,17 @@ Danach `WardenStatusActivity` (Launcher-Icon "Warden") öffnen und prüfen:
 8. **Offline-Failsafe** öffnen — Ablauf nur mit dem zugehörigen Ed25519-Schlüsselpaar aus
    `rust/engine/src/bin/failsafe_keytool.rs` sinnvoll durchspielbar; ohne hinterlegten Schlüssel
    muss die UI klar "kein Schlüssel konfiguriert" anzeigen, nie stillschweigend "erfolgreich".
+   - **Geänderter Signieraufruf (2026-08-28):** die neue Geräte-PIN gehört seitdem mit in die
+     signierte Nachricht, `sign` nimmt drei Argumente:
+     `failsafe-keytool sign <secret_key_hex> <challenge_hex> <neue_geraete_pin>`. Auf dem Gerät
+     muss **exakt dieselbe** PIN eingetippt werden.
+   - **Gegenprobe (der eigentliche Zweck der Änderung):** dieselbe Response ein zweites Mal mit
+     einer *abweichenden* Geräte-PIN einreichen — muss "Response ungültig" liefern, nicht die PIN
+     setzen. Vorher ging das durch, weil die Signatur nur die Challenge abdeckte.
+   - **Challenge ist ein Einmal-Nachweis:** nach einem akzeptierten Durchlauf muss ein erneutes
+     Einreichen derselben Response "Keine Challenge ausstehend" ergeben — auch dann, wenn der
+     Geräte-PIN-Reset selbst fehlgeschlagen ist (die UI weist in dem Fall explizit auf die neu zu
+     erzeugende Challenge hin).
 9. **Log-Ansicht** über den entsprechenden Button öffnen — verlangt denselben Presence-Nachweis
    wie "Sensible Aktion", zeigt danach die Hash-Ketten-Einträge.
 10. Boot-Reconciliation: Gerät neu starten, vor dem Entsperren prüfen (`adb logcat` direkt nach
@@ -94,6 +105,15 @@ Danach `WardenStatusActivity` (Launcher-Icon "Warden") öffnen und prüfen:
     - **Kein "App-Lock beenden"-Button auf Wardens Seite mehr** — anders als vor diesem Port kann
       Warden den Kiosk-Zustand nicht mehr selbst beenden (Warden ist ja nicht mehr die eingesperrte
       App). Der einzige Ausweg ist Sentinels eigene, separate PIN direkt auf dem Gerät.
+    - **Kiosk ohne eingerichtete Sentinel-PIN muss verweigert werden (2026-08-28):** frisch
+      installiertes Sentinel, noch keine Sentinel-PIN vergeben, dann `LOCKDOWN_TASK_ENGAGE`
+      auslösen. Erwartet: **kein** Kiosk-Zustand, stattdessen im Warden-Audit-Log
+      "Sentinel hat das Scharfschalten abgelehnt: keine benutzbare Sentinel-PIN eingerichtet —
+      Kiosk läuft NICHT, Wächter wird entschärft" und anschließend eine wieder leere
+      Lock-Task-Whitelist (`adb shell dumpsys device_policy | grep -i locktask`). Vorher startete
+      der Kiosk und bot dort die PIN-Ersteinrichtung an — also seinen eigenen Ausstieg.
+    - **Sentinel-PIN zuerst vergeben:** Sentinel einmal ohne Engage öffnen, PIN setzen, danach den
+      Kiosk regulär durchspielen. Erst dieser Weg testet den Kiosk, der eigentlich gemeint ist.
 12. **Real-Time Threat Protection**: eine Test-APK per `adb install` nachinstallieren, während
     Warden im Hintergrund läuft — beobachten, dass die Sicherheitsbenachrichtigung/der
     Sicherheits-Scanner-Fund binnen Sekunden erscheint (`PackageChangeReceiver` →
@@ -115,7 +135,7 @@ Danach `WardenStatusActivity` (Launcher-Icon "Warden") öffnen und prüfen:
 
 ## Offene Prüfprozeduren (vorbereitet 2026-08-28, noch nicht durchgeführt)
 
-Drei Pfade sind gebaut und unit-getestet, aber nie real ausgelöst worden. Jeder Abschnitt nennt
+Zehn Pfade sind gebaut und unit-getestet, aber nie real ausgelöst worden. Jeder Abschnitt nennt
 die Vorbedingungen, die konkreten Schritte und — wo es schon Fehlversuche gab — was **nicht**
 funktioniert, damit derselbe Weg nicht zweimal probiert wird.
 
@@ -212,6 +232,147 @@ den Recovery-Wipe auslösen.
 **Erwartetes Ergebnis:** die Ersteinrichtung nach dem Wipe verlangt genau dieses Google-Konto.
 Tut sie es wieder nicht, ist der Befund bestätigt und der Safeguard sollte in der UI dauerhaft als
 "auf dieser Hardware wirkungslos" markiert bleiben statt weiter als Schutz zu gelten.
+
+### P-4 — Automatische Profilumschaltung nimmt keine manuelle Härtung zurück
+
+Prüft die Korrektur von Befund Q-1 (2026-08-28) auf dem echten Gerät. Der Fehler war nur über die
+Uhr zu sehen, deshalb wird das Nachtfenster hier bewusst auf die nächsten Minuten gelegt statt auf
+22:00 gewartet.
+
+1. Automatische Profilumschaltung einschalten, Nachtprofil **Reise**, Tagesprofil **Alltag**,
+   Nachtfenster so setzen, dass gerade **Tag** gilt. Einen Lauf abwarten (der Worker läuft alle
+   15 Minuten) — im Audit-Log muss "Profil automatisch auf Alltag geschaltet (Zeitplan)" stehen.
+2. Jetzt von Hand auf **Maximal** schalten und mit `adb shell dumpsys device_policy` an einem
+   Maximal-Merkmal bestätigen, dass es wirkt (z. B. `no_config_vpn` in den User-Restrictions).
+3. Nachtfenster so verschieben, dass **jetzt Nacht** ist, und wieder einen Lauf abwarten.
+
+**Erwartetes Ergebnis:** Maximal bleibt stehen, das Nachtprofil Reise wird **nicht** angewendet;
+`no_config_vpn` ist weiterhin gesetzt. Vor der Korrektur wurde an dieser Stelle heruntergeschaltet.
+
+**Gegenprobe, dass der Zeitplan noch funktioniert:** dieselbe Konfiguration ohne den manuellen
+Eingriff aus Schritt 2 — dann muss die Umschaltung Alltag ↔ Reise regulär stattfinden, weil das
+wirkende Profil in dem Fall von der Automatik selbst stammt.
+
+**Zweite Gegenprobe (Verschärfen bleibt immer erlaubt):** von Hand auf **Alltag**, dann
+"Bei kritischem Fund auf Maximal" einschalten und einen kritischen Fund erzeugen (Testpaket mit
+geändertem Signaturzertifikat, s. Schritt 5). Erwartet: die Automatik schaltet trotz der manuellen
+Lockerung auf Maximal hoch.
+
+### P-5 — Audit-Log: keine Lese-Einträge mehr, Aufbewahrungsgrenze prüfbar
+
+Prüft die Korrektur der Befunde Q-2/Q-3 (2026-08-28). Beides ist am fertigen Gerät nur über das
+Log selbst sichtbar.
+
+1. Log-Einsicht öffnen (Presence bestätigen), die höchste Sequenznummer notieren.
+2. Safeguards-Screen öffnen, einmal durchscrollen, zurück, ein Profil anwenden.
+3. Log-Einsicht erneut öffnen.
+
+**Erwartetes Ergebnis:** die Sequenznummer ist um wenige Einträge gewachsen (Profil-Apply,
+Schaltvorgänge) — **keine** `cmd=isSafeguardActive`/`cmd=safeguardStates`-Zeilen. Vorher kamen pro
+Bildschirmaufbau 33 Lese-Einträge dazu. Der Screen muss außerdem kurz "lädt" zeigen statt beim
+Öffnen zu stocken; ein leerer Zustand ohne Ladeanzeige wäre ein Fehler (dann verwechselt die UI
+"lädt noch" mit "nicht lesbar").
+
+**Abgelehnter Lesezugriff wird weiterhin protokolliert:** das ist der Teil, der bleiben muss. Am
+einfachsten über das Rate-Limit zu provozieren (sehr schnelles wiederholtes Öffnen/Wechseln); im
+Log muss dann `allowed=false` mit `class=READ` auftauchen.
+
+**Aufbewahrungsgrenze:** mit einem Wegwerf-Build und `LogStorage.KEEP_ARCHIVED_LOG_SEGMENTS = 1`
+sowie `HashChainLogStore.DEFAULT_SEGMENT_CAPACITY = 5` genug Einträge erzeugen, dass mehrfach
+rotiert wird. Erwartet: die Log-Einsicht zeigt weiterhin "Kette gültig" **und** die Zeile
+"Ältere Einträge bis #N wurden nach der Aufbewahrungsgrenze verworfen". Meldet sie stattdessen
+"Kette gebrochen", ist der Retention-Anker nicht geschrieben worden — das wäre der schwerwiegende
+Fehlerfall, weil dann eine reguläre Kürzung wie eine Manipulation aussieht.
+
+### P-6 — Benachrichtigungsaktionen verlangen jetzt einen Presence-Nachweis
+
+Prüft die Korrektur von Befund S-5 (2026-08-28). Braucht eine zweite, unwichtige Test-App auf dem
+Gerät (Wegwerf-APK, kein Geräteadmin) als Ziel.
+
+1. Verdachtsscanner einschalten (Safeguards ▸ Sicherheits-Scanner), einen Fund für die Test-App
+   provozieren (z. B. `adb install` einer signaturunbekannten APK).
+2. Warden vollständig verlassen (Home-Taste, nicht nur "zurück"), damit
+   `WardenLockSession` invalidiert.
+3. In der Benachrichtigungsschublade "Deinstallieren" antippen.
+
+**Erwartetes Ergebnis:** **kein** sofortiger Deinstallations-Dialog des Systems — stattdessen
+öffnet sich Wardens eigener Presence-Screen (`WardenLockActivity`, Biometrie oder Warden-PIN wie
+beim App-Start). Erst nach erfolgreichem Nachweis erscheint "Deinstallieren bestätigen" mit
+Paketname; erst der zweite Tap auf "Bestätigen" löst die echte Deinstallation aus. Ein
+abgebrochener Nachweis (Zurück-Geste am Presence-Screen) darf **nichts** auslösen — die Test-App
+muss danach noch installiert sein. "Daten löschen" analog prüfen. "Einfrieren" bleibt bewusst ein
+einzelner Tap ohne Presence-Schritt (reversibel).
+
+### P-7 — Auto-Einfrieren wirkt nicht mehr auf reine Info-Funde
+
+Prüft die Korrektur von Befund S-7 (2026-08-28).
+
+1. Eine Test-App mit unbekannter Installationsquelle (`adb install`, nicht über den Play Store)
+   und ohne weitere Signale installieren — erzeugt nur `UNKNOWN_INSTALL_SOURCE` (Stufe Info).
+2. "Automatisch einfrieren" im Sicherheits-Scanner einschalten (löst laut Klassendoc sofort einen
+   `scanAndEnforce()`-Lauf aus).
+
+**Erwartetes Ergebnis:** die Test-App bleibt **nicht** eingefroren — der Fund erscheint weiterhin
+in der Funde-Liste und in der Benachrichtigung, aber `AppManagementScreen` zeigt sie als aktiv.
+Gegenprobe mit einer Test-App, die zusätzlich Geräteadmin-Fähigkeiten deklariert (Stufe Warnung):
+die muss weiterhin automatisch eingefroren werden (bzw. an der bekannten OS-Grenze für
+deklarierte Geräteadmins scheitern, s. `AppFreezeManager`-Klassendoc — nicht am neuen Filter).
+
+### P-8 — DPM-Log-Callbacks laufen jetzt asynchron (`goAsync()`)
+
+Prüft die Korrektur von Befund Q-4 (2026-08-29): `onSecurityLogsAvailable`/
+`onNetworkLogsAvailable` blockieren das Broadcast-Fenster nicht mehr, verarbeiten die Batches aber
+weiterhin vollständig.
+
+1. Sicherheits-/Netzwerk-Logging aktivieren (Safeguards ▸ entsprechende Schalter).
+2. Einen Batch auslösen — z. B. `adb shell am start`/`adb install` einer beliebigen Test-App
+   (erzeugt Netzwerk-/Security-Log-Ereignisse) und kurz warten, bis das OS `onNetworkLogsAvailable`
+   ruft.
+3. `adb logcat -s WardenDeviceAdmin` parallel mitlaufen lassen.
+
+**Erwartetes Ergebnis:** die Log-Zeile "… Ereignisse gespeichert" erscheint weiterhin zuverlässig,
+und die Ereignisse tauchen in der Log-Ansicht (Systemereignisse) auf — wie vor der Änderung. Der
+sichtbare Unterschied ist negativ: **kein** ANR-Dialog und keine spürbare Verzögerung, selbst wenn
+kurz hintereinander mehrere Batches eintreffen (z. B. durch mehrere `adb install`s). Ein
+fehlendes `pendingResult.finish()` würde sich als "Context.startForegroundService() not allowed"-
+artige Folgefehler oder als vom OS gemeldetes "BroadcastReceiver did not call finish()" in Logcat
+zeigen — sollte nicht auftreten.
+
+### P-9 — Fehlgeschlagene sensible Aktionen zeigen jetzt einen Fehler statt "real ausgeführt"
+
+Prüft die Korrektur von Befund Q-5 (2026-08-29). Der sicherste reproduzierbare Fehlschlag ohne
+echten Kiosk-Einstieg: `LOCKDOWN_TASK_ENGAGE` auslösen, **ohne** dass Sentinel installiert ist.
+
+1. Sicherstellen, dass die Sentinel-App **nicht** installiert ist (`adb shell pm list packages |
+   grep sentinel` liefert nichts; ggf. vorher deinstallieren — Warden erlaubt das über die
+   Sentinel-Uninstall-Protection nur, solange Sentinel selbst nie installiert war).
+2. **Sensible Aktion** öffnen, "App-Lock (Lock-Task) jetzt aktivieren" wählen, Bestätigungstext
+   `LOCKTASK` eingeben, Presence erbringen.
+
+**Erwartetes Ergebnis:** die Activity zeigt jetzt
+"⚠ Bestätigt, aber Ausführung fehlgeschlagen: SentinelLockdownEngager.engage() abgelehnt: Sentinel
+nicht installiert." — **nicht** mehr "✓ Bestätigt — real ausgeführt und protokolliert." Der
+Audit-Log-Eintrag zeigte diesen Fehlschlag schon vorher korrekt an; neu ist, dass die UI ihn jetzt
+ebenfalls zeigt. Denselben Unterschied zeigt der Dashboard-Kurzweg "Kiosk jetzt" (falls unter
+`LockdownTriggerProfile.STANDARD`/`FAST` konfiguriert).
+
+### P-10 — SIM-Fingerabdruck bleibt über das Boot-Fenster hinweg stabil
+
+Prüft die Korrektur von Befund Q-6 (2026-08-29).
+
+1. SIM-Wechsel-Erkennung aktivieren, Reaktion auf "Nur melden" belassen (nicht "Neustart" — sonst
+   verdeckt ein echter Neustart genau das Signal, das hier beobachtet werden soll).
+2. Gerät neu starten (`adb reboot`), entsperren, App öffnen bzw. warten, bis der Prozess neu
+   hochfährt.
+3. Sofort nach dem Boot **und** noch einmal nach ca. einer Minute die Log-Ansicht (Audit-Log)
+   prüfen.
+
+**Erwartetes Ergebnis:** **kein** "SIM-Wechsel erkannt"-Eintrag direkt nach dem Boot, obwohl sich
+zwischen dem (verzögerten) Start-Prüflauf und dem nächsten periodischen Lauf die Carrier-Config
+zwischenzeitlich vervollständigt haben kann — der reduzierte Fingerabdruck (MCC/MNC + Carrier-ID
+nur wenn bekannt) und die 30-Sekunden-Verzögerung von `SimChangeStartupWorker` sollen genau das
+verhindern. Gegenprobe (nur wenn eine zweite Test-SIM verfügbar ist): tatsächlich die SIM
+wechseln — ein echter "SIM-Wechsel erkannt"-Eintrag muss weiterhin erscheinen.
 
 ## Bewusst nicht scharf geschaltet
 
