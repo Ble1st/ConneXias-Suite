@@ -1,5 +1,6 @@
 package de.ble1st.warden.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -71,6 +72,19 @@ fun SettingsScreen(
 ) {
     var showNamingSettings by remember { mutableStateOf(false) }
     var showLicenses by remember { mutableStateOf(false) }
+
+    // Vorschlag V-8 (2026-08-29) — echter Navigationsfehler, nicht nur Kosmetik: die beiden
+    // Unterseiten sind reiner lokaler Compose-State (s. Klassendoc), und der einzige registrierte
+    // BackHandler lag bis hierher eine Ebene höher in `WardenRoot`. Der schaltet unbedingt auf
+    // `WardenScreen.Status` — die Zurück-Geste aus "Namensvergebung"/"Lizenzen" sprang also direkt
+    // aufs Dashboard und übersprang die Einstellungen-Ebene, aus der man gerade gekommen war. Nur
+    // der Zurück-Pfeil in der TopAppBar der Unterseite verhielt sich richtig. BackHandler werden
+    // in umgekehrter Registrierungsreihenfolge abgearbeitet, der hier gewinnt also gegen den in
+    // `WardenRoot`, solange er aktiv ist.
+    BackHandler(enabled = showNamingSettings || showLicenses) {
+        showNamingSettings = false
+        showLicenses = false
+    }
 
     if (showNamingSettings) {
         NamingSettingsScreen(

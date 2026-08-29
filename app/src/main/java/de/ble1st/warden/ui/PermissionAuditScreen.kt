@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -18,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -25,9 +27,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -91,17 +95,68 @@ fun PermissionAuditScreen(
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
             }
+            // Vorschlag V-9 (2026-08-29): Auffällige zuerst, dann nach Anzahl gefährlicher Rechte,
+            // dann nach Namen. Vorher stand die Liste in Scanner-Reihenfolge — auf einem realen
+            // Gerät sind das dreistellig viele Zeilen, und genau die eine App, wegen der dieser
+            // Bildschirm existiert, konnte irgendwo mittendrin stehen. Die Namenssortierung als
+            // letztes Kriterium hält die Reihenfolge zwischen zwei Scans stabil.
+            var onlyFlagged by rememberSaveable { mutableStateOf(false) }
+            val visible = remember(findings, onlyFlagged) {
+                findings
+                    ?.filter { !onlyFlagged || it.tooManyDangerousPermissions }
+                    ?.sortedWith(
+                        compareByDescending<PermissionAuditInfo> { it.tooManyDangerousPermissions }
+                            .thenByDescending { it.dangerousPermissions.size }
+                            .thenBy { it.label.lowercase() },
+                    )
+            }
+            if (findings != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = onlyFlagged,
+                            role = Role.Switch,
+                            onValueChange = { onlyFlagged = it },
+                        )
+                        .padding(vertical = 4.dp)
+                        .semantics {
+                            stateDescription = if (onlyFlagged) "an" else "aus"
+                            contentDescription = "Nur auffällige Apps zeigen. " +
+                                "${visible?.size ?: 0} von ${findings.size} Apps sichtbar."
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(text = "Nur auffällige zeigen", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = "${visible?.size ?: 0} von ${findings.size} Apps",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = onlyFlagged, onCheckedChange = null)
+                }
+            }
             HorizontalDivider()
             when {
                 findings == null && !scanInProgress ->
                     EmptyStateRow(headline = "Noch nicht gescannt", detail = "Auf \"Scannen\" tippen.")
                 findings == null -> {}
                 findings.isEmpty() -> EmptyStateRow(headline = "Keine Fremd-Apps gefunden")
+                visible.isNullOrEmpty() ->
+                    EmptyStateRow(
+                        headline = "Keine auffällige App",
+                        detail = "Keine der ${findings.size} Apps deklariert " +
+                            "${PermissionAuditDecision.THRESHOLD} oder mehr gefährliche Rechte " +
+                            "gleichzeitig. Filter ausschalten, um alle zu sehen.",
+                    )
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    items(findings, key = { it.packageName }) { info ->
+                    items(visible, key = { it.packageName }) { info ->
                         PermissionAuditRow(info)
                     }
                 }
@@ -112,13 +167,24 @@ fun PermissionAuditScreen(
 
 @Composable
 private fun PermissionAuditRow(info: PermissionAuditInfo) {
-    var expanded by remember { mutableStateOf(false) }
+    // rememberSaveable statt remember (Vorschlag V-10, 2026-08-29): eine aufgeklappte Zeile in
+    // einer LazyColumn verliert ihren Zustand, sobald sie aus dem Sichtfenster scrollt — beim
+    // Zurückscrollen war sie wieder zu. Mit dem `key = { it.packageName }` der LazyColumn hat
+    // jede Zeile einen stabilen Speicherplatz.
+    var expanded by rememberSaveable { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
-            .semantics {
-                contentDescription = "Permission-Audit ${info.label}"
+            // Vorschlag V-10 (2026-08-29) — dieselbe Korrektur wie V-5 in der App-Verwaltung und
+            // der Fundliste: ohne `mergeDescendants` tritt die Beschreibung neben die
+            // Kinderknoten statt sie zu ersetzen, und eine Vorlesehilfe las App-Name und
+            // Paketnamen anschließend noch einmal einzeln. Die Rechte-Zahlen kommen mit in die
+            // Beschreibung — sie sind die eigentliche Information dieser Zeile.
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Permission-Audit ${info.label}, ${info.packageName}, " +
+                    "${info.dangerousPermissions.size} gefährliche und " +
+                    "${info.specialPermissions.size} spezielle Rechte"
                 stateDescription = if (info.tooManyDangerousPermissions) "zu viele gefährliche Rechte" else "unauffällig"
             },
     ) {

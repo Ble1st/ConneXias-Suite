@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -240,22 +242,36 @@ private fun LogViewerScreen(
                         "⚠ Keine Biometrie eingerichtet — Log-Einsicht nicht möglich.",
                         color = MaterialTheme.colorScheme.error,
                     )
-                LogAccessOutcome.Denied ->
+                // Vorschlag V-14 (2026-08-29): ein abgebrochener Nachweis war eine Sackgasse — der
+                // einzige Weg zu einem zweiten Versuch führte über Zurück und erneutes Öffnen.
+                // Ein versehentlich weggewischter Biometrie-Dialog ist der wahrscheinlichste Weg
+                // hierher und rechtfertigt das nicht.
+                LogAccessOutcome.Denied -> {
                     Text("Abgebrochen oder fehlgeschlagen — kein Log-Inhalt angezeigt.")
+                    TextButton(onClick = { onRequestPresence { result -> outcome = result } }) {
+                        Text("Erneut mit Biometrie versuchen")
+                    }
+                    TextButton(onClick = { onRequestPinPresence { result -> outcome = result } }) {
+                        Text("Erneut mit Warden-PIN versuchen")
+                    }
+                }
                 is LogAccessOutcome.Granted -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { showSystemEvents = false }) {
-                            Text(if (showSystemEvents) "Warden-Audit" else "▸ Warden-Audit")
-                        }
-                        TextButton(onClick = { showSystemEvents = true }) {
-                            Text(
-                                if (showSystemEvents) {
-                                    "▸ System (${current.systemEvents.records.size})"
-                                } else {
-                                    "System (${current.systemEvents.records.size})"
-                                },
-                            )
-                        }
+                    // Vorschlag V-13 (2026-08-29): echte Tabs statt zweier TextButtons, bei denen
+                    // ein vorangestelltes "▸" die Auswahl markierte. Das Zeichen trug den Zustand
+                    // nur optisch — für eine Vorlesehilfe war beides gleichermaßen "Schaltfläche",
+                    // und welcher der beiden Bereiche gerade angezeigt wird, ging daraus nicht
+                    // hervor. `Tab` bringt den ausgewählten Zustand als Semantik mit.
+                    TabRow(selectedTabIndex = if (showSystemEvents) 1 else 0) {
+                        Tab(
+                            selected = !showSystemEvents,
+                            onClick = { showSystemEvents = false },
+                            text = { Text("Warden-Audit (${current.entries.size})") },
+                        )
+                        Tab(
+                            selected = showSystemEvents,
+                            onClick = { showSystemEvents = true },
+                            text = { Text("System (${current.systemEvents.records.size})") },
+                        )
                     }
                     if (showSystemEvents) {
                         SystemEventList(current.systemEvents)
