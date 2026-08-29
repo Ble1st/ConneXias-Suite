@@ -1,7 +1,9 @@
 package de.ble1st.warden.netlock
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.VpnService
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
@@ -40,6 +42,20 @@ class NetLockdownController(context: Context) {
 
     fun arm(): ArmResult = try {
         val allowedPackages = currentFirewallAllowedPackages()
+        
+        // VPN-Berechtigung vorbereiten (nur für Nicht-Device-Owner nötig, aber Samsung
+        // könnte es auch bei Device-Owner verlangen). Ergebnis wird ignoriert, da
+        // Device-Owner setAlwaysOnVpnPackage ohne Consent erlaubt.
+        val prepareIntent = VpnService.prepare(appContext)
+        if (prepareIntent != null) {
+            // Consent nötig - für Device Owner sollte das nicht passieren, aber falls doch
+            // den User zur VPN-Einstellung navigieren
+            Log.w(TAG, "VpnService.prepare() erfordert Consent trotz Device Owner - navigiert zur System-Einstellung")
+            prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            appContext.startActivity(prepareIntent)
+            return ArmResult.Failed("VPN-Consent erforderlich")
+        }
+        
         authorizer.apply(allowedPackages)
         // Der Always-On-VPN-Service wird nach setAlwaysOnVpnPackage vom System gestartet — Warden
         // muss WardenVpnService nicht selbst starten (dasselbe Prinzip wie im Quellprojekt, dort

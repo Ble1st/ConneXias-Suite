@@ -37,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -1120,9 +1121,12 @@ private fun WardenRoot(
             val netLockdownController = remember { NetLockdownController(appContext) }
             val networkFirewallPolicyController = remember { NetworkFirewallPolicyController(appContext) }
             val apps by remember { mutableStateOf(networkFirewallPolicyController.listApps()) }
+            val lockdownActive by remember {
+                derivedStateOf { netLockdownController.isActive() }
+            }
             
             NetworkScreen(
-                lockdownActive = netLockdownController.isActive(),
+                lockdownActive = lockdownActive,
                 onToggleLockdown = { enabled ->
                     if (enabled) netLockdownController.arm() else netLockdownController.disarm()
                 },
