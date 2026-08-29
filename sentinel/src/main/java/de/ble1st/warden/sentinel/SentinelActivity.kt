@@ -114,6 +114,12 @@ class SentinelActivity : ComponentActivity() {
      * bereits resumed ist, nicht schon in `onCreate()`. */
     override fun onResume() {
         super.onResume()
+        // Vorschlag U-8 (2026-08-29): Warden kann Sentinels PIN-Zustand nicht selbst lesen
+        // (eigene UID, eigener credential-verschlüsselter Speicher) — bis hierher merkte es erst
+        // im Ernstfall, dass die eine Bedingung fehlt, ohne die der Kiosk wirkungslos ist. Deshalb
+        // meldet Sentinel den Zustand jetzt von sich aus, über denselben signature-geschützten
+        // Kanal wie die beiden anderen Signale.
+        signalWardenPinState()
         if (lockdownEngageTriggered) return
         val requested = intent?.getBooleanExtra(EXTRA_ENGAGE_LOCKDOWN, false) == true
         if (!requested) return
@@ -140,6 +146,17 @@ class SentinelActivity : ComponentActivity() {
         }
         Log.w(TAG, "Scharfschalten angefordert: startLockTask() abgelehnt — $reason")
         signalWardenEngageRefused(reason)
+    }
+
+    /** Zweiter Meldezeitpunkt neben [onResume] (Vorschlag U-8): der übliche Ablauf einer
+     * Ersteinrichtung ist "Sentinel öffnen → PIN setzen → verlassen", und dabei kommt kein
+     * weiteres `onResume()` mehr. Ohne diesen Aufruf meldete Sentinel Warden also genau den
+     * Zustand *vor* der Einrichtung und Warden zeigte dauerhaft "PIN fehlt". Ein zusätzlicher
+     * Callback aus dem Compose-Bildschirm heraus wäre die präzisere, aber auch die deutlich
+     * verdrahtungsintensivere Lösung — `onPause()` fasst jede denkbare PIN-Änderung mit ab. */
+    override fun onPause() {
+        super.onPause()
+        signalWardenPinState()
     }
 
     /**
@@ -178,6 +195,25 @@ class SentinelActivity : ComponentActivity() {
         }.onFailure { Log.w(TAG, "Ablehnungs-Signal an Warden fehlgeschlagen", it) }
     }
 
+    /** Meldet Warden, ob hier eine benutzbare PIN liegt (Vorschlag U-8). Bewusst *nur* dieses eine
+     * Bit — kein Hash, keine Länge, kein Zeitstempel: Warden braucht für die Anzeige der
+     * Kiosk-Vorbedingung nicht mehr, und alles darüber hinaus wäre über einen Broadcast
+     * verschickte PIN-Information ohne Gegenwert. Fehlschläge werden nur geloggt: Warden kann
+     * deinstalliert oder deaktiviert sein, und Sentinels eigene Funktion hängt daran nicht. */
+    private fun signalWardenPinState() {
+        val configured = runCatching { isPinConfigured() }.getOrElse {
+            Log.w(TAG, "PIN-Zustand nicht lesbar — keine Meldung an Warden", it)
+            return
+        }
+        runCatching {
+            sendBroadcast(
+                Intent().setClassName(WARDEN_PACKAGE_NAME, WARDEN_SIGNAL_RECEIVER_CLASS_NAME)
+                    .setAction(ACTION_PIN_STATE)
+                    .putExtra(EXTRA_PIN_CONFIGURED, configured),
+            )
+        }.onFailure { Log.w(TAG, "PIN-Zustands-Signal an Warden fehlgeschlagen", it) }
+    }
+
     /** Live abgefragt statt eines lokalen Flags — robust gegen einen zwischenzeitlichen
      * Prozess-Neustart (Sentinels eigener Prozess kann vom System beendet und beim nächsten
      * PIN-Versuch neu gestartet werden, während Lock-Task auf DPM-Ebene weiterhin aktiv bleibt). */
@@ -205,6 +241,15 @@ class SentinelActivity : ComponentActivity() {
         const val ACTION_ENGAGE_REFUSED = "de.ble1st.warden.sentinel.action.ENGAGE_REFUSED"
 
         const val EXTRA_REFUSAL_REASON = "refusalReason"
+
+        /** Dritte Action auf demselben Kanal (Vorschlag U-8, 2026-08-29): unaufgeforderte Meldung
+         * des PIN-Zustands, damit Warden die Kiosk-Vorbedingung *vorher* anzeigen kann und nicht
+         * erst über [ACTION_ENGAGE_REFUSED] im Ernstfall davon erfährt. Anders als die beiden
+         * anderen Actions darf sie den Watchdog **nicht** entschärfen — sie sagt nichts über einen
+         * laufenden Kiosk aus. */
+        const val ACTION_PIN_STATE = "de.ble1st.warden.sentinel.action.PIN_STATE"
+
+        const val EXTRA_PIN_CONFIGURED = "pinConfigured"
 
         const val TAG = "Sentinel"
     }

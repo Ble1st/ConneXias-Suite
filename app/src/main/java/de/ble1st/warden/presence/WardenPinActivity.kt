@@ -16,14 +16,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +55,7 @@ import de.ble1st.warden.ui.theme.WardenTheme
 import de.ble1st.warden.ui.theme.WardenThemePrefs
 import java.nio.charset.StandardCharsets
 import uniffi.connexias_engine.PasswordHash
+import kotlinx.coroutines.delay
 
 private const val MIN_PIN_LENGTH = 6
 /** Existing 4-digit PINs must still be enterable; new / changed PINs use [MIN_PIN_LENGTH]. */
@@ -152,12 +155,6 @@ class WardenPinActivity : ComponentActivity() {
 
     private var lockTaskDrillTriggered = false
 
-    /** Bumpt bei jedem `onNewIntent()` — als `key()` um [WardenPinScreen] gelegt, damit ein
-     * Re-Launch (Notruf-Drill-Trigger **oder** ein neuer Presence-Request, während die Activity
-     * noch von einem vorherigen Aufruf offen ist) den gesamten Compose-`remember`-Zustand
-     * verlässlich zurücksetzt, statt eine u. U. veraltete Anzeige stehen zu lassen. */
-    private var intentGeneration by mutableIntStateOf(0)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -174,39 +171,40 @@ class WardenPinActivity : ComponentActivity() {
 
         setContent {
             WardenTheme(accent = accent) {
-                key(intentGeneration) {
-                    val presenceRequested = intent?.getBooleanExtra(EXTRA_PRESENCE_REQUEST, false) == true
-                    WardenPinScreen(
-                        blobStore = blobStore,
-                        duressBlobStore = duressBlobStore,
-                        duressResponder = duressResponder,
-                        logStore = logStore,
-                        isPresenceRequest = presenceRequested,
-                        onPresenceConfirmed = {
-                            setResult(RESULT_OK)
-                            finish()
-                        },
-                        onOpenFailsafe = {
-                            startActivity(Intent(this@WardenPinActivity, FailsafeActivity::class.java))
-                            finish()
-                        },
-                    )
-                }
+                val presenceRequested = intent?.getBooleanExtra(EXTRA_PRESENCE_REQUEST, false) == true
+                WardenPinScreen(
+                    blobStore = blobStore,
+                    duressBlobStore = duressBlobStore,
+                    duressResponder = duressResponder,
+                    logStore = logStore,
+                    isPresenceRequest = presenceRequested,
+                    onPresenceConfirmed = {
+                        setResult(RESULT_OK)
+                        finish()
+                    },
+                    onOpenFailsafe = {
+                        startActivity(Intent(this@WardenPinActivity, FailsafeActivity::class.java))
+                        finish()
+                    },
+                )
             }
         }
     }
 
-    /** Ohne dieses Override liefert `getIntent()`/`intent` bei einem Re-Launch weiterhin den
-     * *ursprünglichen* Intent, mit dem die Activity zuerst erstellt wurde — sowohl
-     * [EXTRA_ENGAGE_LOCK_TASK_DRILL] als auch [EXTRA_PRESENCE_REQUEST] würden dann bei einem
-     * erneuten `startActivityForResult` auf eine bereits laufende Instanz ignoriert.
-     * `setIntent()` + [intentGeneration]-Bump beheben das für beide Fälle einheitlich. */
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        lockTaskDrillTriggered = false
-        intentGeneration++
-    }
+    // Befund Q-10 (2026-08-29): hier standen ein `onNewIntent()`-Override plus ein
+    // `intentGeneration`-Zähler, der als `key()` um WardenPinScreen lag und den Compose-Zustand bei
+    // einem Re-Launch auf eine bereits laufende Instanz zurücksetzen sollte. Beides war toter Code:
+    // diese Activity ist im Manifest ohne `launchMode` deklariert und wird an allen fünf
+    // Aufrufstellen (WardenLockActivity, WardenStatusActivity, LogViewerActivity, FailsafeActivity,
+    // SensitiveActionActivity) ohne `FLAG_ACTIVITY_SINGLE_TOP` gestartet — Android legt also
+    // ausnahmslos eine neue Instanz an, `onNewIntent()` kann gar nicht feuern, und `intent` ist
+    // immer der Intent, mit dem genau diese Instanz erzeugt wurde.
+    //
+    // Bei SentinelActivity ist dasselbe Muster korrekt, dort steht `launchMode="singleTask"` im
+    // Manifest. Sollte diese Activity je auf `singleTop`/`singleTask` umgestellt werden, muss
+    // beides zurück — dann greift die ursprüngliche Begründung wieder (ein Re-Launch mit
+    // EXTRA_PRESENCE_REQUEST/EXTRA_ENGAGE_LOCK_TASK_DRILL liefert sonst weiterhin den alten Intent
+    // und einen veralteten Compose-Zustand) und muss dann auch tatsächlich durchgetestet werden.
 
     /** Der `lockTaskDrillTriggered`-Guard verhindert einen erneuten
      * [SentinelLockdownEngager.engage]-Aufruf bei einem späteren `onResume()` (z. B. nach einem
@@ -296,6 +294,17 @@ private fun WardenPinScreen(
     // Besitznachweis.
     var isSettingDuressPin by remember { mutableStateOf(false) }
     var duressConfigured by remember { mutableStateOf(currentDuressConfigured()) }
+    /** Vorschlag U-6 (2026-08-29) — s. den Bestätigungsdialog weiter unten. */
+    var confirmClearDuress by remember { mutableStateOf(false) }
+    /**
+     * Vorschlag U-4 (2026-08-29): Sekundengenaue "Jetzt"-Zeit, von einem Ticker fortgeschrieben,
+     * solange eine Anti-Hammering-Sperre läuft. Vorher war "Gesperrt — noch 30s warten" ein
+     * Standbild: die Zahl stammte aus einem einmalig berechneten Wert und aktualisierte sich erst,
+     * wenn irgendeine andere Interaktion zufällig eine Rekomposition auslöste — bis dahin sah es
+     * so aus, als stünde die Sperre still. Genauso wurde der Bestätigen-Knopf nach Ablauf der
+     * Sperre nicht von selbst wieder aktiv.
+     */
+    var nowSeconds by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
 
     fun onDigit(d: Int) {
         message = null
@@ -570,25 +579,78 @@ private fun WardenPinScreen(
                             }
                         }
                         if (duressConfigured) {
+                            // Vorschlag U-6 (2026-08-29): vorher ein einzelner Tap, sofort weg.
+                            // Der Kommentar über den beiden Einrichtungsknöpfen begründet
+                            // ausdrücklich, dass diese Aktion *nicht* dieselbe beiläufige
+                            // Gewichtung bekommen soll wie sie — der Dialog dazu fehlte trotzdem.
+                            // Muster übernommen von den Reset-Schutz-Schaltern in SafeguardsScreen.
                             Button(
-                                onClick = ::onClearDuressPin,
+                                onClick = { confirmClearDuress = true },
                                 modifier = Modifier.padding(top = 8.dp),
                             ) {
                                 Text("Duress-PIN löschen")
                             }
                         }
+                        if (confirmClearDuress) {
+                            AlertDialog(
+                                onDismissRequest = { confirmClearDuress = false },
+                                title = { Text("Duress-PIN löschen?") },
+                                text = {
+                                    Text(
+                                        "Danach gibt es keine PIN mehr, die unter Zwang eingegeben " +
+                                            "werden kann, ohne dass es auffällt — das Gerät startet " +
+                                            "dann nicht mehr unbemerkt in den BFU-Zustand neu. " +
+                                            "Erneut einrichten geht jederzeit.",
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            onClearDuressPin()
+                                            confirmClearDuress = false
+                                        },
+                                    ) { Text("Löschen") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { confirmClearDuress = false }) { Text("Abbrechen") }
+                                },
+                            )
+                        }
                     }
                 } else {
-                    val nowSeconds = System.currentTimeMillis() / 1000
                     val blocked = !WardenAntiHammeringDecision.isAttemptAllowedNow(result.blob.backoffUntilEpochSeconds, nowSeconds)
+                    val remaining = result.blob.backoffUntilEpochSeconds - nowSeconds
+                    // Vorschlag U-4 (2026-08-29): nur *während* einer laufenden Sperre ticken —
+                    // ein Dauer-Ticker im Normalfall wäre eine Rekomposition pro Sekunde ohne
+                    // jeden Gegenwert. `blocked` als Key beendet ihn automatisch, sobald die
+                    // Sperre abgelaufen ist.
+                    if (blocked) {
+                        LaunchedEffect(blocked) {
+                            while (true) {
+                                delay(1000)
+                                nowSeconds = System.currentTimeMillis() / 1000
+                            }
+                        }
+                    }
                     SetupContent(
                         subtitle = "PIN eingeben",
-                        message = message,
+                        // Die mitlaufende Restzeit ersetzt die eingefrorene Meldung aus
+                        // onConfirmVerify, solange die Sperre steht.
+                        message = if (blocked && remaining > 0) "Gesperrt — noch ${remaining}s warten." else message,
                         digits = digits,
                         onDigit = ::onDigit,
                         onBackspace = ::onBackspace,
                         onConfirm = { onConfirmVerify(result.blob) },
                         confirmExtraDisabled = blocked,
+                        // Vorschlag U-5 (2026-08-29): bewusst UNLOCK_MIN_PIN_LENGTH (4) und nicht
+                        // MIN_PIN_LENGTH (6), obwohl neue PINs immer mindestens sechsstellig sind.
+                        // Zwei Gründe, beide gewollt: (1) Alt-PINs aus früheren Ständen mit vier
+                        // Ziffern müssen eingebbar bleiben; (2) — der wichtigere — würde der
+                        // Bestätigen-Knopf exakt bei der *echten* Länge aktiv, wäre die
+                        // PIN-Länge an der Oberfläche ablesbar, ohne einen einzigen Versuch zu
+                        // verbrauchen. Eine feste, niedrige Schwelle verrät sie nicht. Der Preis
+                        // ist, dass ein zu früher Tap einen Anti-Hammering-Versuch kostet — das
+                        // ist die richtige Seite des Tauschs.
                         minConfirmLength = UNLOCK_MIN_PIN_LENGTH,
                     )
                 }

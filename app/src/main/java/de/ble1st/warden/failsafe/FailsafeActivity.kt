@@ -46,6 +46,7 @@ import de.ble1st.warden.registry.SafeguardCatalog
 import de.ble1st.warden.registry.SafeguardRegistryStore
 import de.ble1st.warden.ui.theme.WardenTheme
 import de.ble1st.warden.ui.theme.WardenThemePrefs
+import de.ble1st.warden.ui.theme.mono
 
 /**
  * Meilenstein D.3 (Konzept Abschnitt 9): minimale, aber **reale** Bedienoberfläche für den
@@ -271,10 +272,15 @@ private fun FailsafeScreen(
                 Text("Challenge erzeugen")
             }
             challengeHex?.let { hex ->
+                // Vorschlag U-9 (2026-08-29): seit body* proportional ist, wird der Hex-String
+                // vom erklärenden Satz getrennt und fordert Monospace gezielt an — bei einem
+                // von Hand abzutippenden 64-Zeichen-Hex ist feste Zeichenbreite keine Optik,
+                // sondern die Voraussetzung, 0/O und 1/l auseinanderzuhalten.
                 Text(
-                    text = "Challenge (auf Air-Gap-Maschine mit failsafe-keytool signieren):\n$hex",
+                    text = "Challenge (auf Air-Gap-Maschine mit failsafe-keytool signieren):",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Text(text = hex, style = MaterialTheme.typography.bodySmall.mono())
                 // Seit 2026-08-28 gehört die neue Geräte-PIN mit in die signierte Nachricht
                 // (FailsafeResponseMessage) — ohne diesen Hinweis würde die Betreiberin nach
                 // altem Muster signieren und bekäme auf dem Gerät nur ein unerklärliches

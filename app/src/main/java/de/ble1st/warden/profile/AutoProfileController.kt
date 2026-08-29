@@ -3,6 +3,7 @@ package de.ble1st.warden.profile
 import android.content.Context
 import android.util.Log
 import de.ble1st.warden.WardenApplication
+import de.ble1st.warden.appmanagement.SuspiciousAppThreatLevelStore
 import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.domain.profile.AutoProfileDecision
 import de.ble1st.warden.wardenAuditLog
@@ -25,6 +26,15 @@ import java.time.LocalTime
  * **Und kein Downgrade einer manuellen Härtung (2026-08-28, Befund Q-1):** deshalb geht neben
  * `lastAutoApplied` auch das zuletzt überhaupt angewendete Profil in die Entscheidung ein — die
  * Begründung und die Beispielabläufe stehen im Klassendoc von [AutoProfileDecision].
+ *
+ * **Kein eigener Paket-Scan mehr (2026-08-29, Befund Q-9):** die Bedrohungslage kommt aus
+ * [SuspiciousAppThreatLevelStore] (ein `SharedPreferences`-Lesevorgang), nicht mehr aus einem
+ * eigenen `listSuspiciousAppFindings()`-Aufruf, der über alle installierten Pakete lief. Damit ist
+ * dieser Lauf so billig geworden, dass die im Prüfbericht ebenfalls vorgeschlagene Zusammenlegung
+ * der sechs periodischen Worker zu einem Tick bewusst *nicht* umgesetzt wurde: der eigentliche
+ * Kostenträger war dieser doppelte Scan, nicht die Anzahl der Weckvorgänge — und getrennte Worker
+ * halten die Fehlerisolation (ein fehlschlagender Lauf legt die übrigen fünf Prüfungen nicht mit
+ * lahm), die eine Zusammenlegung aufgäbe.
  */
 class AutoProfileController(private val context: Context) {
 
@@ -33,12 +43,17 @@ class AutoProfileController(private val context: Context) {
         if (!config.isEnabled) return
 
         val application = context.applicationContext as? WardenApplication ?: return
+        // Befund Q-9 (2026-08-29): liest den beim letzten *behandelten* Scan-Lauf festgehaltenen
+        // Schweregrad, statt über ConcordBus.listSuspiciousAppFindings() einen zweiten
+        // vollständigen Paket-Scan auszulösen — die volle Begründung und der Preis (bis zu ein
+        // Worker-Takt Verzögerung) stehen im SuspiciousAppThreatLevelStore-Klassendoc.
         val criticalFindingPresent = runCatching {
-            application.concordBus.listSuspiciousAppFindings().any { it.severity == ThreatSeverity.CRITICAL }
+            SuspiciousAppThreatLevelStore.highestSeverity(context) == ThreatSeverity.CRITICAL
         }.getOrElse { error ->
             // Fail-safe: lieber nicht eskalieren als aufgrund eines Lesefehlers — der Zeitplan
             // greift trotzdem weiter (Bedrohungslage gilt als "unbekannt", nicht als "kritisch").
-            Log.w(TAG, "Verdachtsfunde nicht lesbar — Eskalationsprüfung übersprungen", error)
+            // Gilt genauso für "noch nie ein behandelter Lauf" (null): auch das ist "unbekannt".
+            Log.w(TAG, "Bedrohungsstand nicht lesbar — Eskalationsprüfung übersprungen", error)
             false
         }
 

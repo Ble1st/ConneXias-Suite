@@ -137,8 +137,10 @@ class SuspiciousAppScanController(
     fun scan(): List<SuspiciousAppFinding> = prepareScan().findings
 
     /** Wie [scan], aber angereichert mit Label/Ist-eingefroren für die UI — ebenfalls ohne
-     * Baseline-Commit. */
-    fun scanWithDetails(): List<SuspiciousAppFindingInfo> = enrich(scan())
+     * Baseline-Commit. Ein einziges [prepareScan] für beides (Befund Q-9, 2026-08-29): vorher
+     * `enrich(scan())`, was die Paketliste zweimal holte. */
+    fun scanWithDetails(): List<SuspiciousAppFindingInfo> =
+        prepareScan().let { prepared -> enrich(prepared.findings, prepared.labels) }
 
     /** Erkennung + Durchsetzung. Läuft nur, wenn [isEnabled]. Baselines werden nach dem
      * Enforce-Schritt geschrieben, damit Transition-Signale nicht vor der Notification verloren
@@ -148,6 +150,8 @@ class SuspiciousAppScanController(
         val prepared = prepareScan()
         enforce(prepared.findings)
         prepared.commitBaselines()
+        // Befund Q-9 (2026-08-29), s. runImmediateScan.
+        SuspiciousAppThreatLevelStore.record(context, prepared.findings)
         return prepared.findings
     }
 
@@ -196,14 +200,26 @@ class SuspiciousAppScanController(
         if (isEnabled()) {
             enforce(prepared.findings)
         }
-        val detailed = enrich(prepared.findings)
+        val detailed = enrich(prepared.findings, prepared.labels)
         notifyNewFindings(detailed)
         prepared.commitBaselines()
+        // Befund Q-9 (2026-08-29): der Bedrohungsstand wird hier festgehalten, damit
+        // AutoProfileController ihn lesen kann, statt alle 15 Minuten einen zweiten vollständigen
+        // Paket-Scan auszulösen — s. SuspiciousAppThreatLevelStore-Klassendoc.
+        SuspiciousAppThreatLevelStore.record(context, prepared.findings)
         return detailed
     }
 
+    /**
+     * [labels] wird aus dem *bereits* in [prepareScan] geholten `listInstalledApps()`-Ergebnis
+     * gebildet und an [enrich] durchgereicht (Befund Q-9, 2026-08-29). Vorher rief `enrich()` die
+     * Paketliste ein zweites Mal ab, obwohl `prepareScan()` sie unmittelbar davor schon hatte —
+     * ein voller `QUERY_ALL_PACKAGES`-Durchlauf pro Scan zu viel, und der teuerste Einzelschritt
+     * des ganzen Laufs.
+     */
     private class PreparedScan(
         val findings: List<SuspiciousAppFinding>,
+        val labels: Map<String, String>,
         private val commit: () -> Unit,
     ) {
         fun commitBaselines() = commit()
@@ -256,7 +272,10 @@ class SuspiciousAppScanController(
             systemPackageNames = systemPackageNames,
             trustedPackageNames = store.trustedPackages(),
         )
-        return PreparedScan(findings) {
+        return PreparedScan(
+            findings = findings,
+            labels = installedApps.associate { it.packageName to it.label },
+        ) {
             activationHistoryStore.recordActiveDeviceAdmins(currentActiveAdmins)
             activationHistoryStore.recordActiveAccessibilityServices(currentActiveAccessibility)
             currentFingerprints.forEach { (pkg, fingerprint) -> signingCertHistoryStore.record(pkg, fingerprint) }
@@ -264,8 +283,12 @@ class SuspiciousAppScanController(
         }
     }
 
-    private fun enrich(findings: List<SuspiciousAppFinding>): List<SuspiciousAppFindingInfo> {
-        val labels = appLister.listInstalledApps().associate { it.packageName to it.label }
+    /** [labels] kommt aus [PreparedScan] — s. dessen Klassendoc (Befund Q-9): nie selbst
+     * `listInstalledApps()` aufrufen, der Aufrufer hat die Liste bereits. */
+    private fun enrich(
+        findings: List<SuspiciousAppFinding>,
+        labels: Map<String, String>,
+    ): List<SuspiciousAppFindingInfo> {
         return findings.map { finding ->
             SuspiciousAppFindingInfo(
                 packageName = finding.packageName,

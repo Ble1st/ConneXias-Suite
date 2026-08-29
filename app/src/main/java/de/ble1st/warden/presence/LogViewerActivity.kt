@@ -43,6 +43,7 @@ import java.time.format.DateTimeFormatter
 import de.ble1st.warden.wardenAuditLog
 import de.ble1st.warden.ui.theme.WardenTheme
 import de.ble1st.warden.ui.theme.WardenThemePrefs
+import de.ble1st.warden.ui.theme.mono
 
 /**
  * Meilenstein G.4 (Konzept Abschnitt 19: "Log-Einsicht hinter Presence"). Wardens **eigene**
@@ -300,7 +301,10 @@ private fun AuditLogList(granted: LogAccessOutcome.Granted) {
         items(granted.entries.asReversed()) { entry ->
             Text(
                 text = "#${entry.sequence} [${entry.tag}] ${entry.message}",
-                style = MaterialTheme.typography.bodySmall,
+                // Vorschlag U-9 (2026-08-29): body* ist seither proportional — die Protokollzeilen
+                // fordern Monospace gezielt an. Hier hat feste Zeichenbreite eine Funktion:
+                // Sequenznummern und Tags stehen dadurch über die Zeilen hinweg untereinander.
+                style = MaterialTheme.typography.bodySmall.mono(),
             )
         }
     }
@@ -370,7 +374,9 @@ private fun SystemEventList(decoded: SecurityLogCodec.DecodeResult) {
                 Text(
                     text = "${formatTimestamp(record.timestampMillis)} ${severityMarker(record.severity)} " +
                         "${record.type.label}: ${record.detail}",
-                    style = MaterialTheme.typography.bodySmall,
+                    // Monospace wie bei den Audit-Zeilen (Vorschlag U-9): Zeitstempel und
+                    // Schweregrad-Marker fluchten nur bei fester Zeichenbreite.
+                    style = MaterialTheme.typography.bodySmall.mono(),
                     color = when (record.severity) {
                         ThreatSeverity.CRITICAL -> MaterialTheme.colorScheme.error
                         ThreatSeverity.WARNING -> MaterialTheme.colorScheme.onSurface

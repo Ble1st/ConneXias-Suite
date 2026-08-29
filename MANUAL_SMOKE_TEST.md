@@ -135,7 +135,7 @@ Danach `WardenStatusActivity` (Launcher-Icon "Warden") öffnen und prüfen:
 
 ## Offene Prüfprozeduren (vorbereitet 2026-08-28, noch nicht durchgeführt)
 
-Zehn Pfade sind gebaut und unit-getestet, aber nie real ausgelöst worden. Jeder Abschnitt nennt
+Elf Pfade sind gebaut und unit-getestet, aber nie real ausgelöst worden. Jeder Abschnitt nennt
 die Vorbedingungen, die konkreten Schritte und — wo es schon Fehlversuche gab — was **nicht**
 funktioniert, damit derselbe Weg nicht zweimal probiert wird.
 
@@ -373,6 +373,31 @@ zwischenzeitlich vervollständigt haben kann — der reduzierte Fingerabdruck (M
 nur wenn bekannt) und die 30-Sekunden-Verzögerung von `SimChangeStartupWorker` sollen genau das
 verhindern. Gegenprobe (nur wenn eine zweite Test-SIM verfügbar ist): tatsächlich die SIM
 wechseln — ein echter "SIM-Wechsel erkannt"-Eintrag muss weiterhin erscheinen.
+
+### P-11 — Sentinel meldet seinen PIN-Zustand von sich aus
+
+Prüft Vorschlag U-8 (2026-08-29). Der Kanal ist `signature`-geschützt, lässt sich also **nicht**
+per `adb shell am broadcast` nachstellen — der Test muss über Sentinel selbst laufen.
+
+1. Sentinel installieren (Safeguards ▸ Kiosk ▸ "Installieren"), aber **noch keine** Sentinel-PIN
+   einrichten. Safeguards öffnen.
+2. Erwartet: die Zeile "Sentinel-PIN eingerichtet" steht auf **"Unbekannt — Sentinel hat sich noch
+   nicht gemeldet."** — nicht auf "nein". Der Unterschied ist der Kern des Vorschlags: Warden
+   kann Sentinels PIN-Blob nicht lesen und darf das Fehlen nicht raten.
+3. Sentinel öffnen (`adb shell am start -n de.ble1st.warden.sentinel/.SentinelActivity` funktioniert
+   nicht — die Activity ist permission-geschützt; stattdessen über den Kiosk-Weg oder Sentinels
+   eigenen Einstieg), wieder verlassen, Safeguards erneut öffnen.
+4. Erwartet: die Zeile steht jetzt rot auf **"NEIN — Sentinel würde jedes Scharfschalten
+   ablehnen."**
+5. In Sentinel eine PIN einrichten, Sentinel verlassen, Safeguards erneut öffnen.
+6. Erwartet: **"Ja — Sentinel hat eine benutzbare PIN gemeldet."** Genau dieser Schritt prüft den
+   `onPause()`-Meldezeitpunkt: nach der Ersteinrichtung kommt kein weiteres `onResume()` mehr.
+
+**Zusätzlich prüfen:** im Audit-Log darf **kein** Eintrag für diese Meldungen stehen (sie sind
+Zustand, kein Ereignis — sonst verdrängen sie bei jedem Sentinel-Aufruf die Einträge, für die das
+Log da ist), und ein laufender Kiosk darf durch sie **nicht** beendet werden. Letzteres lässt sich
+beim regulären Kiosk-Drill mitprüfen: während der Kiosk aktiv ist, kommt die Meldung ebenfalls an —
+der Wächter muss scharf bleiben.
 
 ## Bewusst nicht scharf geschaltet
 

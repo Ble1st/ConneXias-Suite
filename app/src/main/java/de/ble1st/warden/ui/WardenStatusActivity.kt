@@ -101,6 +101,7 @@ import de.ble1st.warden.pin.WardenLockTaskDrillStorage
 import de.ble1st.warden.pin.WardenLockTaskPendingEngageStore
 import de.ble1st.warden.registry.WardenLockTaskAuthorizer
 import de.ble1st.warden.sentinelbridge.SentinelLockdownEngager
+import de.ble1st.warden.sentinelbridge.SentinelPinStateStore
 import de.ble1st.warden.presence.DestructiveActionExecutor
 import de.ble1st.warden.presence.SensitiveActionActivity
 import de.ble1st.warden.presence.WardenLockActivity
@@ -857,41 +858,14 @@ private fun WardenRoot(
                     },
                 )
                 SafeguardsScreen(
-                    cameraLocked = toggle(CameraSafeguard.ID),
-                    screenCaptureLocked = toggle(ScreenCaptureSafeguard.ID),
-                    microphoneMuted = toggle(UserRestrictionSafeguard.MICROPHONE_MUTED_ID),
-                    clockIntegrity = toggle(UserRestrictionSafeguard.CONFIG_DATE_TIME_DISABLED_ID),
-                    selfUninstallProtection = toggle(SelfUninstallProtectionSafeguard.ID),
-                    forceStopProtection = toggle(ForceStopProtectionSafeguard.ID),
-                    credentialConfigLockdown = toggle(UserRestrictionSafeguard.CREDENTIAL_CONFIG_DISABLED_ID),
-                    physicalMediaMountLockdown = toggle(UserRestrictionSafeguard.PHYSICAL_MEDIA_MOUNT_DISABLED_ID),
-                    keyguardHardening = toggle(KeyguardHardeningSafeguard.ID),
-                    accessibilityLockdown = toggle(AccessibilityLockdownSafeguard.ID),
-                    inputMethodLockdown = toggle(InputMethodLockdownSafeguard.ID),
-                    securityLogging = toggle(SecurityLoggingSafeguard.ID),
-                    networkLogging = toggle(NetworkLoggingSafeguard.ID),
-                    passwordComplexity = toggle(PasswordComplexitySafeguard.ID),
-                    autoLockTimeout = toggle(AutoLockTimeoutSafeguard.ID),
-                    backupServiceLockdown = toggle(BackupServiceLockdownSafeguard.ID),
-                    systemUpdatePolicy = toggle(SystemUpdatePolicySafeguard.ID),
-                    lockScreenPrivacy = toggle(LockScreenPrivacySafeguard.ID),
-                    usbAutoLock = usbAutoLockToggle,
-                    usbPermanentlyDisabled = toggle(UsbDataSignalingSafeguard.ID),
-                    sentinelUninstallProtection = toggle(SentinelUninstallProtectionSafeguard.ID),
-                    installUnknownSourcesDisabled = toggle(UserRestrictionSafeguard.INSTALL_UNKNOWN_SOURCES_DISABLED_ID),
-                    factoryResetDisabled = toggle(UserRestrictionSafeguard.FACTORY_RESET_DISABLED_ID),
-                    safeBootDisabled = toggle(UserRestrictionSafeguard.SAFE_BOOT_DISABLED_ID),
-                    factoryResetProtection = toggle(FactoryResetProtectionSafeguard.ID),
-                    modifyAccountsDisabled = toggle(UserRestrictionSafeguard.MODIFY_ACCOUNTS_DISABLED_ID),
-                    debuggingFeaturesDisabled = toggle(UserRestrictionSafeguard.DEBUGGING_FEATURES_DISABLED_ID),
-                    // "Fehlende Restriction-Abdeckung" (2026-08-28) — s. Factory-Docs in
-                    // UserRestrictionSafeguard.
-                    addUserDisabled = toggle(UserRestrictionSafeguard.ADD_USER_DISABLED_ID),
-                    cellular2gDisabled = toggle(UserRestrictionSafeguard.CELLULAR_2G_DISABLED_ID),
-                    configVpnDisabled = toggle(UserRestrictionSafeguard.CONFIG_VPN_DISABLED_ID),
-                    usbFileTransferDisabled = toggle(UserRestrictionSafeguard.USB_FILE_TRANSFER_DISABLED_ID),
-                    nfcRadioDisabled = toggle(UserRestrictionSafeguard.NFC_RADIO_DISABLED_ID),
-                    bluetoothSharingDisabled = toggle(UserRestrictionSafeguard.BLUETOOTH_SHARING_DISABLED_ID),
+                    // Vorschlag U-1 (2026-08-29): statt 33 einzeln benannter Parameter genau ein
+                    // Zugriffspunkt. Die Zuordnung ID -> Zeile/Text/Gruppe steht jetzt in
+                    // SafeguardUiCatalog; ein neuer Safeguard braucht hier keine Änderung mehr.
+                    // Der einzige Sonderfall ist USB-Auto-Lock: keine Registry-Safeguard, sondern
+                    // eine lokale Präferenz — s. SafeguardUiCatalog.USB_AUTO_LOCK_ID.
+                    toggleFor = { id ->
+                        if (id == SafeguardUiCatalog.USB_AUTO_LOCK_ID) usbAutoLockToggle else toggle(id)
+                    },
                     factoryResetProtectionAccounts = loaded.factoryResetProtectionAccounts,
                     factoryResetProtectionAgentAvailable = loaded.factoryResetProtectionAgentAvailable,
                     onSaveFactoryResetProtectionAccounts = { raw ->
@@ -978,6 +952,7 @@ private fun WardenRoot(
                     },
                     sentinelLockTaskAuthorized = loaded.sentinelLockTaskAuthorized,
                     sentinelInstallStatus = loaded.sentinelInstallStatus,
+                    sentinelPinConfigured = loaded.sentinelPinConfigured,
                     onInstallSentinel = {
                         // Nur der synchrone Teil (Session erzeugt/committet) ist hier sichtbar —
                         // das eigentliche Ergebnis kommt asynchron über
@@ -1163,6 +1138,9 @@ private data class SafeguardsSnapshot(
     val lockdownModeActive: Boolean?,
     val sentinelLockTaskAuthorized: Boolean?,
     val sentinelInstallStatus: SentinelInstallStatus,
+    /** `null` = Sentinel hat sich noch nie gemeldet, *nicht* "keine PIN" — s.
+     * [SentinelPinStateStore] (Vorschlag U-8). */
+    val sentinelPinConfigured: Boolean?,
     val factoryResetProtectionAccounts: String,
     val factoryResetProtectionAgentAvailable: Boolean,
 )
@@ -1184,6 +1162,7 @@ private fun loadSafeguardsSnapshotSafely(bus: ConcordBus, context: Context): Saf
         lockdownModeActive = loadLockdownModeActiveSafely(bus),
         sentinelLockTaskAuthorized = loadSentinelLockTaskAuthorizedSafely(context),
         sentinelInstallStatus = SentinelInstallStatusReader(context).currentStatus(),
+        sentinelPinConfigured = SentinelPinStateStore.pinConfigured(context),
         factoryResetProtectionAccounts = WardenFactoryResetProtectionStorage.load(context).joinToString("\n"),
         factoryResetProtectionAgentAvailable = FactoryResetProtectionSafeguard(context).isFrpAgentAvailable(),
     )

@@ -37,6 +37,7 @@ import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
 import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.integrity.RootIndicatorSignal
+import de.ble1st.warden.ui.theme.mono
 
 /**
  * Milestone "Automatisches Einfrieren verdächtiger Apps" — portiert aus Heralds UI (jetzt Wardens
@@ -285,7 +286,7 @@ private fun FindingRow(
                 Text(text = finding.label, style = MaterialTheme.typography.bodyLarge)
                 SeverityBadge(finding.severity)
             }
-            Text(text = finding.packageName, style = MaterialTheme.typography.bodySmall)
+            Text(text = finding.packageName, style = MaterialTheme.typography.bodySmall.mono())
             Text(
                 text = signalsText(SuspiciousSignal.fromBitmask(finding.signalsBitmask)) +
                     if (finding.frozen) " · eingefroren" else "",

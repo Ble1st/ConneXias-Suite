@@ -249,6 +249,11 @@
                      bliebe Wardens Watchdog scharf und Sentinels Paket auf der Lock-Task-
                      Whitelist, obwohl kein Kiosk läuft, s. SentinelSignalReceiver-Klassendoc. -->
                 <action android:name="de.ble1st.warden.sentinel.action.ENGAGE_REFUSED" />
+                <!-- 2026-08-29 (Vorschlag U-8): dritte Action, reine Zustandsmeldung "Sentinel-PIN
+                     eingerichtet ja/nein". Warden kann Sentinels PIN-Blob nicht selbst lesen
+                     (eigene UID) und erfuhr vom Fehlen bisher erst über ENGAGE_REFUSED, also im
+                     Ernstfall. Entschärft den Watchdog bewusst NICHT. -->
+                <action android:name="de.ble1st.warden.sentinel.action.PIN_STATE" />
             </intent-filter>
         </receiver>
 

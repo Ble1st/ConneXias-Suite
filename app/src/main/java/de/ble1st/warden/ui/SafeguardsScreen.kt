@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -33,6 +34,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,10 +42,19 @@ import de.ble1st.warden.appmanagement.SentinelInstallStatus
 import de.ble1st.warden.domain.pin.LockdownTriggerProfile
 import de.ble1st.warden.domain.profile.WardenProfile
 import de.ble1st.warden.domain.profile.WardenProfileSpec
+import de.ble1st.warden.registry.FactoryResetProtectionSafeguard
+import de.ble1st.warden.registry.UserRestrictionSafeguard
 
 /**
  * Untermenü "Geräteschutz ▸ Safeguards". Profile (Alltag / Reise / Maximal) apply a named set
  * through Concord in one authorized call; individual switches remain for fine-tuning.
+ *
+ * **Aus [SafeguardUiCatalog] gespeist statt aus 33 Parametern (Vorschlag U-1, 2026-08-29):** die
+ * Schalterzeilen selbst kommen jetzt aus einer Datenliste; diese Funktion nimmt dafür genau einen
+ * Zugriffspunkt entgegen ([toggleFor]) statt eines Parameters pro Schalter. Die Begründung steht
+ * im [SafeguardUiCatalog]-Klassendoc. Was hier an Parametern bleibt, sind ausschließlich die
+ * Dinge, die *keine* gewöhnlichen Schalter sind: das FRP-Kontenfeld, der Lockdown-Status und der
+ * gesamte LockTask-/Kiosk-Abschnitt.
  */
 data class SafeguardToggleState(
     val locked: Boolean?,
@@ -53,39 +64,10 @@ data class SafeguardToggleState(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SafeguardsScreen(
-    cameraLocked: SafeguardToggleState,
-    screenCaptureLocked: SafeguardToggleState,
-    microphoneMuted: SafeguardToggleState,
-    clockIntegrity: SafeguardToggleState,
-    selfUninstallProtection: SafeguardToggleState,
-    forceStopProtection: SafeguardToggleState,
-    credentialConfigLockdown: SafeguardToggleState,
-    physicalMediaMountLockdown: SafeguardToggleState,
-    keyguardHardening: SafeguardToggleState,
-    accessibilityLockdown: SafeguardToggleState,
-    inputMethodLockdown: SafeguardToggleState,
-    securityLogging: SafeguardToggleState,
-    networkLogging: SafeguardToggleState,
-    passwordComplexity: SafeguardToggleState,
-    autoLockTimeout: SafeguardToggleState,
-    backupServiceLockdown: SafeguardToggleState,
-    systemUpdatePolicy: SafeguardToggleState,
-    lockScreenPrivacy: SafeguardToggleState,
-    usbAutoLock: SafeguardToggleState,
-    usbPermanentlyDisabled: SafeguardToggleState,
-    sentinelUninstallProtection: SafeguardToggleState,
-    installUnknownSourcesDisabled: SafeguardToggleState,
-    factoryResetDisabled: SafeguardToggleState,
-    safeBootDisabled: SafeguardToggleState,
-    factoryResetProtection: SafeguardToggleState,
-    modifyAccountsDisabled: SafeguardToggleState,
-    debuggingFeaturesDisabled: SafeguardToggleState,
-    addUserDisabled: SafeguardToggleState,
-    cellular2gDisabled: SafeguardToggleState,
-    configVpnDisabled: SafeguardToggleState,
-    usbFileTransferDisabled: SafeguardToggleState,
-    nfcRadioDisabled: SafeguardToggleState,
-    bluetoothSharingDisabled: SafeguardToggleState,
+    /** Liefert den Zustand für eine Katalog-ID. Die Aufrufstelle bildet
+     * [SafeguardUiCatalog.USB_AUTO_LOCK_ID] auf die lokale Präferenz ab, alles andere auf die
+     * Registry — s. dessen Doc. */
+    toggleFor: (String) -> SafeguardToggleState,
     factoryResetProtectionAccounts: String,
     factoryResetProtectionAgentAvailable: Boolean,
     onSaveFactoryResetProtectionAccounts: (String) -> Unit,
@@ -100,6 +82,9 @@ fun SafeguardsScreen(
     onAutoEngageOnCriticalThreatChange: (Boolean) -> Unit,
     sentinelLockTaskAuthorized: Boolean?,
     sentinelInstallStatus: SentinelInstallStatus,
+    /** `null` = Sentinel hat sich noch nie gemeldet, *nicht* "keine PIN" — s.
+     * `SentinelPinStateStore` (Vorschlag U-8, 2026-08-29). */
+    sentinelPinConfigured: Boolean?,
     onInstallSentinel: () -> Unit,
     onRefreshSentinelInstallStatus: () -> Unit,
     lockdownTriggerProfile: LockdownTriggerProfile,
@@ -142,239 +127,79 @@ fun SafeguardsScreen(
                 )
             }
 
-            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-            Text(
-                text = "Alltagsbetrieb — Zurücksetzen und Schnellzugriff.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            ResetProtectionEntryRow(
-                label = "Zurücksetzen in den Einstellungen blockieren",
-                state = factoryResetDisabled,
-                supportingText = "Blockiert Werksreset unter Einstellungen. Kein wipeData().",
-            )
-            HorizontalDivider()
-            SafeguardEntryRow(
-                label = "Abgesicherten Modus blockieren",
-                state = safeBootDisabled,
-                supportingText = "Verhindert Safe Boot als Recovery-nahen Umgehungsweg.",
-            )
-            HorizontalDivider()
-            FactoryResetProtectionAccountsField(
-                initialValue = factoryResetProtectionAccounts,
-                onSave = onSaveFactoryResetProtectionAccounts,
-            )
-            HorizontalDivider()
-            ResetProtectionEntryRow(
-                label = "Nach Recovery-Wipe Konto verlangen",
-                state = factoryResetProtection,
-                supportingText = buildString {
-                    append(
-                        "Recovery-Wipe bleibt möglich, Gerät ist danach ohne dieses Konto nicht " +
-                            "neu einzurichten. Wirkt nur bei gesperrtem Bootloader — bei OEM-Unlock " +
-                            "wirkungslos. Braucht Google-Play-Dienste / FRP-Agent. ⚠ Auf echter " +
-                            "Hardware (Samsung SM-A156B, 2026-08-25) hat ein Recovery-Wipe trotz " +
-                            "korrekt gesetzter Policy keine Konto-Abfrage ausgelöst — nicht als " +
-                            "verlässlichen Schutz behandeln, s. FactoryResetProtectionSafeguard.",
-                    )
-                    if (!factoryResetProtectionAgentAvailable) {
-                        append(
-                            " ⚠ Google-Play-Dienste nicht gefunden — Schalter zeigt \"aktiv\", " +
-                                "wird vom FRP-Agenten aber vermutlich nicht durchgesetzt.",
-                        )
+            // Vorschlag U-3 (2026-08-29): 33 Schalter ohne Filter waren nur noch durch Scrollen
+            // erreichbar. Die Suche greift auf Titel *und* Beschreibungstext, damit z. B. "IMSI"
+            // den 2G-Schalter findet — s. SafeguardUiCatalog.Entry.matches.
+            var query by remember { mutableStateOf("") }
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Schalter suchen") },
+                singleLine = true,
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        TextButton(onClick = { query = "" }) { Text("Leeren") }
                     }
                 },
-                toggleEnabled = factoryResetProtection.locked != null &&
-                    (factoryResetProtectionAccounts.isNotBlank() || factoryResetProtection.locked == true),
-            )
-            HorizontalDivider()
-            ResetProtectionEntryRow(
-                label = "Konten in den Einstellungen nicht ändern lassen",
-                state = modifyAccountsDisabled,
-                supportingText = "Verhindert, dass jemand das Entsperrkonto vor dem Wipe löscht.",
-            )
-            HorizontalDivider()
-            ConfirmBeforeEnableEntryRow(
-                label = "Entwickleroptionen/USB-Debugging sperren",
-                state = debuggingFeaturesDisabled,
-                supportingText = "Verhindert adb-Zugriff durch Angreifer mit physischem Zugriff " +
-                    "(Feature 35). ⚠ Lässt sich laut Android nicht mehr über die " +
-                    "Entwickleroptionen zurücknehmen, solange aktiv — auf einem per USB an einen " +
-                    "Entwicklungsrechner angeschlossenen Gerät kappt das Einschalten " +
-                    "wahrscheinlich sofort die eigene adb-Verbindung.",
-                confirmTitle = "Entwickleroptionen/USB-Debugging wirklich sperren?",
-                confirmText = "Kappt vermutlich sofort jede bestehende adb-Verbindung zu diesem " +
-                    "Gerät und lässt sich laut Android-Dokumentation nicht mehr über die " +
-                    "Entwickleroptionen selbst zurücknehmen — nur noch über diesen Schalter in " +
-                    "Warden. Nur auf einem Gerät aktivieren, das nicht mehr per USB entwickelt wird.",
-            )
-            HorizontalDivider()
-            SafeguardEntryRow(
-                label = "Schnellzugriff auf dem Sperrbildschirm sperren",
-                state = lockScreenPrivacy,
-                supportingText = "Keine Shortcuts, Kamera, Widgets oder Klartext-Benachrichtigungen.",
-            )
-            Text(
-                text = "Bootloader/OEM-Unlock sitzt in den Entwickleroptionen. Die öffentliche " +
-                    "Device-Owner-API kann das nicht einzeln sperren, ohne USB-Debug mit " +
-                    "abzuschalten — das macht erst der Lockdown-Modus.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             )
 
-            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-            Text(
-                text = "Sensoren.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            SafeguardEntryRow("Kamera sperren", cameraLocked)
-            HorizontalDivider()
-            SafeguardEntryRow("Bildschirmaufnahme sperren", screenCaptureLocked)
-            HorizontalDivider()
-            SafeguardEntryRow("Mikrofon sperren", microphoneMuted)
+            // Vorschlag U-1 (2026-08-29): eine Schleife über SafeguardUiCatalog statt 33
+            // handverdrahteter Zeilen. Ein neuer Safeguard braucht hier keine Änderung mehr.
+            var matchCount = 0
+            for (group in SafeguardUiCatalog.groups) {
+                val visible = group.entries.filter { it.matches(query) }
+                if (visible.isEmpty()) continue
+                matchCount += visible.size
 
-            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-            Text(
-                text = "Anti-Tamper — schützt Warden selbst vor Deaktivierung.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            SafeguardEntryRow("Uhrzeit-Manipulation verhindern", clockIntegrity)
-            HorizontalDivider()
-            SafeguardEntryRow("Deinstallation von Warden blockieren", selfUninstallProtection)
-            HorizontalDivider()
-            SafeguardEntryRow("Erzwinge-Stopp/Akku-Optimierung blockieren", forceStopProtection)
-            HorizontalDivider()
-            SafeguardEntryRow("Zertifikat-/Anmeldedaten-Installation blockieren", credentialConfigLockdown)
-            HorizontalDivider()
-            SafeguardEntryRow("Externe Datenträger (SD/USB) sperren", physicalMediaMountLockdown)
-            HorizontalDivider()
-            SafeguardEntryRow("Installation aus unbekannten Quellen blockieren", installUnknownSourcesDisabled)
-            HorizontalDivider()
-            SafeguardEntryRow(
-                label = "Zusätzliche Nutzer/Gastprofil verbieten",
-                state = addUserDisabled,
-                supportingText = "Ein neu angelegtes Profil startet ungehärtet — die meisten " +
-                    "Schalter hier wirken nutzerbezogen, das Gerät ist aber dasselbe.",
-            )
+                HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
+                Text(
+                    text = group.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 12.dp),
+                )
+                for ((index, entry) in visible.withIndex()) {
+                    if (index > 0) HorizontalDivider()
+                    CatalogEntryRow(
+                        entry = entry,
+                        state = toggleFor(entry.id),
+                        factoryResetProtectionAccounts = factoryResetProtectionAccounts,
+                        factoryResetProtectionAgentAvailable = factoryResetProtectionAgentAvailable,
+                    )
+                    // Das FRP-Kontenfeld ist kein Schalter und steht deshalb nicht im Katalog —
+                    // seine Position ist trotzdem inhaltlich festgelegt: unmittelbar vor dem
+                    // Schalter, der ohne hinterlegtes Konto gar nicht erst aktivierbar ist.
+                    // Bei aktiver Suche entfällt es, sonst stünde ein Textfeld ohne Bezug in einer
+                    // gefilterten Liste.
+                    if (query.isBlank() && entry.id == UserRestrictionSafeguard.SAFE_BOOT_DISABLED_ID) {
+                        HorizontalDivider()
+                        FactoryResetProtectionAccountsField(
+                            initialValue = factoryResetProtectionAccounts,
+                            onSave = onSaveFactoryResetProtectionAccounts,
+                        )
+                    }
+                }
+                if (query.isBlank() && group.footnote != null) {
+                    Text(
+                        text = group.footnote,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
+            if (matchCount == 0) {
+                Text(
+                    text = "Kein Schalter passt zu \"$query\".",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 24.dp),
+                )
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-            Text(
-                text = "Anti-Diebstahl — lokal, kein Standort/Fernzugriff.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            SafeguardEntryRow("Nur PIN/Passwort (Smart Lock/Biometrie sperren)", keyguardHardening)
-            HorizontalDivider()
-            SafeguardEntryRow("USB-Datenverkehr bei Sperre automatisch deaktivieren", usbAutoLock)
-            HorizontalDivider()
-            SafeguardEntryRow("USB-Datenverkehr dauerhaft deaktivieren", usbPermanentlyDisabled)
-            HorizontalDivider()
-            SafeguardEntryRow(
-                label = "USB-Dateiübertragung (MTP/PTP) sperren",
-                state = usbFileTransferDisabled,
-                supportingText = "Schwächste der drei USB-Stufen: Laden und Zubehör bleiben " +
-                    "nutzbar, nur der Dateizugriff fällt weg.",
-            )
-            HorizontalDivider()
-            // Live-Drill-Fund (2026-08-26/2026-08-27): registriert im Katalog seit Sentinels
-            // Silent-Install, hatte aber nie eine eigene UI-Zeile — s.
-            // SentinelUninstallProtectionSafeguard-Klassendoc, das genau diese Sichtbarkeit
-            // versprach.
-            SafeguardEntryRow("Sentinel-Deinstallation sperren", sentinelUninstallProtection)
-
-            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-            Text(
-                text = "App-Kontrolle — sperrt Dritt-Dienste, die als Keylogger/Screen-Scraper " +
-                    "missbraucht werden könnten.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            SafeguardEntryRow("Nur System-Bedienungshilfen erlauben", accessibilityLockdown)
-            HorizontalDivider()
-            SafeguardEntryRow("Nur System-Tastatur erlauben", inputMethodLockdown)
-
-            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-            Text(
-                text = "Forensik/Audit — invasiver als die übrigen Schalter, deshalb bewusst " +
-                    "separat und standardmäßig aus.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            SafeguardEntryRow("System-Sicherheitslog", securityLogging)
-            HorizontalDivider()
-            SafeguardEntryRow("Netzwerk-Metadaten-Log", networkLogging)
-
-            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-            Text(
-                text = "Passwort/Backup — eigene Ergänzung (2026-08-22): starker Sperrbildschirm-" +
-                    "PIN nützt wenig ohne kurze Auto-Sperrzeit und ohne Schutz vor Datenabfluss " +
-                    "über Cloud-/adb-Backup.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            SafeguardEntryRow("Starke Sperrbildschirm-PIN erzwingen", passwordComplexity)
-            HorizontalDivider()
-            SafeguardEntryRow("Kurze Auto-Sperrzeit erzwingen (30s)", autoLockTimeout)
-            HorizontalDivider()
-            SafeguardEntryRow("Backup-Dienst sperren", backupServiceLockdown)
-
-            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-            Text(
-                text = "Weitere Härtung — eigene Ergänzung, dritte Runde (2026-08-22).",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            SafeguardEntryRow("Sicherheitsupdates automatisch installieren", systemUpdatePolicy)
-
-            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-            Text(
-                text = "Funk & Netz — Angriffsfläche bei physischer Nähe (2026-08-28). Spürbare " +
-                    "Einschränkungen im Alltag, deshalb erst im Maximal-Profil enthalten.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-            SafeguardEntryRow(
-                label = "2G/GSM-Rückfall verbieten",
-                state = cellular2gDisabled,
-                supportingText = "2G authentisiert das Netz nicht — der Standardweg für " +
-                    "IMSI-Catcher ist der erzwungene Downgrade. ⚠ In reinen 2G-Funklöchern " +
-                    "fallen damit auch normale Anrufe/SMS aus; Notrufe bleiben laut Android " +
-                    "ausgenommen.",
-            )
-            HorizontalDivider()
-            SafeguardEntryRow(
-                label = "NFC-Radio abschalten",
-                state = nfcRadioDisabled,
-                supportingText = "Gegen Relay-/Skimming-Angriffe aus nächster Nähe. ⚠ Damit " +
-                    "endet auch kontaktloses Bezahlen und Transponder-Nutzung.",
-            )
-            HorizontalDivider()
-            SafeguardEntryRow(
-                label = "VPN-Einrichtung sperren",
-                state = configVpnDisabled,
-                supportingText = "Verhindert, dass jemand mit kurzem Zugriff den gesamten " +
-                    "Verkehr über einen fremden Endpunkt umleitet. ⚠ Auch du kannst dann kein " +
-                    "eigenes VPN mehr anlegen oder ändern; bestehende Verbindungen laufen weiter.",
-            )
-            HorizontalDivider()
-            SafeguardEntryRow(
-                label = "Bluetooth-Dateifreigabe sperren",
-                state = bluetoothSharingDisabled,
-                supportingText = "Nur der Dateikanal (OPP) — Kopfhörer, Uhr und " +
-                    "Freisprecheinrichtung funktionieren weiter.",
-            )
+            // Ab hier stehen nur noch Abschnitte, die keine gewöhnlichen Schalter sind — sie
+            // bleiben von der Suche unberührt, damit der Kiosk-/Lockdown-Teil immer erreichbar ist.
 
             HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
             Text(
@@ -395,6 +220,7 @@ fun SafeguardsScreen(
                 sentinelLockTaskAuthorized = sentinelLockTaskAuthorized,
                 sentinelInstallStatus = sentinelInstallStatus,
                 onInstallSentinel = onInstallSentinel,
+                sentinelPinConfigured = sentinelPinConfigured,
                 onRefreshSentinelInstallStatus = onRefreshSentinelInstallStatus,
                 emergencyDrillConfirmed = emergencyDrillConfirmed,
                 emergencyDrillConfirmedAtText = emergencyDrillConfirmedAtText,
@@ -423,6 +249,7 @@ fun SafeguardsScreen(
 private fun LockTaskSection(
     sentinelLockTaskAuthorized: Boolean?,
     sentinelInstallStatus: SentinelInstallStatus,
+    sentinelPinConfigured: Boolean?,
     onInstallSentinel: () -> Unit,
     onRefreshSentinelInstallStatus: () -> Unit,
     emergencyDrillConfirmed: Boolean,
@@ -460,6 +287,49 @@ private fun LockTaskSection(
         }
     }
     HorizontalDivider()
+
+    // Vorschlag U-8 (2026-08-29): dritte Vorbedingung neben Installation und Notruf-Drill. Ohne
+    // eingerichtete Sentinel-PIN lehnt SentinelLockTaskGate jedes Scharfschalten ab — das war
+    // bisher nirgends *vorher* sichtbar, sondern erst als Ablehnungsmeldung im Ernstfall.
+    // Nur bei installiertem Sentinel gezeigt: ohne Installation sagt die Zeile darüber bereits
+    // alles, und eine zweite Warnung zum selben Sachverhalt liest sich wie ein zweites Problem.
+    if (sentinelInstallStatus is SentinelInstallStatus.Installed) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Sentinel-PIN eingerichtet",
+                    // Nur das eindeutige "nein" wird rot — "unbekannt" ist kein Fehlerzustand,
+                    // sondern eine Wissenslücke, s. u.
+                    color = if (sentinelPinConfigured == false) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+                Text(
+                    text = when (sentinelPinConfigured) {
+                        true -> "Ja — Sentinel hat eine benutzbare PIN gemeldet. Sie ist der " +
+                            "einzige Ausstieg aus dem Kiosk."
+                        false -> "NEIN — Sentinel würde jedes Scharfschalten ablehnen. Sentinel " +
+                            "öffnen und eine PIN einrichten."
+                        // Bewusst als eigener dritter Zustand statt als "nein": Warden kann
+                        // Sentinels PIN-Blob nicht lesen (eigene UID) und erfährt den Zustand nur
+                        // aus Sentinels eigener Meldung. Ein frisch installiertes, nie geöffnetes
+                        // Sentinel hat wirklich keine PIN — ein seit Monaten eingerichtetes, seit
+                        // dem letzten Warden-Datenlöschen nicht geöffnetes hat eine.
+                        null -> "Unbekannt — Sentinel hat sich noch nicht gemeldet. Einmal öffnen " +
+                            "genügt; der Zustand wird dabei automatisch übermittelt."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        HorizontalDivider()
+    }
 
     if (sentinelLockTaskAuthorized == true) {
         Row(
@@ -730,56 +600,65 @@ private fun FactoryResetProtectionAccountsField(
     }
 }
 
-@Composable
-private fun SafeguardEntryRow(
-    label: String,
-    state: SafeguardToggleState,
-    supportingText: String? = null,
-    toggleEnabled: Boolean? = null,
-) {
-    SafeguardToggleRow(
-        label = label,
-        supportingText = supportingText,
-        checked = state.locked == true,
-        onCheckedChange = state.onToggle,
-        toggleEnabled = toggleEnabled ?: (state.locked != null),
-    )
-    if (state.locked == null) {
-        ErrorStateRow(
-            headline = "Status konnte nicht gelesen werden",
-            detail = "Vermutlich kein Device Owner aktiv.",
-        )
-    }
-}
-
 /**
- * [SafeguardEntryRow] variant for the reset-path-hardening switches (Werksreset-Sperre, FRP,
- * Konten-Sperre): deaktivieren geht immer noch mit einem Tap, aber erst nach Bestätigungsdialog.
- * Kein Presence-Gate (kein PIN/Biometrie, kein neuer [de.ble1st.warden.domain.bus.BusCommand]) —
- * nur ein Tippfehler-sicherer Zwischenschritt, damit diese drei Schalter nicht so leicht
- * "aus Versehen mit demselben Wisch wie alle anderen" landen wie jeder andere reversible
- * Safeguard. Aktivieren bleibt ungegatet, das ist der risikofreie Fall.
+ * Eine Katalogzeile (Vorschlag U-1, 2026-08-29) — ersetzt die früheren drei fast identischen
+ * Varianten `SafeguardEntryRow`/`ResetProtectionEntryRow`/`ConfirmBeforeEnableEntryRow`. Welche
+ * davon zutrifft, entscheidet jetzt [SafeguardUiCatalog.Entry.riskSide] statt die Wahl des
+ * Aufrufers an der jeweiligen Zeile:
+ *
+ * - [SafeguardUiCatalog.RiskSide.NONE] — ein Tap, wie bisher.
+ * - [SafeguardUiCatalog.RiskSide.DISABLING] — Reset-Schutz: **Ab**schalten erst nach Rückfrage,
+ *   Einschalten bleibt ungegatet (der risikofreie Weg).
+ * - [SafeguardUiCatalog.RiskSide.ENABLING] — Spiegelbild dazu, derzeit nur die
+ *   Entwickleroptionen-Sperre: **Ein**schalten erst nach Rückfrage, weil es die eigene
+ *   adb-Verbindung kappt und sich danach nur noch hier zurücknehmen lässt.
+ *
+ * Kein Presence-Gate in beiden Fällen (kein PIN/Biometrie, kein neuer
+ * [de.ble1st.warden.domain.bus.BusCommand]) — nur ein Tippfehler-sicherer Zwischenschritt, damit
+ * diese Schalter nicht so beiläufig umgelegt werden wie jeder andere reversible Safeguard.
+ *
+ * **Die zwei dynamischen Sonderfälle von `factory_reset_protection`** stehen bewusst als
+ * sichtbares `if` hier statt als generische Override-Lambda in der Signatur: der Warnzusatz hängt
+ * davon ab, ob die Google-Play-Dienste überhaupt gefunden wurden, und aktivierbar ist der Schalter
+ * nur mit hinterlegtem Konto. Ein Sonderfall, den man liest, ist besser als eine Abstraktion, die
+ * ihn versteckt.
  */
 @Composable
-private fun ResetProtectionEntryRow(
-    label: String,
+private fun CatalogEntryRow(
+    entry: SafeguardUiCatalog.Entry,
     state: SafeguardToggleState,
-    supportingText: String? = null,
-    toggleEnabled: Boolean? = null,
+    factoryResetProtectionAccounts: String,
+    factoryResetProtectionAgentAvailable: Boolean,
 ) {
-    var confirmDisable by remember { mutableStateOf(false) }
+    val isFrp = entry.id == FactoryResetProtectionSafeguard.ID
+    val supportingText = if (isFrp && !factoryResetProtectionAgentAvailable) {
+        entry.supportingText.orEmpty() +
+            " ⚠ Google-Play-Dienste nicht gefunden — Schalter zeigt \"aktiv\", " +
+            "wird vom FRP-Agenten aber vermutlich nicht durchgesetzt."
+    } else {
+        entry.supportingText
+    }
+    val toggleEnabled = when {
+        state.locked == null -> false
+        isFrp -> factoryResetProtectionAccounts.isNotBlank() || state.locked == true
+        else -> true
+    }
+
+    var pendingConfirm by remember { mutableStateOf(false) }
     SafeguardToggleRow(
-        label = label,
+        label = entry.label,
         supportingText = supportingText,
+        profiles = SafeguardUiCatalog.profilesContaining(entry.id),
         checked = state.locked == true,
         onCheckedChange = { requested ->
-            if (!requested && state.locked == true) {
-                confirmDisable = true
-            } else {
-                state.onToggle(requested)
+            val needsConfirm = when (entry.riskSide) {
+                SafeguardUiCatalog.RiskSide.NONE -> false
+                SafeguardUiCatalog.RiskSide.DISABLING -> !requested && state.locked == true
+                SafeguardUiCatalog.RiskSide.ENABLING -> requested && state.locked == false
             }
+            if (needsConfirm) pendingConfirm = true else state.onToggle(requested)
         },
-        toggleEnabled = toggleEnabled ?: (state.locked != null),
+        toggleEnabled = toggleEnabled,
     )
     if (state.locked == null) {
         ErrorStateRow(
@@ -787,86 +666,46 @@ private fun ResetProtectionEntryRow(
             detail = "Vermutlich kein Device Owner aktiv.",
         )
     }
-    if (confirmDisable) {
+    if (pendingConfirm) {
+        val enabling = entry.riskSide == SafeguardUiCatalog.RiskSide.ENABLING
         AlertDialog(
-            onDismissRequest = { confirmDisable = false },
-            title = { Text("\"$label\" deaktivieren?") },
+            onDismissRequest = { pendingConfirm = false },
+            title = { Text(entry.confirmTitle ?: "\"${entry.label}\" deaktivieren?") },
             text = {
                 Text(
-                    "Dieser Schalter gehört zum Reset-Schutz. Ohne ihn lässt sich das Gerät nach " +
-                        "einem Wipe leichter wieder in Betrieb nehmen.",
+                    entry.confirmText
+                        ?: "Dieser Schalter gehört zum Reset-Schutz. Ohne ihn lässt sich das Gerät " +
+                        "nach einem Wipe leichter wieder in Betrieb nehmen.",
                 )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        state.onToggle(false)
-                        confirmDisable = false
+                        state.onToggle(enabling)
+                        pendingConfirm = false
                     },
-                ) { Text("Deaktivieren") }
+                ) { Text(if (enabling) "Sperren" else "Deaktivieren") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDisable = false }) { Text("Abbrechen") }
+                TextButton(onClick = { pendingConfirm = false }) { Text("Abbrechen") }
             },
         )
     }
 }
 
 /**
- * [SafeguardEntryRow] variant for switches whose risk sits on **enabling**, not disabling
- * (mirror image of [ResetProtectionEntryRow]) — currently only
- * `UserRestrictionSafeguard.debuggingFeaturesDisabled`, s. its class doc for the adb-cutoff
- * reasoning. Disabling (the risk-free direction, and the only way back once adb itself is gone)
- * stays a plain tap.
+ * **Ganze Zeile antippbar (Vorschlag U-2, 2026-08-29):** vorher war dies ein schlichtes [Row], bei
+ * dem nur der [Switch] selbst traf — bei so vielen dicht gesetzten Zeilen ergonomisch teuer, und
+ * für TalkBack zerfiel eine Zeile in mehrere unverbundene Knoten (Titel, Beschreibung, Schalter).
+ * `Modifier.toggleable(role = Role.Switch)` auf der Zeile plus `Switch(onCheckedChange = null)`
+ * macht daraus einen einzigen, korrekt annoncierten Bedienknoten mit voller Trefferfläche; der
+ * Switch bleibt sichtbar, ist aber nur noch Anzeige.
+ *
+ * [profiles] (Vorschlag U-3) zeigt, zu welchen Profilen der Schalter gehört. Das ist keine
+ * Dekoration: seit Befund Q-1 ist genau das der Unterschied zwischen "mein manuell gesetzter
+ * Schalter bleibt" und "wird beim nächsten Zeitplanlauf zurückgesetzt" — ein Schalter, der in
+ * keinem Profil steht, überlebt keine Profilanwendung.
  */
-@Composable
-private fun ConfirmBeforeEnableEntryRow(
-    label: String,
-    state: SafeguardToggleState,
-    supportingText: String? = null,
-    confirmTitle: String,
-    confirmText: String,
-) {
-    var confirmEnable by remember { mutableStateOf(false) }
-    SafeguardToggleRow(
-        label = label,
-        supportingText = supportingText,
-        checked = state.locked == true,
-        onCheckedChange = { requested ->
-            if (requested && state.locked == false) {
-                confirmEnable = true
-            } else {
-                state.onToggle(requested)
-            }
-        },
-        toggleEnabled = state.locked != null,
-    )
-    if (state.locked == null) {
-        ErrorStateRow(
-            headline = "Status konnte nicht gelesen werden",
-            detail = "Vermutlich kein Device Owner aktiv.",
-        )
-    }
-    if (confirmEnable) {
-        AlertDialog(
-            onDismissRequest = { confirmEnable = false },
-            title = { Text(confirmTitle) },
-            text = { Text(confirmText) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        state.onToggle(true)
-                        confirmEnable = false
-                    },
-                ) { Text("Sperren") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmEnable = false }) { Text("Abbrechen") }
-            },
-        )
-    }
-}
-
 @Composable
 private fun SafeguardToggleRow(
     label: String,
@@ -874,18 +713,39 @@ private fun SafeguardToggleRow(
     onCheckedChange: (Boolean) -> Unit,
     toggleEnabled: Boolean = true,
     supportingText: String? = null,
+    profiles: Set<WardenProfile> = emptySet(),
 ) {
     val haptic = LocalHapticFeedback.current
+    val profileText = if (profiles.isEmpty()) {
+        "In keinem Profil — eine Profilanwendung schaltet ihn wieder aus."
+    } else {
+        "Profil: " + profiles.sortedBy { it.strength }.joinToString { it.label }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                enabled = toggleEnabled,
+                role = Role.Switch,
+                onValueChange = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onCheckedChange(it)
+                },
+            )
             .padding(vertical = 14.dp)
-            .semantics { stateDescription = if (checked) "gesperrt" else "entsperrt" },
+            .semantics {
+                stateDescription = if (checked) "gesperrt" else "entsperrt"
+                // Ohne dies liest TalkBack Titel, Beschreibung und Profilzeile als drei getrennte
+                // Fragmente vor; toggleable oben macht die Zeile ohnehin schon zu *einem* Knoten.
+                contentDescription = listOfNotNull(label, supportingText, profileText)
+                    .joinToString(". ")
+            },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(text = label, modifier = Modifier.semantics { contentDescription = label })
+            Text(text = label)
             if (supportingText != null) {
                 Text(
                     text = supportingText,
@@ -893,14 +753,14 @@ private fun SafeguardToggleRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Text(
+                text = profileText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
-        Switch(
-            checked = checked,
-            enabled = toggleEnabled,
-            onCheckedChange = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onCheckedChange(it)
-            },
-        )
+        // onCheckedChange = null: die Zeile selbst ist der Bedienknoten (s. Klassendoc).
+        Switch(checked = checked, enabled = toggleEnabled, onCheckedChange = null)
     }
 }

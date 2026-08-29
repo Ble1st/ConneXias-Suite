@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import de.ble1st.warden.appmanagement.AppManagementInfo
+import de.ble1st.warden.ui.theme.mono
 
 /**
  * Milestone "App-Verwaltung: Einfrieren/Deaktivieren" — portiert aus Heralds UI (jetzt Wardens
@@ -220,7 +221,7 @@ private fun AppManagementRowContent(
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
             Text(text = app.label, style = MaterialTheme.typography.bodyLarge)
-            Text(text = app.packageName, style = MaterialTheme.typography.bodySmall)
+            Text(text = app.packageName, style = MaterialTheme.typography.bodySmall.mono())
             if (app.protected) {
                 Text(
                     text = "Geschützt — kann nicht eingefroren werden",

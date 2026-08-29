@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import de.ble1st.warden.performance.AppUsageInfo
 import de.ble1st.warden.performance.BatterySnapshot
 import de.ble1st.warden.performance.DeviceMemorySnapshot
+import de.ble1st.warden.ui.theme.mono
 import kotlin.math.roundToInt
 
 /**
@@ -206,7 +207,7 @@ private fun UsageSection(
                         text = (appLabels[info.packageName] ?: info.packageName) + if (suspicious) " ⚠" else "",
                         color = if (suspicious) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     )
-                    Text(text = info.packageName, style = MaterialTheme.typography.bodySmall)
+                    Text(text = info.packageName, style = MaterialTheme.typography.bodySmall.mono())
                 }
                 Text(text = formatDuration(info.totalForegroundTimeMillis), style = MaterialTheme.typography.bodySmall)
             }

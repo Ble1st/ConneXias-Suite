@@ -34,6 +34,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import de.ble1st.warden.appmanagement.PermissionAuditInfo
 import de.ble1st.warden.domain.appmanagement.PermissionAuditDecision
+import de.ble1st.warden.ui.theme.mono
 
 /**
  * "Detaillierte Permission-Audit-Reports" (2026-08-25, Feature-Ideenliste Punkt 22). Eigener
@@ -128,7 +129,7 @@ private fun PermissionAuditRow(info: PermissionAuditInfo) {
         ) {
             Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(text = info.label, style = MaterialTheme.typography.bodyLarge)
-                Text(text = info.packageName, style = MaterialTheme.typography.bodySmall)
+                Text(text = info.packageName, style = MaterialTheme.typography.bodySmall.mono())
                 Text(
                     text = "${info.dangerousPermissions.size} gefährlich · ${info.specialPermissions.size} speziell",
                     style = MaterialTheme.typography.bodySmall,

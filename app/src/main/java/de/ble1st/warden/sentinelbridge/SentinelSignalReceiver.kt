@@ -13,7 +13,7 @@ import de.ble1st.warden.wardenAuditLog
  * überhaupt App-Code läuft, deshalb ist hier kein eigener Aufrufer-Verifier nötig
  * (Plan-Abschnitt "Warum kein AIDL-Bus").
  *
- * Zwei Actions, beide mit derselben Reaktion — den Wächter entschärfen und die
+ * Zwei der drei Actions haben dieselbe Reaktion — den Wächter entschärfen und die
  * DPM-Lock-Task-Whitelist zurückziehen:
  *
  * - [ACTION_PIN_VERIFIED] — Entwarnung: korrekte Sentinel-PIN während aktivem Kiosk. Sentinel hat
@@ -26,10 +26,28 @@ import de.ble1st.warden.wardenAuditLog
  *   `SentinelLockdownEngager.engage()` kann das nicht selbst bemerken: es fängt nur
  *   `ActivityNotFoundException`, ein gestarteter aber ablehnender Sentinel sieht von dort aus wie
  *   ein Erfolg aus.
+ *
+ * Die dritte, [ACTION_PIN_STATE] (Vorschlag U-8, 2026-08-29), ist bewusst **anders**: sie
+ * entschärft den Wächter *nicht* und schreibt auch keinen Audit-Eintrag. Sie ist eine reine
+ * Zustandsmeldung, die Sentinel bei jedem Öffnen und Verlassen unaufgefordert schickt, damit
+ * Warden die Kiosk-Vorbedingung "Sentinel-PIN eingerichtet" anzeigen kann, statt sie erst im
+ * Ernstfall über [ACTION_ENGAGE_REFUSED] zu erfahren. Ein Audit-Eintrag pro Sentinel-Aufruf wäre
+ * derselbe Fehler wie die 2026-08-28 entfernten Lese-Einträge: er würde die Einträge verdrängen,
+ * für die das Log da ist. Der Wächter darf sie schon deshalb nicht sehen, weil sie über einen
+ * laufenden Kiosk nichts aussagt — sie kommt gerade auch *während* eines aktiven Kiosks an.
  */
 class SentinelSignalReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        // Vor allem anderen und mit eigenem `return`: diese Action darf weder ins Audit-Log noch
+        // an die Wächter-Entschärfung unten (s. Klassendoc).
+        if (intent.action == ACTION_PIN_STATE) {
+            // `false` als Default ist hier die sichere Richtung: ein Broadcast ohne das Extra ist
+            // ein Fehler auf Sentinels Seite, und "PIN fehlt" führt zu einer Warnung in der UI,
+            // "PIN vorhanden" zu einer falschen Beruhigung.
+            SentinelPinStateStore.record(context, intent.getBooleanExtra(EXTRA_PIN_CONFIGURED, false))
+            return
+        }
         val logStore = wardenAuditLog(context)
         when (intent.action) {
             ACTION_PIN_VERIFIED ->
@@ -63,6 +81,11 @@ class SentinelSignalReceiver : BroadcastReceiver() {
         const val ACTION_ENGAGE_REFUSED = "de.ble1st.warden.sentinel.action.ENGAGE_REFUSED"
 
         const val EXTRA_REFUSAL_REASON = "refusalReason"
+
+        /** Muss mit `de.ble1st.warden.sentinel.SentinelActivity.ACTION_PIN_STATE` übereinstimmen. */
+        const val ACTION_PIN_STATE = "de.ble1st.warden.sentinel.action.PIN_STATE"
+
+        const val EXTRA_PIN_CONFIGURED = "pinConfigured"
 
         private const val MAX_REASON_LENGTH = 200
 

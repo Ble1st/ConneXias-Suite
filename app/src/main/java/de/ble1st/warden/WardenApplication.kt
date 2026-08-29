@@ -47,6 +47,9 @@ import de.ble1st.warden.usb.UsbLockStateReceiver
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * App-weite `Application`-Klasse. Gegenüber dem ConneXias-Framework-Quellprojekt fehlen weiterhin
@@ -168,6 +171,21 @@ class WardenApplication : Application() {
                 }
             },
         )
+        // Befund Q-8 (2026-08-29): alles ab hier läuft im Hintergrund statt auf dem Main-Thread.
+        // Vorher standen hier ein Binder-Aufruf (setPermissionGrantState), sechs WorkManager-
+        // schedule()-Aufrufe (je mit Datenbank-I/O) und eine Receiver-Registrierung — synchron, bei
+        // *jedem* Prozessstart, auch wenn den Prozess nur ein Broadcast oder ein Worker hochzieht
+        // und keine UI je sichtbar wird.
+        //
+        // Reihenfolge und Fehlerbehandlung bleiben identisch; der ProcessLifecycleOwner-Observer
+        // oben bleibt bewusst synchron, weil er den WardenLock-Zustand absichert und keinerlei I/O
+        // macht. Ein eigener Scope statt GlobalScope, damit die Herkunft der Coroutine im Log
+        // erkennbar bleibt; kein Cancel-Pfad nötig — die Arbeit endet von selbst und lebt
+        // definitionsgemäß so lange wie der Prozess.
+        CoroutineScope(Dispatchers.IO).launch { runStartupTasks() }
+    }
+
+    private fun runStartupTasks() {
         try {
             // Milestone "Manifest-Scan + Sofort-Benachrichtigung" (2026-08-21): POST_NOTIFICATIONS
             // ist ab Android 13 eine "gefährliche" Laufzeit-Berechtigung — als Device Owner kann
