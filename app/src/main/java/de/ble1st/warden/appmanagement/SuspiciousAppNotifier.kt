@@ -53,11 +53,10 @@ class SuspiciousAppNotifier(private val context: Context) {
         for (severity in ThreatSeverity.entries) {
             val channel = NotificationChannel(
                 channelId(severity),
-                "Sicherheits-Warnungen — ${severityLabel(severity)}",
+                context.getString(R.string.notification_suspicious_app_channel_name, severityLabel(severity)),
                 channelImportance(severity),
             ).apply {
-                description = "Warnt vor Apps, die im Manifest gefährliche Rechte deklarieren " +
-                    "oder deren Verhalten sich verdächtig geändert hat (Stufe ${severityLabel(severity)})."
+                description = context.getString(R.string.notification_suspicious_app_channel_description, severityLabel(severity))
                 lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
             manager?.createNotificationChannel(channel)
@@ -83,15 +82,15 @@ class SuspiciousAppNotifier(private val context: Context) {
         val channelId = channelId(severity)
         val publicVersion = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Sicherheitswarnung (${severityLabel(severity)})")
-            .setContentText("Gerät entsperren, um Details und Aktionen zu sehen.")
+            .setContentTitle(context.getString(R.string.notification_suspicious_app_public_title, severityLabel(severity)))
+            .setContentText(context.getString(R.string.notification_suspicious_app_public_text))
             .setPriority(notificationPriority(severity))
             .setCategory(NotificationCompat.CATEGORY_SYSTEM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Verdächtige App (${severityLabel(severity)}): ${finding.label}")
+            .setContentTitle(context.getString(R.string.notification_suspicious_app_title, severityLabel(severity), finding.label))
             .setContentText(signalsText)
             .setStyle(NotificationCompat.BigTextStyle().bigText("${finding.packageName} — $signalsText"))
             .setPriority(notificationPriority(severity))
@@ -102,9 +101,9 @@ class SuspiciousAppNotifier(private val context: Context) {
             .setPublicVersion(publicVersion)
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
-            .addAction(0, "Einfrieren", freezeActionPendingIntent(finding.packageName))
-            .addAction(0, "Daten löschen", confirmActionPendingIntent(SuspiciousAppActionConfirmActivity.ACTION_CLEAR_DATA, finding.packageName))
-            .addAction(0, "Deinstallieren", confirmActionPendingIntent(SuspiciousAppActionConfirmActivity.ACTION_UNINSTALL, finding.packageName))
+            .addAction(0, context.getString(R.string.notification_suspicious_app_action_freeze), freezeActionPendingIntent(finding.packageName))
+            .addAction(0, context.getString(R.string.notification_suspicious_app_action_clear_data), confirmActionPendingIntent(SuspiciousAppActionConfirmActivity.ACTION_CLEAR_DATA, finding.packageName))
+            .addAction(0, context.getString(R.string.notification_suspicious_app_action_uninstall), confirmActionPendingIntent(SuspiciousAppActionConfirmActivity.ACTION_UNINSTALL, finding.packageName))
         post(finding.packageName, builder)
     }
 
@@ -118,7 +117,7 @@ class SuspiciousAppNotifier(private val context: Context) {
     fun showActionFailed(packageName: String, reason: String) {
         val builder = NotificationCompat.Builder(context, channelId(ThreatSeverity.WARNING))
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Aktion fehlgeschlagen: $packageName")
+            .setContentTitle(context.getString(R.string.notification_suspicious_app_action_failed_title, packageName))
             .setStyle(NotificationCompat.BigTextStyle().bigText(reason))
             .setContentText(reason)
             .setPriority(NotificationCompat.PRIORITY_HIGH)

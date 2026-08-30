@@ -33,9 +33,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import de.ble1st.warden.BuildConfig
+import de.ble1st.warden.R
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.admin.WardenDeviceAdminReceiver
 import de.ble1st.warden.domain.presence.DestructiveCommandGuard
@@ -175,29 +178,29 @@ class SensitiveActionActivity : FragmentActivity() {
                             confirmationText,
                             sessionAuthenticated = wardenLockSession.isAuthenticated(),
                         )
-                        onResult(describeOutcome(action, outcome))
+                        onResult(describeOutcome(this, action, outcome))
                     },
                     onConfirmBiometric = { action, confirmationText, onResult ->
                         presenceManager.request(
-                            title = "Sensible Aktion bestätigen",
-                            subtitle = describeAction(action),
+                            title = getString(R.string.sensitive_action_biometric_prompt_title),
+                            subtitle = describeAction(this, action),
                         ) { result ->
                             when (result) {
                                 is PresenceManager.Result.Success -> {
                                     val outcome = executor.execute(action, confirmationText, result.proof)
-                                    onResult(describeOutcome(action, outcome))
+                                    onResult(describeOutcome(this, action, outcome))
                                 }
                                 PresenceManager.Result.Unavailable ->
-                                    onResult("⚠ Keine Biometrie eingerichtet — Aktion nicht möglich.")
+                                    onResult(getString(R.string.sensitive_action_biometric_unavailable))
                                 PresenceManager.Result.Cancelled ->
-                                    onResult("Abgebrochen.")
+                                    onResult(getString(R.string.sensitive_action_biometric_cancelled))
                             }
                         }
                     },
                     onConfirmPin = { action, confirmationText, onResult ->
                         pendingPinPresenceResult = { granted ->
                             val outcome = executor.executeWithPinPresence(action, confirmationText, granted)
-                            onResult(describeOutcome(action, outcome))
+                            onResult(describeOutcome(this, action, outcome))
                         }
                         pinPresenceLauncher.launch(
                             Intent(this, WardenPinActivity::class.java).apply {
@@ -287,35 +290,31 @@ class SensitiveActionActivity : FragmentActivity() {
 private const val STRICT_LOCKDOWN_COOLDOWN_MILLIS = 3_000L
 private const val COOLDOWN_TICK_MILLIS = 200L
 
-private fun describeAction(action: SensitiveAction): String = when (action) {
-    SensitiveAction.WIPE_DATA -> "Nur Protokoll — wipeData() bleibt bewusst unverkabelt"
-    SensitiveAction.REBOOT -> "Startet das Gerät neu, wenn die Debug-Build-Sperre nicht greift"
-    SensitiveAction.MASTER_SWITCH_REVERT -> "Setzt alle Safeguards inklusive Lockdown zurück"
-    SensitiveAction.LOCK_NOW -> "Sperrt das Gerät sofort"
-    SensitiveAction.LOCKDOWN_MODE_ARM ->
-        "USB aus, Safe Boot/Werksreset/OEM-Unlock/Debugging blockiert. Rückweg: Alle Safeguards zurücksetzen."
-    SensitiveAction.LOCKDOWN_TASK_ENGAGE ->
-        "Echter Kiosk-Modus über die separate Sentinel-App — Notruf/Keyguard bleiben erreichbar, " +
-            "sonst nichts. Braucht bestätigten Notruf-Drill (Safeguards ▸ Lockdown-Modus) und eine " +
-            "installierte Sentinel-App. Ausstieg nur über Sentinels eigene PIN auf dem Gerät selbst."
+private fun describeAction(context: Context, action: SensitiveAction): String = when (action) {
+    SensitiveAction.WIPE_DATA -> context.getString(R.string.sensitive_action_describe_wipe_data)
+    SensitiveAction.REBOOT -> context.getString(R.string.sensitive_action_describe_reboot)
+    SensitiveAction.MASTER_SWITCH_REVERT -> context.getString(R.string.sensitive_action_describe_master_switch_revert)
+    SensitiveAction.LOCK_NOW -> context.getString(R.string.sensitive_action_describe_lock_now)
+    SensitiveAction.LOCKDOWN_MODE_ARM -> context.getString(R.string.sensitive_action_describe_lockdown_mode_arm)
+    SensitiveAction.LOCKDOWN_TASK_ENGAGE -> context.getString(R.string.sensitive_action_describe_lockdown_task_engage)
 }
 
 /** Befund Q-5 (2026-08-29): nimmt jetzt [SensitiveActionOutcome] statt der reinen
  * Vorab-Entscheidung entgegen — sonst zeigte ein real fehlgeschlagenes `reboot()`/
  * `MasterSwitch.disarm()`/… hier trotzdem "✓ real ausgeführt", weil der alte Rückgabewert
  * ([SensitiveActionDecisionResult]) die Ausführung selbst gar nicht kannte. */
-private fun describeOutcome(action: SensitiveAction, outcome: SensitiveActionOutcome): String = when (outcome) {
-    is SensitiveActionOutcome.Denied -> describeDeniedReason(outcome.reason)
-    SensitiveActionOutcome.ExecutedSuccessfully -> "✓ Bestätigt — real ausgeführt und protokolliert."
-    is SensitiveActionOutcome.ExecutedWithError -> "⚠ Bestätigt, aber Ausführung fehlgeschlagen: ${outcome.detail}"
-    SensitiveActionOutcome.ExecutedAsStub -> "✓ Bestätigt — Stub protokolliert (wipeData() bewusst weiterhin nicht verkabelt)."
+private fun describeOutcome(context: Context, action: SensitiveAction, outcome: SensitiveActionOutcome): String = when (outcome) {
+    is SensitiveActionOutcome.Denied -> describeDeniedReason(context, outcome.reason)
+    SensitiveActionOutcome.ExecutedSuccessfully -> context.getString(R.string.kiosk_outcome_executed_successfully)
+    is SensitiveActionOutcome.ExecutedWithError -> context.getString(R.string.kiosk_outcome_executed_with_error, outcome.detail)
+    SensitiveActionOutcome.ExecutedAsStub -> context.getString(R.string.sensitive_action_outcome_executed_as_stub)
 }
 
-private fun describeDeniedReason(reason: SensitiveActionDecisionResult): String = when (reason) {
-    SensitiveActionDecisionResult.ExecutionBlocked -> "⚠ Debug-Build — destruktive Kommandos hart abgeschaltet (F.4)."
-    SensitiveActionDecisionResult.RateLimited -> "⚠ Zu viele Versuche — bitte kurz warten."
-    SensitiveActionDecisionResult.WrongConfirmationText -> "⚠ Bestätigungstext stimmte nicht."
-    SensitiveActionDecisionResult.PresenceNotProven -> "⚠ Presence-Nachweis fehlgeschlagen."
+private fun describeDeniedReason(context: Context, reason: SensitiveActionDecisionResult): String = when (reason) {
+    SensitiveActionDecisionResult.ExecutionBlocked -> context.getString(R.string.kiosk_outcome_execution_blocked)
+    SensitiveActionDecisionResult.RateLimited -> context.getString(R.string.kiosk_outcome_rate_limited)
+    SensitiveActionDecisionResult.WrongConfirmationText -> context.getString(R.string.sensitive_action_denied_wrong_confirmation_text)
+    SensitiveActionDecisionResult.PresenceNotProven -> context.getString(R.string.kiosk_outcome_presence_not_proven)
     SensitiveActionDecisionResult.Approved ->
         error("SensitiveActionOutcome.Denied wird nie mit reason=Approved erzeugt, s. dessen Klassendoc")
 }
@@ -340,6 +339,7 @@ private fun SensitiveActionScreen(
     // deckt sowohl "Lockdown gerade selbst scharf/zurückgesetzt" als auch "über Masterschalter
     // zurückgesetzt" in derselben Zeile ab.
     var lockdownActive by remember { mutableStateOf(checkLockdownActive()) }
+    val context = LocalContext.current
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -349,20 +349,23 @@ private fun SensitiveActionScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(text = "Sensible Aktion", style = MaterialTheme.typography.headlineSmall)
+            Text(text = stringResource(R.string.sensitive_action_screen_title), style = MaterialTheme.typography.headlineSmall)
             if (!executionAllowed) {
                 Text(
-                    text = "⚠ Debug-Build — destruktive Kommandos sind hart abgeschaltet (Konzept F.4).",
+                    text = stringResource(R.string.sensitive_action_debug_build_warning),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
             Text(
-                text = "Lockdown-Modus: " + when (lockdownActive) {
-                    true -> "AKTIV"
-                    false -> "inaktiv"
-                    null -> "unbekannt (Lesen fehlgeschlagen)"
-                },
+                text = String.format(
+                    stringResource(R.string.sensitive_action_lockdown_status_prefix),
+                    when (lockdownActive) {
+                        true -> stringResource(R.string.sensitive_action_lockdown_status_active)
+                        false -> stringResource(R.string.sensitive_action_lockdown_status_inactive)
+                        null -> stringResource(R.string.sensitive_action_lockdown_status_unknown)
+                    },
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (lockdownActive == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -385,7 +388,7 @@ private fun SensitiveActionScreen(
                         RadioButton(selected = action == selectedAction, onClick = null)
                         Column {
                             Text(text = action.displayName)
-                            Text(text = describeAction(action), style = MaterialTheme.typography.bodySmall)
+                            Text(text = describeAction(context, action), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -394,8 +397,8 @@ private fun SensitiveActionScreen(
             OutlinedTextField(
                 value = confirmationText,
                 onValueChange = { confirmationText = it },
-                label = { Text("Bestätigungstext exakt eintippen") },
-                supportingText = { Text("Tippe ${selectedAction.confirmationPhrase}") },
+                label = { Text(stringResource(R.string.sensitive_action_confirmation_text_label)) },
+                supportingText = { Text(String.format(stringResource(R.string.sensitive_action_confirmation_text_supporting), selectedAction.confirmationPhrase)) },
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -445,12 +448,12 @@ private fun SensitiveActionScreen(
                         }
                     },
                 ) {
-                    Text("Bestätigen")
+                    Text(stringResource(R.string.action_confirm))
                 }
             } else {
                 if (forcedFullPresence && cooldownRemainingMillis > 0) {
                     Text(
-                        text = "Streng-Profil: bitte warten (${(cooldownRemainingMillis / 1000.0)}s)",
+                        text = String.format(stringResource(R.string.sensitive_action_strict_cooldown_message), cooldownRemainingMillis / 1000.0),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -464,7 +467,7 @@ private fun SensitiveActionScreen(
                         }
                     },
                 ) {
-                    Text("Mit Biometrie bestätigen")
+                    Text(stringResource(R.string.sensitive_action_confirm_biometric_action))
                 }
 
                 // Presence-Reaktivierung (s. Klassendoc): zweiter, gleichrangiger Presence-Weg für
@@ -479,7 +482,7 @@ private fun SensitiveActionScreen(
                         }
                     },
                 ) {
-                    Text("Mit Warden-PIN bestätigen")
+                    Text(stringResource(R.string.sensitive_action_confirm_pin_action))
                 }
             }
 

@@ -11,10 +11,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 
 /**
  * Settings-Feld für [de.ble1st.warden.failedattempts.FailedAttemptsRebootController]
@@ -34,19 +36,16 @@ fun FailedAttemptsRebootField(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        Text(text = "Neustart nach Fehlversuchen", style = MaterialTheme.typography.labelLarge)
+        Text(text = stringResource(R.string.failed_attempts_reboot_field_title), style = MaterialTheme.typography.labelLarge)
         Text(
-            text = "Startet das Gerät neu, sobald am System-Sperrbildschirm so viele Versuche " +
-                "hintereinander fehlschlagen — zurück in den Vor-Entsperr-Zustand, ohne etwas zu " +
-                "löschen. Eine erfolgreiche Entsperrung setzt den Zähler zurück.",
+            text = stringResource(R.string.failed_attempts_reboot_field_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
         )
         if (!secureLockScreenConfigured) {
             Text(
-                text = "⚠ Kein Sperrbildschirm-Code eingerichtet — ohne PIN/Muster/Passwort " +
-                    "meldet Android keine Fehlversuche, die Einstellung bleibt wirkungslos.",
+                text = stringResource(R.string.failed_attempts_reboot_field_warning),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(bottom = 8.dp),
@@ -77,7 +76,8 @@ fun FailedAttemptsRebootField(
  * .FailedAttemptsRebootDecision.MIN_THRESHOLD]. */
 private val FAILED_ATTEMPTS_PRESETS: List<Int?> = listOf(null, 3, 5, 10, 15, 20)
 
+@Composable
 private fun failedAttemptsPresetLabel(threshold: Int?): String = when (threshold) {
-    null -> "Aus"
-    else -> "Nach $threshold Fehlversuchen"
+    null -> stringResource(R.string.field_off_label)
+    else -> String.format(stringResource(R.string.failed_attempts_reboot_field_preset), threshold)
 }

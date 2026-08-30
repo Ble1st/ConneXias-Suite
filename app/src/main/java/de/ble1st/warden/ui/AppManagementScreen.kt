@@ -36,10 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.appmanagement.AppManagementInfo
 import de.ble1st.warden.ui.theme.mono
 
@@ -82,12 +84,12 @@ fun AppManagementScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("App-Verwaltung") },
+                title = { Text(stringResource(R.string.app_management_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Zurück",
+                            contentDescription = stringResource(R.string.content_description_back),
                         )
                     }
                 },
@@ -102,8 +104,7 @@ fun AppManagementScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Eingefroren = App verschwindet aus Launcher/Übersicht, bleibt aber " +
-                    "installiert (Daten bleiben erhalten, jederzeit reversibel).",
+                text = stringResource(R.string.app_management_intro),
                 style = MaterialTheme.typography.bodySmall,
             )
             if (loadFailed) {
@@ -114,8 +115,8 @@ fun AppManagementScreen(
                 // tatsächlich leeren Liste unterscheidbar). Häufigste Ursache: kein Device Owner
                 // aktiv, s. Statusanzeige "DO NICHT aktiv" auf dem vorherigen Bildschirm.
                 ErrorStateRow(
-                    headline = "App-Liste konnte nicht geladen werden",
-                    detail = "Vermutlich kein Device Owner aktiv — s. Statusanzeige.",
+                    headline = stringResource(R.string.network_app_list_unreadable_headline),
+                    detail = stringResource(R.string.security_scanner_no_device_owner_detail),
                     onRetry = onRetry,
                 )
             }
@@ -124,22 +125,22 @@ fun AppManagementScreen(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Suchen") },
+                label = { Text(stringResource(R.string.network_search_label)) },
                 singleLine = true,
                 // Vorschlag V-4 (2026-08-29): dieselbe Leeren-Schaltfläche wie in der
                 // Safeguard-Suche — eine Suche auf einem Touch-Gerät zeichenweise zurückzulöschen
                 // ist der unnötigste Teil dieses Bildschirms.
                 trailingIcon = {
                     if (query.isNotEmpty()) {
-                        TextButton(onClick = { query = "" }) { Text("Leeren") }
+                        TextButton(onClick = { query = "" }) { Text(stringResource(R.string.safeguards_search_clear)) }
                     }
                 },
             )
             // Vorschlag V-4: Trefferzahl. Ohne sie war nicht zu sehen, wie viele Apps der
             // Systemapp-Filter gerade ausblendet — auf einem realen Gerät sind das die meisten.
             Text(
-                text = "${filtered.size} von ${apps.size} Apps" +
-                    if (!showSystemApps) " (Systemapps ausgeblendet)" else "",
+                text = String.format(stringResource(R.string.app_management_count), filtered.size, apps.size) +
+                    if (!showSystemApps) stringResource(R.string.app_management_count_system_hidden_suffix) else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -149,10 +150,16 @@ fun AppManagementScreen(
                 // der Bildschirm hängt oder das Laden fehlgeschlagen ist.
                 EmptyStateRow(
                     headline = if (query.isBlank()) {
-                        "Keine Apps in dieser Auswahl" +
-                            if (!showSystemApps) " — Systemapps sind ausgeblendet." else "."
+                        String.format(
+                            stringResource(R.string.app_management_empty_selection_headline),
+                            if (!showSystemApps) {
+                                stringResource(R.string.app_management_empty_selection_system_hidden_suffix)
+                            } else {
+                                stringResource(R.string.app_management_empty_selection_plain_suffix)
+                            },
+                        )
                     } else {
-                        "Keine App passt zu \"$query\"."
+                        String.format(stringResource(R.string.app_management_no_match_headline), query)
                     },
                 )
             }
@@ -213,7 +220,7 @@ private fun AppManagementRow(
 
 @Composable
 private fun AppSwipeActionBackground(dismissState: SwipeToDismissBoxState, frozen: Boolean) {
-    val label = if (frozen) "Aktivieren" else "Einfrieren"
+    val label = if (frozen) stringResource(R.string.app_management_swipe_activate) else stringResource(R.string.app_management_swipe_freeze)
     val alignment = when (dismissState.dismissDirection) {
         SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
         SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
@@ -239,6 +246,10 @@ private fun AppManagementRowContent(
     app: AppManagementInfo,
     onToggle: (Boolean) -> Unit,
 ) {
+    val baseContentDescription = String.format(stringResource(R.string.app_management_row_content_description), app.label, app.packageName)
+    val protectedSuffix = stringResource(R.string.app_management_row_protected_suffix)
+    val stateFrozen = stringResource(R.string.app_management_row_state_frozen)
+    val stateActive = stringResource(R.string.app_management_row_state_active)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -252,10 +263,10 @@ private fun AppManagementRowContent(
             // wird deshalb weiterhin nicht mit eingezogen, bleibt also einzeln erreichbar.
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
-                    append("App-Verwaltung ").append(app.label).append(", ").append(app.packageName)
-                    if (app.protected) append(", geschützt — kann nicht eingefroren werden")
+                    append(baseContentDescription)
+                    if (app.protected) append(protectedSuffix)
                 }
-                stateDescription = if (app.frozen) "eingefroren" else "aktiv"
+                stateDescription = if (app.frozen) stateFrozen else stateActive
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -265,7 +276,7 @@ private fun AppManagementRowContent(
             Text(text = app.packageName, style = MaterialTheme.typography.bodySmall.mono())
             if (app.protected) {
                 Text(
-                    text = "Geschützt — kann nicht eingefroren werden",
+                    text = stringResource(R.string.app_management_protected_notice),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )

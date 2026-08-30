@@ -15,7 +15,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 
 /**
  * Gemeinsamer Icon+Headline+Text-Baustein für Fehler-/Leerzustände ("weitere App-UI-
@@ -59,7 +61,7 @@ fun ErrorStateRow(
             )
             onRetry?.let {
                 TextButton(onClick = it, contentPadding = PaddingValues(horizontal = 0.dp)) {
-                    Text("Erneut versuchen")
+                    Text(stringResource(R.string.status_state_row_retry_action))
                 }
             }
         }

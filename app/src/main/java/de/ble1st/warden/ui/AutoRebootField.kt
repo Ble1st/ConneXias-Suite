@@ -11,10 +11,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 
 /**
  * Settings-Feld für [de.ble1st.warden.autoreboot.AutoRebootController] (2026-08-22, auf
@@ -33,11 +35,9 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun AutoRebootField(selectedHours: Int?, onSelect: (Int?) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
-        Text(text = "Auto-Reboot nach Inaktivität", style = MaterialTheme.typography.labelLarge)
+        Text(text = stringResource(R.string.auto_reboot_field_title), style = MaterialTheme.typography.labelLarge)
         Text(
-            text = "Startet das Gerät automatisch neu, wenn es ununterbrochen länger als die " +
-                "gewählte Zeitspanne gesperrt bleibt (z. B. bei Verlust/Diebstahl) — versetzt es " +
-                "zurück in den Vor-Entsperr-Zustand.",
+            text = stringResource(R.string.auto_reboot_field_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
@@ -66,11 +66,12 @@ fun AutoRebootField(selectedHours: Int?, onSelect: (Int?) -> Unit, modifier: Mod
 /** Presets analog zu GrapheneOS' Auto-Reboot-Liste — `null` = "Aus". */
 private val AUTO_REBOOT_PRESETS_HOURS: List<Int?> = listOf(null, 12, 18, 24, 48, 72, 168)
 
+@Composable
 private fun autoRebootPresetLabel(hours: Int?): String = when (hours) {
-    null -> "Aus"
-    24 -> "Nach 1 Tag"
-    48 -> "Nach 2 Tagen"
-    72 -> "Nach 3 Tagen"
-    168 -> "Nach 1 Woche"
-    else -> "Nach $hours Stunden"
+    null -> stringResource(R.string.field_off_label)
+    24 -> stringResource(R.string.auto_reboot_field_preset_1_day)
+    48 -> stringResource(R.string.auto_reboot_field_preset_2_days)
+    72 -> stringResource(R.string.auto_reboot_field_preset_3_days)
+    168 -> stringResource(R.string.auto_reboot_field_preset_1_week)
+    else -> String.format(stringResource(R.string.auto_reboot_field_preset_hours), hours)
 }

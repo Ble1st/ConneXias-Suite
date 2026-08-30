@@ -15,7 +15,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 
 /**
  * Untermenü "Namensvergebung" (2026-08-22, auf Nutzerwunsch aus [SettingsScreen] herausgelöst) —
@@ -43,10 +45,10 @@ fun NamingSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Namensvergebung") },
+                title = { Text(stringResource(R.string.settings_naming_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_description_back))
                     }
                 },
             )

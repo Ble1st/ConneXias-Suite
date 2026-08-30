@@ -28,11 +28,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import de.ble1st.warden.R
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
 import de.ble1st.warden.domain.appmanagement.ThreatSeverity
@@ -78,12 +80,12 @@ fun SecurityScannerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Sicherheits-Scanner") },
+                title = { Text(stringResource(R.string.security_scanner_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Zurück",
+                            contentDescription = stringResource(R.string.content_description_back),
                         )
                     }
                 },
@@ -105,21 +107,25 @@ fun SecurityScannerScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            val autofreezeLabel = stringResource(R.string.security_scanner_autofreeze_label)
+            val autofreezeStateOn = stringResource(R.string.security_scanner_autofreeze_state_on)
+            val autofreezeStateOff = stringResource(R.string.security_scanner_autofreeze_state_off)
+            val autofreezeStateUnknown = stringResource(R.string.security_scanner_autofreeze_state_unknown)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .semantics {
-                        contentDescription = "Automatisch einfrieren"
+                        contentDescription = autofreezeLabel
                         stateDescription = when (scannerEnabled) {
-                            true -> "an"
-                            false -> "aus"
-                            null -> "unbekannt"
+                            true -> autofreezeStateOn
+                            false -> autofreezeStateOff
+                            null -> autofreezeStateUnknown
                         }
                     },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(text = "Automatisch einfrieren", style = MaterialTheme.typography.titleMedium)
+                Text(text = autofreezeLabel, style = MaterialTheme.typography.titleMedium)
                 Switch(
                     checked = scannerEnabled == true,
                     enabled = scannerEnabled != null,
@@ -128,21 +134,13 @@ fun SecurityScannerScreen(
             }
             if (scannerEnabled == null) {
                 ErrorStateRow(
-                    headline = "Scanner-Status konnte nicht gelesen werden",
-                    detail = "Schalter deaktiviert, bis der Zustand wieder lesbar ist.",
+                    headline = stringResource(R.string.security_scanner_status_unreadable_headline),
+                    detail = stringResource(R.string.security_scanner_status_unreadable_detail),
                     onRetry = onRetry,
                 )
             }
             Text(
-                text = "Scannt installierte Apps auf im Manifest deklarierte Geräteadministrator-" +
-                    "Rechte oder Bedienungshilfen-Dienste — bekannte Maschen bösartiger Apps, " +
-                    "erkannt bevor die Rechte überhaupt aktiviert wurden. Systemapps sind " +
-                    "ausgenommen. Bei jedem Fund erscheint sofort eine Sicherheitsbenachrichtigung " +
-                    "mit den Optionen \"Einfrieren\"/\"Deinstallieren\" — unabhängig vom Schalter " +
-                    "unten, der zusätzlich stilles Auto-Einfrieren aktiviert. Wirkt erst ab Stufe " +
-                    "Warnung — eine reine Info (z. B. unbekannte Installationsquelle) friert " +
-                    "nichts automatisch ein, ist aber weiterhin sichtbar. Jederzeit reversibel " +
-                    "über \"Vertrauen\" unten oder die App-Verwaltung.",
+                text = stringResource(R.string.security_scanner_intro),
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(
@@ -150,7 +148,7 @@ fun SecurityScannerScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onRunImmediateScan, enabled = !scanInProgress) {
-                    Text("Jetzt scannen")
+                    Text(stringResource(R.string.security_scanner_run_now_action))
                 }
                 // Punkt 1 ("weitere App-UI-Verschönerungen", 2026-08-22) — das brandneue, wellen-
                 // förmige Material-3-Expressive `LoadingIndicator` steckt noch in material3
@@ -163,21 +161,21 @@ fun SecurityScannerScreen(
                 }
             }
             HorizontalDivider()
-            Text(text = "Geräte-Integrität", style = MaterialTheme.typography.titleMedium)
+            Text(text = stringResource(R.string.security_scanner_integrity_title), style = MaterialTheme.typography.titleMedium)
             DeviceIntegritySection(deviceIntegrityStatus, onRetry = onRetry)
             HorizontalDivider()
-            Text(text = "Aktuelle Funde", style = MaterialTheme.typography.titleMedium)
+            Text(text = stringResource(R.string.security_scanner_findings_title), style = MaterialTheme.typography.titleMedium)
             if (findingsLoadFailed) {
                 // Dieselbe Unterscheidung wie in AppManagementScreen (Klassendoc dort): ein
                 // Scan-Fehler (typischerweise fehlender Device Owner, s. AppFreezeManager) darf
                 // nicht wie "nichts Verdächtiges gefunden" aussehen.
                 ErrorStateRow(
-                    headline = "Funde-Liste konnte nicht geladen werden",
-                    detail = "Vermutlich kein Device Owner aktiv — s. Statusanzeige.",
+                    headline = stringResource(R.string.security_scanner_findings_unreadable_headline),
+                    detail = stringResource(R.string.security_scanner_no_device_owner_detail),
                     onRetry = onRetry,
                 )
             } else if (findings.isEmpty()) {
-                EmptyStateRow(headline = "Keine verdächtigen Apps gefunden")
+                EmptyStateRow(headline = stringResource(R.string.security_scanner_findings_empty_headline))
             } else {
                 // Vorschlag V-3 (2026-08-29): kritische Funde zuerst. Vorher stand die Liste in
                 // Scan-Reihenfolge, also praktisch in Paketreihenfolge — ein kritischer
@@ -214,24 +212,27 @@ fun SecurityScannerScreen(
 private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -> Unit) {
     if (status == null) {
         ErrorStateRow(
-            headline = "Geräte-Integritätsstatus konnte nicht geladen werden",
-            detail = "Vermutlich kein Device Owner aktiv — s. Statusanzeige.",
+            headline = stringResource(R.string.security_scanner_integrity_unreadable_headline),
+            detail = stringResource(R.string.security_scanner_no_device_owner_detail),
             onRetry = onRetry,
         )
         return
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        IntegrityStatusRow(label = "ADB-Debugging", active = status.adbEnabled)
-        IntegrityStatusRow(label = "Entwickleroptionen", active = status.developerOptionsEnabled)
+        IntegrityStatusRow(label = stringResource(R.string.security_scanner_adb_label), active = status.adbEnabled)
+        IntegrityStatusRow(label = stringResource(R.string.security_scanner_developer_options_label), active = status.developerOptionsEnabled)
         // Eigene Ergänzung (2026-08-22): anders als die beiden Zeilen oben ist "aktiv" hier GUT,
         // nicht schlecht — eigene Zeile statt IntegrityStatusRow-Wiederverwendung mit invertierter
         // Farblogik, sonst müsste jede/r Leser*in die Bedeutung von "aktiv" pro Zeile neu prüfen.
         EncryptionStatusRow(encrypted = status.storageEncrypted)
         if (status.rootIndicators.isEmpty()) {
-            EmptyStateRow(headline = "Keine Root-/Magisk-/Custom-ROM-Indikatoren gefunden")
+            EmptyStateRow(headline = stringResource(R.string.security_scanner_root_indicators_empty))
         } else {
             Text(
-                text = "Root-Indikatoren: " + status.rootIndicators.joinToString(", ") { rootIndicatorText(it) },
+                text = String.format(
+                    stringResource(R.string.security_scanner_root_indicators_prefix),
+                    status.rootIndicators.joinToString(", ") { rootIndicatorText(it) },
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -241,18 +242,20 @@ private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -
 
 @Composable
 private fun IntegrityStatusRow(label: String, active: Boolean) {
+    val activeState = stringResource(R.string.security_scanner_state_active)
+    val inactiveState = stringResource(R.string.security_scanner_state_inactive)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .semantics {
                 contentDescription = label
-                stateDescription = if (active) "aktiv" else "inaktiv"
+                stateDescription = if (active) activeState else inactiveState
             },
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(text = label, style = MaterialTheme.typography.bodySmall)
         Text(
-            text = if (active) "aktiv" else "inaktiv",
+            text = if (active) activeState else inactiveState,
             style = MaterialTheme.typography.bodySmall,
             color = if (active) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -261,18 +264,21 @@ private fun IntegrityStatusRow(label: String, active: Boolean) {
 
 @Composable
 private fun EncryptionStatusRow(encrypted: Boolean) {
+    val label = stringResource(R.string.security_scanner_encryption_label)
+    val activeState = stringResource(R.string.security_scanner_state_active)
+    val inactiveState = stringResource(R.string.security_scanner_state_inactive)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .semantics {
-                contentDescription = "Speicherverschlüsselung"
-                stateDescription = if (encrypted) "aktiv" else "inaktiv"
+                contentDescription = label
+                stateDescription = if (encrypted) activeState else inactiveState
             },
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(text = "Speicherverschlüsselung", style = MaterialTheme.typography.bodySmall)
+        Text(text = label, style = MaterialTheme.typography.bodySmall)
         Text(
-            text = if (encrypted) "aktiv" else "inaktiv",
+            text = if (encrypted) activeState else inactiveState,
             style = MaterialTheme.typography.bodySmall,
             color = if (encrypted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
         )
@@ -290,6 +296,10 @@ private fun FindingRow(
     finding: SuspiciousAppFindingInfo,
     onTrust: () -> Unit,
 ) {
+    val contentDescriptionTemplate = stringResource(R.string.security_scanner_finding_content_description)
+    val frozenState = stringResource(R.string.security_scanner_finding_frozen_state)
+    val notFrozenState = stringResource(R.string.security_scanner_finding_not_frozen_state)
+    val frozenSuffix = stringResource(R.string.security_scanner_finding_frozen_suffix)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -298,9 +308,13 @@ private fun FindingRow(
             // Begründung dort. Der Schweregrad kommt mit in die Beschreibung: er stand bisher nur
             // als farbiges Badge da und war für eine Vorlesehilfe damit gar nicht vorhanden.
             .semantics(mergeDescendants = true) {
-                contentDescription = "Verdachtsfund ${finding.label}, ${finding.packageName}, " +
-                    "Schweregrad ${severityLabel(finding.severity)}"
-                stateDescription = if (finding.frozen) "eingefroren" else "nicht eingefroren"
+                contentDescription = String.format(
+                    contentDescriptionTemplate,
+                    finding.label,
+                    finding.packageName,
+                    severityLabel(finding.severity),
+                )
+                stateDescription = if (finding.frozen) frozenState else notFrozenState
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -313,13 +327,13 @@ private fun FindingRow(
             Text(text = finding.packageName, style = MaterialTheme.typography.bodySmall.mono())
             Text(
                 text = signalsText(SuspiciousSignal.fromBitmask(finding.signalsBitmask)) +
-                    if (finding.frozen) " · eingefroren" else "",
+                    if (finding.frozen) frozenSuffix else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = severityColor(finding.severity),
             )
         }
         TextButton(onClick = onTrust) {
-            Text("Vertrauen")
+            Text(stringResource(R.string.security_scanner_trust_action))
         }
     }
 }

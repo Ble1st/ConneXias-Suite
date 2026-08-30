@@ -15,7 +15,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.registry.WardenSupportMessageStorage
 
 /**
@@ -30,11 +32,9 @@ fun SupportMessageField(initialValue: String?, onSave: (String?) -> Unit, modifi
     val changed = draft.trim() != initialValue.orEmpty()
 
     Column(modifier = modifier) {
-        Text(text = "Support-/Kontakthinweis", style = MaterialTheme.typography.labelLarge)
+        Text(text = stringResource(R.string.support_message_field_title), style = MaterialTheme.typography.labelLarge)
         Text(
-            text = "Wird vom OS angezeigt, wenn eine Aktion durch Geräteadministrator-Richtlinien " +
-                "blockiert wird (z. B. unter Einstellungen > Geräteadministrator-App-Info). " +
-                "Leer lassen, um ihn auszublenden.",
+            text = stringResource(R.string.support_message_field_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
@@ -42,8 +42,8 @@ fun SupportMessageField(initialValue: String?, onSave: (String?) -> Unit, modifi
         OutlinedTextField(
             value = draft,
             onValueChange = { if (it.length <= WardenSupportMessageStorage.MAX_LENGTH) draft = it },
-            label = { Text("Hinweistext") },
-            supportingText = { Text("${draft.length} / ${WardenSupportMessageStorage.MAX_LENGTH}") },
+            label = { Text(stringResource(R.string.support_message_field_label)) },
+            supportingText = { Text(String.format(stringResource(R.string.field_character_counter), draft.length, WardenSupportMessageStorage.MAX_LENGTH)) },
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
@@ -55,13 +55,13 @@ fun SupportMessageField(initialValue: String?, onSave: (String?) -> Unit, modifi
                 },
                 enabled = changed,
             ) {
-                Text("Speichern")
+                Text(stringResource(R.string.action_save))
             }
             TextButton(
                 onClick = { draft = ""; onSave(null) },
                 enabled = draft.isNotEmpty() || !initialValue.isNullOrEmpty(),
             ) {
-                Text("Löschen")
+                Text(stringResource(R.string.action_delete))
             }
         }
     }

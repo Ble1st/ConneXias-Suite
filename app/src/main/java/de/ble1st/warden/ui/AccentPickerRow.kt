@@ -16,10 +16,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.ui.theme.WardenAccent
 
 /**
@@ -39,10 +41,12 @@ import de.ble1st.warden.ui.theme.WardenAccent
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccentPickerRow(selected: WardenAccent, onSelect: (WardenAccent) -> Unit, modifier: Modifier = Modifier) {
+    val contentDescriptionTemplate = stringResource(R.string.accent_picker_content_description)
     Column(modifier = modifier) {
-        Text(text = "Akzentfarbe", style = MaterialTheme.typography.labelLarge)
+        Text(text = stringResource(R.string.accent_picker_title), style = MaterialTheme.typography.labelLarge)
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
             WardenAccent.entries.forEachIndexed { index, accent ->
+                val label = accentLabel(accent)
                 SegmentedButton(
                     selected = accent == selected,
                     onClick = { onSelect(accent) },
@@ -55,11 +59,19 @@ fun AccentPickerRow(selected: WardenAccent, onSelect: (WardenAccent) -> Unit, mo
                                 .background(accent.color),
                         )
                     },
-                    modifier = Modifier.semantics { contentDescription = "Akzentfarbe ${accent.label}" },
+                    modifier = Modifier.semantics { contentDescription = String.format(contentDescriptionTemplate, label) },
                 ) {
-                    Text(text = accent.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(text = label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun accentLabel(accent: WardenAccent): String = when (accent) {
+    WardenAccent.GRUEN -> stringResource(R.string.accent_label_gruen)
+    WardenAccent.BERNSTEIN -> stringResource(R.string.accent_label_bernstein)
+    WardenAccent.CYAN -> stringResource(R.string.accent_label_cyan)
+    WardenAccent.PHOSPHOR_WEISS -> stringResource(R.string.accent_label_phosphor_weiss)
 }

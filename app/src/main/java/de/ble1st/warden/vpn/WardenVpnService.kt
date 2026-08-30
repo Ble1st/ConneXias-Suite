@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import de.ble1st.warden.R
 import de.ble1st.warden.netlock.BarbicanEngine
 import de.ble1st.warden.netlock.DomainBlocklistStore
 import de.ble1st.warden.netlock.NetworkFirewallPolicyStore
@@ -95,7 +96,7 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
         val allowedPackages = policyStore.allowedPackageNames()
         Log.i(TAG, "Establishing TUN with ${allowedPackages.size} bypass app(s)")
         val builder = Builder()
-            .setSession("Warden Netz-Sperre")
+            .setSession(getString(R.string.notification_net_lockdown_channel_name))
             .setMtu(MTU)
             .addAddress(TUNNEL_IPV4, 32)
             .addRoute("0.0.0.0", 0)
@@ -259,7 +260,7 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
         val channelId = "warden_net_lockdown"
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(channelId, "Warden Netz-Sperre", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(channelId, getString(R.string.notification_net_lockdown_channel_name), NotificationManager.IMPORTANCE_LOW),
         )
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -268,8 +269,8 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return Notification.Builder(this, channelId)
-            .setContentTitle("Netz-Sperre aktiv")
-            .setContentText("Warden filtert und schützt den Netzwerkverkehr dieses Geräts")
+            .setContentTitle(getString(R.string.notification_net_lockdown_title))
+            .setContentText(getString(R.string.notification_net_lockdown_text))
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pendingIntent)
             .setOngoing(true)

@@ -28,9 +28,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import de.ble1st.warden.R
 import de.ble1st.warden.crypto.OfflineFailsafeVerifier
 import de.ble1st.warden.domain.registry.SafeguardRegistry
 import de.ble1st.warden.logging.HashChainLogStore
@@ -116,8 +119,8 @@ class FailsafeActivity : FragmentActivity() {
                     keyStore = keyStore,
                     onRequestPresence = { onGranted ->
                         presenceManager.request(
-                            title = "Wartungsschlüssel-Wechsel bestätigen",
-                            subtitle = "Ersetzt den Offline-Failsafe-Verify-Key",
+                            title = getString(R.string.failsafe_biometric_change_title),
+                            subtitle = getString(R.string.failsafe_biometric_change_subtitle),
                         ) { result ->
                             onGranted(
                                 when (result) {
@@ -203,29 +206,36 @@ private fun FailsafeScreen(
     onRequestPresence: ((Boolean) -> Unit) -> Unit,
     onRequestPinPresence: ((Boolean) -> Unit) -> Unit,
 ) {
+    val context = LocalContext.current
+    val msgKeyUnreadable = stringResource(R.string.failsafe_key_unreadable_message)
+    val msgPresenceFailed = stringResource(R.string.failsafe_presence_failed_message)
+    val msgInvalidHex = stringResource(R.string.failsafe_invalid_hex_message)
+    val templateError = stringResource(R.string.failsafe_error_message)
+    val msgInvalidResponseHex = stringResource(R.string.failsafe_invalid_response_hex_message)
+
     var publicKeyHex by remember { mutableStateOf("") }
     var challengeHex by remember { mutableStateOf<String?>(null) }
     var responseHex by remember { mutableStateOf("") }
     var newCredential by remember { mutableStateOf("") }
     var statusMessage by remember {
         mutableStateOf(
-            runCatching { statusFor(keyStore.configuredPublicKey()) }
-                .getOrElse { "⚠ Wartungsschlüssel unlesbar — nicht als unkonfiguriert behandeln." },
+            runCatching { statusFor(context, keyStore.configuredPublicKey()) }
+                .getOrElse { msgKeyUnreadable },
         )
     }
 
     fun applyPublicKeyIfPresenceGranted(granted: Boolean) {
         statusMessage = if (!granted) {
-            "⚠ Presence-Nachweis fehlgeschlagen/abgebrochen — Wartungsschlüssel NICHT geändert."
+            msgPresenceFailed
         } else {
             val bytes = decodeHexOrNull(publicKeyHex)
             if (bytes == null) {
-                "Ungültiges Hex-Format."
+                msgInvalidHex
             } else {
                 runCatching { keyStore.configurePublicKey(bytes) }
                     .fold(
-                        onSuccess = { statusFor(keyStore.configuredPublicKey()) },
-                        onFailure = { e -> "Fehler: ${e.message}" },
+                        onSuccess = { statusFor(context, keyStore.configuredPublicKey()) },
+                        onFailure = { e -> String.format(templateError, e.message) },
                     )
             }
         }
@@ -239,37 +249,36 @@ private fun FailsafeScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(text = "Offline-Failsafe", style = MaterialTheme.typography.headlineSmall)
+            Text(text = stringResource(R.string.failsafe_screen_title), style = MaterialTheme.typography.headlineSmall)
             Text(text = statusMessage, style = MaterialTheme.typography.bodyMedium)
 
             Text(
-                text = "1. Wartungsschlüssel hinterlegen (einmalig, offline erzeugt)",
+                text = stringResource(R.string.failsafe_step1_title),
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
-                text = "Das Ersetzen des Verify-Keys braucht einen Presence-Nachweis — Biometrie " +
-                    "oder Warden-PIN.",
+                text = stringResource(R.string.failsafe_step1_body),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedTextField(
                 value = publicKeyHex,
                 onValueChange = { publicKeyHex = it },
-                label = { Text("Public Key (hex, 64 Zeichen)") },
+                label = { Text(stringResource(R.string.failsafe_public_key_label)) },
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { onRequestPresence(::applyPublicKeyIfPresenceGranted) }) {
-                    Text("Mit Biometrie speichern")
+                    Text(stringResource(R.string.failsafe_save_biometric_action))
                 }
                 TextButton(onClick = { onRequestPinPresence(::applyPublicKeyIfPresenceGranted) }) {
-                    Text("Mit Warden-PIN speichern")
+                    Text(stringResource(R.string.failsafe_save_pin_action))
                 }
             }
 
-            Text(text = "2. Challenge erzeugen", style = MaterialTheme.typography.titleSmall)
+            Text(text = stringResource(R.string.failsafe_step2_title), style = MaterialTheme.typography.titleSmall)
             Button(onClick = { challengeHex = encodeHex(executor.issueChallenge()) }) {
-                Text("Challenge erzeugen")
+                Text(stringResource(R.string.failsafe_generate_challenge_action))
             }
             challengeHex?.let { hex ->
                 // Vorschlag U-9 (2026-08-29): seit body* proportional ist, wird der Hex-String
@@ -277,7 +286,7 @@ private fun FailsafeScreen(
                 // von Hand abzutippenden 64-Zeichen-Hex ist feste Zeichenbreite keine Optik,
                 // sondern die Voraussetzung, 0/O und 1/l auseinanderzuhalten.
                 Text(
-                    text = "Challenge (auf Air-Gap-Maschine mit failsafe-keytool signieren):",
+                    text = stringResource(R.string.failsafe_challenge_hint),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(text = hex, style = MaterialTheme.typography.bodySmall.mono())
@@ -286,26 +295,23 @@ private fun FailsafeScreen(
                 // altem Muster signieren und bekäme auf dem Gerät nur ein unerklärliches
                 // "Response ungültig".
                 Text(
-                    text = "Die neue Geräte-PIN vorher festlegen und beim Signieren als drittes " +
-                        "Argument mitgeben:\nfailsafe-keytool sign <secret_key> <challenge> " +
-                        "<neue Geräte-PIN>\nUnten muss exakt dieselbe PIN stehen — sie ist Teil " +
-                        "der Signatur.",
+                    text = stringResource(R.string.failsafe_challenge_sign_instructions),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
-            Text(text = "3. Response eingeben und ausführen", style = MaterialTheme.typography.titleSmall)
+            Text(text = stringResource(R.string.failsafe_step3_title), style = MaterialTheme.typography.titleSmall)
             OutlinedTextField(
                 value = responseHex,
                 onValueChange = { responseHex = it },
-                label = { Text("Response (hex, 128 Zeichen)") },
+                label = { Text(stringResource(R.string.failsafe_response_label)) },
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = newCredential,
                 onValueChange = { newCredential = it },
-                label = { Text("Neue Geräte-PIN (16 Zeichen, keine Folge wie 1234…)") },
+                label = { Text(stringResource(R.string.failsafe_new_credential_label)) },
                 // Nicht mehr im Klartext (die Screen ist zusätzlich per FLAG_SECURE ohnehin nicht
                 // screenshottbar, Maskierung schützt zusätzlich gegen einfaches
                 // Über-die-Schulter-Mitlesen).
@@ -315,43 +321,37 @@ private fun FailsafeScreen(
             Button(onClick = {
                 val response = decodeHexOrNull(responseHex)
                 statusMessage = if (response == null) {
-                    "Ungültiges Hex-Format für Response."
+                    msgInvalidResponseHex
                 } else {
-                    runCatching { describeResult(executor.submitResponse(response, newCredential)) }
-                        .getOrElse { "Fehler: ${it.message}" }
+                    runCatching { describeResult(context, executor.submitResponse(response, newCredential)) }
+                        .getOrElse { String.format(templateError, it.message) }
                 }
             }) {
-                Text("Failsafe ausführen")
+                Text(stringResource(R.string.failsafe_run_action))
             }
         }
     }
 }
 
-private fun statusFor(publicKey: ByteArray?): String =
+private fun statusFor(context: Context, publicKey: ByteArray?): String =
     if (publicKey == null) {
-        "⚠ Kein Wartungsschlüssel hinterlegt — Failsafe nicht auslösbar."
+        context.getString(R.string.failsafe_no_key_configured_status)
     } else {
-        "Wartungsschlüssel konfiguriert (${publicKey.size} Byte)."
+        context.getString(R.string.failsafe_key_configured_status, publicKey.size)
     }
 
-private fun describeResult(result: OfflineFailsafeResult): String = when (result) {
-    is OfflineFailsafeResult.NoKeyConfigured -> "⚠ Kein Wartungsschlüssel hinterlegt."
-    is OfflineFailsafeResult.NoChallengePending -> "Keine Challenge ausstehend — zuerst erzeugen."
-    is OfflineFailsafeResult.ChallengeExpired -> "Challenge abgelaufen — bitte eine neue erzeugen."
-    is OfflineFailsafeResult.WeakCredential ->
-        "Neue Geräte-PIN erfüllt die Vorgabe nicht (16 Zeichen, keine einfache Ziffernfolge). Challenge bleibt bestehen."
-    is OfflineFailsafeResult.Rejected ->
-        "Response ungültig — nichts wurde verändert. Häufigste Ursache: die hier eingegebene " +
-            "Geräte-PIN weicht von der ab, die beim Signieren übergeben wurde (sie ist Teil der " +
-            "signierten Nachricht). Die Challenge bleibt bestehen."
+private fun describeResult(context: Context, result: OfflineFailsafeResult): String = when (result) {
+    is OfflineFailsafeResult.NoKeyConfigured -> context.getString(R.string.failsafe_result_no_key_configured)
+    is OfflineFailsafeResult.NoChallengePending -> context.getString(R.string.failsafe_result_no_challenge_pending)
+    is OfflineFailsafeResult.ChallengeExpired -> context.getString(R.string.failsafe_result_challenge_expired)
+    is OfflineFailsafeResult.WeakCredential -> context.getString(R.string.failsafe_result_weak_credential)
+    is OfflineFailsafeResult.Rejected -> context.getString(R.string.failsafe_result_rejected)
     is OfflineFailsafeResult.Accepted -> {
         val revertSummary = result.revertResults.joinToString { "${it.id}=${it::class.simpleName}" }
         if (result.credentialResetSucceeded) {
-            "Failsafe ausgeführt. Registry: $revertSummary. Geräte-PIN-Reset: OK"
+            context.getString(R.string.failsafe_result_accepted_success, revertSummary)
         } else {
-            "Failsafe ausgeführt, aber der Geräte-PIN-Reset ist FEHLGESCHLAGEN. Registry: " +
-                "$revertSummary. Die Challenge ist verbraucht — für einen neuen Versuch eine " +
-                "neue Challenge erzeugen und erneut signieren."
+            context.getString(R.string.failsafe_result_accepted_credential_failed, revertSummary)
         }
     }
 }

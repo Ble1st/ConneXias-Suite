@@ -20,6 +20,19 @@ import org.junit.runner.RunWith
  * scheitert. Automatisch, nicht per `assumeTrue`-Drill-Gate: mutiert keinen echten Geräte-/DPM-
  * Zustand (reine Permission-Zurückweisung, kein `apply()`/`revert()` auf irgendeinem Safeguard),
  * anders als die scharf-schaltenden Drills in `sentinel/`/`registry/`.
+ *
+ * **Verifikationsweg per Logcat-Empfängerzahl, nicht per `am`-Textausgabe (2026-08-30, echter
+ * Live-Fund):** die ursprüngliche Fassung prüfte `am broadcast`s eigene Konsolenausgabe auf
+ * "Permission Denial"/"SecurityException". Auf einem realen Samsung-Testgerät (Android-Version mit
+ * neuerer `am`-Implementierung) schlug das fehl — `am broadcast` gibt für einen an einer
+ * `signature`-Permission abgewiesenen *expliziten* Broadcast nur noch "Broadcasting: Intent {…}" /
+ * "Broadcast completed: result=0" aus, ganz ohne Hinweistext, unabhängig davon ob die Zustellung
+ * wirklich stattfand. Der eigentliche Beweis lag im selben Moment bereits im System-Logcat:
+ * `ActivityManager: Enqueued broadcast Intent {…}: 0` — die Zahl am Zeilenende ist die Anzahl der
+ * tatsächlich zur Zustellung vorgemerkten Empfänger. `0` bedeutet: der Permission-Check hat die
+ * Zustellung an [SentinelSignalReceiver] schon *vor* jedem Zustellversuch verhindert — das ist der
+ * eigentliche Sicherheitsbeweis, nicht eine bestimmte Textzeile von `am`. Dieser Test liest jetzt
+ * genau diese Zahl aus dem Logcat statt `am`s Ausgabetext zu interpretieren.
  */
 @RunWith(AndroidJUnit4::class)
 class SentinelSignalReceiverInstrumentedTest {
@@ -39,19 +52,41 @@ class SentinelSignalReceiverInstrumentedTest {
             context.packageManager.checkPermission(SENTINEL_SIGNAL_PERMISSION, SHELL_PACKAGE_NAME),
         )
 
-        val output = runShell(
+        runShell("logcat -c")
+        val broadcastOutput = runShell(
             "am broadcast -n $WARDEN_PACKAGE_NAME/$RECEIVER_CLASS_NAME -a $ACTION_PIN_VERIFIED",
         )
 
+        val enqueuedCount = awaitEnqueuedReceiverCount()
         assertTrue(
+            "Kein 'Enqueued broadcast'-Logcat-Eintrag für $ACTION_PIN_VERIFIED gefunden — " +
+                "am-Ausgabe war: $broadcastOutput",
+            enqueuedCount != null,
+        )
+        assertEquals(
             "Ein Broadcast von der Shell (kein Warden-Zertifikat) an SentinelSignalReceiver muss " +
-                "am signature-Permission-Check scheitern — tatsächliche Ausgabe: $output",
-            output.contains("Permission Denial") || output.contains("SecurityException"),
+                "an null Empfängern ankommen (Zustellung durch den signature-Permission-Check " +
+                "verhindert, bevor SentinelSignalReceiver überhaupt aufgerufen wird) — am-Ausgabe " +
+                "war: $broadcastOutput",
+            0,
+            enqueuedCount,
         )
-        assertTrue(
-            "Die Ablehnung muss auf das erwartete Permission benennen — tatsächliche Ausgabe: $output",
-            output.contains(SENTINEL_SIGNAL_PERMISSION),
-        )
+    }
+
+    /**
+     * Pollt kurz auf die `ActivityManager`-Logzeile, die die Anzahl der für diesen Broadcast
+     * tatsächlich zur Zustellung vorgemerkten Empfänger nennt (`Enqueued broadcast Intent {…}: N`).
+     * `logcat -d` liefert nur einen Schnappschuss, und die Zeile kann dem `am`-Aufruf um wenige
+     * Millisekunden nachlaufen — daher mehrere kurze Versuche statt einer einzelnen Momentaufnahme.
+     */
+    private fun awaitEnqueuedReceiverCount(): Int? {
+        val pattern = Regex("""Enqueued broadcast Intent \{[^}]*act=${Regex.escape(ACTION_PIN_VERIFIED)}[^}]*\}:\s*(\d+)""")
+        repeat(ENQUEUED_LOG_POLL_ATTEMPTS) { attempt ->
+            val log = runShell("logcat -d -s ActivityManager:I")
+            pattern.find(log)?.let { return it.groupValues[1].toIntOrNull() }
+            if (attempt < ENQUEUED_LOG_POLL_ATTEMPTS - 1) Thread.sleep(ENQUEUED_LOG_POLL_DELAY_MS)
+        }
+        return null
     }
 
     private fun runShell(command: String): String {
@@ -67,5 +102,7 @@ class SentinelSignalReceiverInstrumentedTest {
         const val ACTION_PIN_VERIFIED = "de.ble1st.warden.sentinel.action.PIN_VERIFIED"
         const val SENTINEL_SIGNAL_PERMISSION = "de.ble1st.warden.permission.SENTINEL_SIGNAL"
         const val SHELL_PACKAGE_NAME = "com.android.shell"
+        const val ENQUEUED_LOG_POLL_ATTEMPTS = 10
+        const val ENQUEUED_LOG_POLL_DELAY_MS = 200L
     }
 }

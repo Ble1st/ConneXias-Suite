@@ -33,12 +33,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.appmanagement.SentinelInstallStatus
 import de.ble1st.warden.domain.pin.LockdownTriggerProfile
 import de.ble1st.warden.domain.profile.WardenProfile
@@ -98,10 +100,10 @@ fun SafeguardsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Safeguards") },
+                title = { Text(stringResource(R.string.menu_safeguards_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_description_back))
                     }
                 },
             )
@@ -116,7 +118,7 @@ fun SafeguardsScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = "Geräteweite DevicePolicyManager-Sperren — sofort wirksam, jederzeit reversibel.",
+                text = stringResource(R.string.safeguards_intro),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
@@ -124,7 +126,7 @@ fun SafeguardsScreen(
             ProfilePicker(activeProfile = activeProfile, onApplyProfile = onApplyProfile)
             if (profileApplyWarning != null) {
                 Text(
-                    text = "⚠ $profileApplyWarning",
+                    text = stringResource(R.string.safeguards_profile_apply_warning, profileApplyWarning),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(bottom = 8.dp),
@@ -138,11 +140,11 @@ fun SafeguardsScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Schalter suchen") },
+                label = { Text(stringResource(R.string.safeguards_search_label)) },
                 singleLine = true,
                 trailingIcon = {
                     if (query.isNotEmpty()) {
-                        TextButton(onClick = { query = "" }) { Text("Leeren") }
+                        TextButton(onClick = { query = "" }) { Text(stringResource(R.string.safeguards_search_clear)) }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
@@ -195,7 +197,7 @@ fun SafeguardsScreen(
             }
             if (matchCount == 0) {
                 Text(
-                    text = "Kein Schalter passt zu \"$query\".",
+                    text = stringResource(R.string.safeguards_search_no_match, query),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 24.dp),
@@ -207,7 +209,7 @@ fun SafeguardsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
             Text(
-                text = "Lockdown-Modus — presence-gated, kein einfacher Schalter (2026-08-22).",
+                text = stringResource(R.string.safeguards_lockdown_intro),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
@@ -215,7 +217,7 @@ fun SafeguardsScreen(
             LockdownStatusRow(lockdownModeActive)
             HorizontalDivider()
             Text(
-                text = "App-Lock (LockMode) — echter Kiosk-Modus über die separate Sentinel-App.",
+                text = stringResource(R.string.safeguards_applock_intro),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
@@ -271,23 +273,31 @@ private fun LockTaskSection(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(text = "Sentinel (Kiosk-App)")
+            Text(text = stringResource(R.string.safeguards_sentinel_label))
             Text(
                 text = when (sentinelInstallStatus) {
-                    SentinelInstallStatus.NotInstalled ->
-                        "Nicht installiert — ohne Sentinel bleibt App-Lock wirkungslos " +
-                            "(SentinelLockdownEngager meldet \"nicht installiert\")."
-                    is SentinelInstallStatus.Installed ->
-                        "Installiert, Version ${sentinelInstallStatus.versionName ?: "?"} " +
-                            "(${sentinelInstallStatus.versionCode})."
+                    SentinelInstallStatus.NotInstalled -> stringResource(R.string.safeguards_sentinel_not_installed)
+                    is SentinelInstallStatus.Installed -> stringResource(
+                        R.string.safeguards_sentinel_installed,
+                        sentinelInstallStatus.versionName ?: "?",
+                        sentinelInstallStatus.versionCode,
+                    )
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        TextButton(onClick = onRefreshSentinelInstallStatus) { Text("Status prüfen") }
+        TextButton(onClick = onRefreshSentinelInstallStatus) { Text(stringResource(R.string.safeguards_check_status_action)) }
         TextButton(onClick = onInstallSentinel) {
-            Text(if (sentinelInstallStatus is SentinelInstallStatus.Installed) "Update installieren" else "Installieren")
+            Text(
+                stringResource(
+                    if (sentinelInstallStatus is SentinelInstallStatus.Installed) {
+                        R.string.safeguards_update_install_action
+                    } else {
+                        R.string.safeguards_install_action
+                    },
+                ),
+            )
         }
     }
     HorizontalDivider()
@@ -304,7 +314,7 @@ private fun LockTaskSection(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Sentinel-PIN eingerichtet",
+                    text = stringResource(R.string.safeguards_sentinel_pin_configured_label),
                     // Nur das eindeutige "nein" wird rot — "unbekannt" ist kein Fehlerzustand,
                     // sondern eine Wissenslücke, s. u.
                     color = if (sentinelPinConfigured == false) {
@@ -314,19 +324,19 @@ private fun LockTaskSection(
                     },
                 )
                 Text(
-                    text = when (sentinelPinConfigured) {
-                        true -> "Ja — Sentinel hat eine benutzbare PIN gemeldet. Sie ist der " +
-                            "einzige Ausstieg aus dem Kiosk."
-                        false -> "NEIN — Sentinel würde jedes Scharfschalten ablehnen. Sentinel " +
-                            "öffnen und eine PIN einrichten."
-                        // Bewusst als eigener dritter Zustand statt als "nein": Warden kann
-                        // Sentinels PIN-Blob nicht lesen (eigene UID) und erfährt den Zustand nur
-                        // aus Sentinels eigener Meldung. Ein frisch installiertes, nie geöffnetes
-                        // Sentinel hat wirklich keine PIN — ein seit Monaten eingerichtetes, seit
-                        // dem letzten Warden-Datenlöschen nicht geöffnetes hat eine.
-                        null -> "Unbekannt — Sentinel hat sich noch nicht gemeldet. Einmal öffnen " +
-                            "genügt; der Zustand wird dabei automatisch übermittelt."
-                    },
+                    text = stringResource(
+                        when (sentinelPinConfigured) {
+                            true -> R.string.safeguards_sentinel_pin_yes
+                            false -> R.string.safeguards_sentinel_pin_no
+                            // Bewusst als eigener dritter Zustand statt als "nein": Warden kann
+                            // Sentinels PIN-Blob nicht lesen (eigene UID) und erfährt den Zustand
+                            // nur aus Sentinels eigener Meldung. Ein frisch installiertes, nie
+                            // geöffnetes Sentinel hat wirklich keine PIN — ein seit Monaten
+                            // eingerichtetes, seit dem letzten Warden-Datenlöschen nicht geöffnetes
+                            // hat eine.
+                            null -> R.string.safeguards_sentinel_pin_unknown
+                        },
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -342,10 +352,9 @@ private fun LockTaskSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(text = "App-Lock AKTIV (Sentinel autorisiert)", color = MaterialTheme.colorScheme.error)
+                Text(text = stringResource(R.string.safeguards_applock_active_label), color = MaterialTheme.colorScheme.error)
                 Text(
-                    text = "Notruf/Keyguard bleiben erreichbar — sonst nur Sentinels PIN-Bildschirm. " +
-                        "Ausstieg ausschließlich über Sentinels eigene PIN auf dem Gerät selbst.",
+                    text = stringResource(R.string.safeguards_applock_active_detail),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -361,41 +370,35 @@ private fun LockTaskSection(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(text = "Notruf-Drill bestätigt")
+            Text(text = stringResource(R.string.safeguards_drill_label))
             Text(
                 text = if (emergencyDrillConfirmed) {
-                    "Seit $emergencyDrillConfirmedAtText — Voraussetzung für jedes echte App-Lock " +
-                        "(manuell oder automatisch)."
+                    stringResource(R.string.safeguards_drill_confirmed_detail, emergencyDrillConfirmedAtText.orEmpty())
                 } else {
-                    "Erst nach einem echten, manuell durchgeführten Test bestätigen: Notruf " +
-                        "(112/911) während App-Lock aktiv wählen und Erreichbarkeit prüfen."
+                    stringResource(R.string.safeguards_drill_unconfirmed_detail)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (emergencyDrillConfirmed) {
-            TextButton(onClick = onRevokeEmergencyDrill) { Text("Zurücksetzen") }
+            TextButton(onClick = onRevokeEmergencyDrill) { Text(stringResource(R.string.action_reset)) }
         } else {
-            TextButton(onClick = { confirmDrill = true }) { Text("Bestätigen") }
+            TextButton(onClick = { confirmDrill = true }) { Text(stringResource(R.string.action_confirm)) }
         }
     }
     if (confirmDrill) {
         var typed by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { confirmDrill = false },
-            title = { Text("Notruf-Drill wirklich bestätigen?") },
+            title = { Text(stringResource(R.string.safeguards_drill_dialog_title)) },
             text = {
                 Column {
-                    Text(
-                        "Nur bestätigen, wenn der Notruf-Test auf DIESEM Gerät tatsächlich " +
-                            "durchgeführt wurde. Ohne echten Test riskiert ein späteres App-Lock, " +
-                            "dass ein Notruf nicht mehr funktioniert.",
-                    )
+                    Text(stringResource(R.string.safeguards_drill_dialog_body))
                     OutlinedTextField(
                         value = typed,
                         onValueChange = { typed = it },
-                        label = { Text("Tippe $EMERGENCY_DRILL_CONFIRMATION_PHRASE") },
+                        label = { Text(stringResource(R.string.safeguards_drill_dialog_type_phrase, EMERGENCY_DRILL_CONFIRMATION_PHRASE)) },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
                 }
@@ -407,19 +410,17 @@ private fun LockTaskSection(
                         onConfirmEmergencyDrill()
                         confirmDrill = false
                     },
-                ) { Text("Bestätigen") }
+                ) { Text(stringResource(R.string.action_confirm)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDrill = false }) { Text("Abbrechen") }
+                TextButton(onClick = { confirmDrill = false }) { Text(stringResource(R.string.action_cancel)) }
             },
         )
     }
     HorizontalDivider()
     SafeguardToggleRow(
-        label = "App-Lock automatisch bei kritischem Fund",
-        supportingText = "Nur wirksam nach bestätigtem Notruf-Drill und scharf geschaltetem " +
-            "Lockdown-Modus (Sensible Aktion). Alarmiert per Benachrichtigung, aktiviert das " +
-            "App-Lock beim nächsten Öffnen von Warden.",
+        label = stringResource(R.string.safeguards_auto_engage_label),
+        supportingText = stringResource(R.string.safeguards_auto_engage_supporting),
         checked = autoEngageOnCriticalThreat,
         onCheckedChange = onAutoEngageOnCriticalThreatChange,
         toggleEnabled = emergencyDrillConfirmed,
@@ -448,12 +449,10 @@ private fun LockdownTriggerProfilePicker(
     onChange: (LockdownTriggerProfile) -> Unit,
 ) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
-        Text("Lockdown-Auslöse-Profil", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.safeguards_trigger_profile_title), style = MaterialTheme.typography.titleSmall)
         Text(
-            "Steuert Dashboard-Button \"Kiosk jetzt\" und die Quick-Settings-Kachel. Streng: kein " +
-                "Schnellauslöser, volle Presence-Prüfung + Kühlzeit in \"Sensible Aktion\". Standard: " +
-                "Schnellauslöser mit Ja/Nein-Bestätigung. Schnell: sofort, ohne Rückfrage." +
-                if (!enabled) " Erst nach bestätigtem Notruf-Drill wirksam." else "",
+            stringResource(R.string.safeguards_trigger_profile_description) +
+                if (!enabled) stringResource(R.string.safeguards_trigger_profile_requires_drill) else "",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -484,12 +483,12 @@ private fun LockdownTriggerProfilePicker(
 private fun ProfilePicker(activeProfile: WardenProfile?, onApplyProfile: (WardenProfile) -> Unit) {
     var pending by remember { mutableStateOf<WardenProfile?>(null) }
     Text(
-        text = "Profil",
+        text = stringResource(R.string.safeguards_profile_section_title),
         style = MaterialTheme.typography.titleSmall,
         modifier = Modifier.padding(top = 4.dp),
     )
     Text(
-        text = "Alltag / Reise / Maximal in einem Schritt. Lockdown und Werksreset-Ausführung bleiben unberührt.",
+        text = stringResource(R.string.safeguards_profile_section_description),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 4.dp),
@@ -508,11 +507,9 @@ private fun ProfilePicker(activeProfile: WardenProfile?, onApplyProfile: (Warden
     }
     Text(
         text = if (activeProfile == null) {
-            "Aktiv: keins — seit der Installation wurde nie ein Profil angewandt. Einzelne " +
-                "Schalter unten können trotzdem gesetzt sein."
+            stringResource(R.string.safeguards_profile_active_none)
         } else {
-            "Aktiv: ${activeProfile.label}. Eine automatische Umschaltung (Nachtfenster, " +
-                "Eskalation bei kritischem Fund) ändert diese Anzeige mit."
+            stringResource(R.string.safeguards_profile_active, activeProfile.label)
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -522,12 +519,9 @@ private fun ProfilePicker(activeProfile: WardenProfile?, onApplyProfile: (Warden
     if (profile != null) {
         AlertDialog(
             onDismissRequest = { pending = null },
-            title = { Text("${profile.label} anwenden?") },
+            title = { Text(stringResource(R.string.safeguards_profile_apply_dialog_title, profile.label)) },
             text = {
-                Text(
-                    WardenProfileSpec.description(profile) +
-                        " Andere reversible Schalter gehen aus.",
-                )
+                Text(WardenProfileSpec.description(profile) + stringResource(R.string.safeguards_profile_apply_dialog_suffix))
             },
             confirmButton = {
                 TextButton(
@@ -535,10 +529,10 @@ private fun ProfilePicker(activeProfile: WardenProfile?, onApplyProfile: (Warden
                         onApplyProfile(profile)
                         pending = null
                     },
-                ) { Text("Anwenden") }
+                ) { Text(stringResource(R.string.action_apply)) }
             },
             dismissButton = {
-                TextButton(onClick = { pending = null }) { Text("Abbrechen") }
+                TextButton(onClick = { pending = null }) { Text(stringResource(R.string.action_cancel)) }
             },
         )
     }
@@ -546,33 +540,38 @@ private fun ProfilePicker(activeProfile: WardenProfile?, onApplyProfile: (Warden
 
 @Composable
 private fun LockdownStatusRow(active: Boolean?) {
+    // stringResource() braucht einen Composable-Aufrufkontext — innerhalb der .semantics{}-Lambda
+    // unten (kein Composable-Scope) nicht verfügbar, deshalb hier vorab aufgelöst.
+    val activeDescription = stringResource(R.string.safeguards_state_description_active)
+    val inactiveDescription = stringResource(R.string.safeguards_state_description_inactive)
+    val unknownDescription = stringResource(R.string.safeguards_state_description_unknown)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 14.dp)
             .semantics {
                 stateDescription = when (active) {
-                    true -> "aktiv"
-                    false -> "inaktiv"
-                    null -> "unbekannt"
+                    true -> activeDescription
+                    false -> inactiveDescription
+                    null -> unknownDescription
                 }
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(text = "Lockdown-Modus")
+            Text(text = stringResource(R.string.safeguards_lockdown_row_label))
             Text(
-                text = "Scharf-/Zurückschalten unter \"Sensible Aktion\"",
+                text = stringResource(R.string.safeguards_lockdown_row_detail),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Text(
             text = when (active) {
-                true -> "AKTIV"
-                false -> "inaktiv"
-                null -> "unbekannt"
+                true -> stringResource(R.string.safeguards_lockdown_state_active)
+                false -> stringResource(R.string.safeguards_lockdown_state_inactive)
+                null -> stringResource(R.string.safeguards_lockdown_state_unknown)
             },
             style = MaterialTheme.typography.labelLarge,
             color = if (active == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -581,8 +580,8 @@ private fun LockdownStatusRow(active: Boolean?) {
     }
     if (active == null) {
         ErrorStateRow(
-            headline = "Status konnte nicht gelesen werden",
-            detail = "Vermutlich kein Device Owner aktiv.",
+            headline = stringResource(R.string.error_status_unreadable_headline),
+            detail = stringResource(R.string.error_status_no_device_owner_detail),
         )
     }
 }
@@ -595,18 +594,9 @@ private fun FactoryResetProtectionAccountsField(
     var draft by remember(initialValue) { mutableStateOf(initialValue) }
     val changed = draft.trim() != initialValue.trim()
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
-        Text(text = "Entsperrkonto nach Wipe", style = MaterialTheme.typography.labelLarge)
+        Text(text = stringResource(R.string.safeguards_frp_accounts_label), style = MaterialTheme.typography.labelLarge)
         Text(
-            text = "Google-Konto-E-Mail, mit der du das Gerät nach einem Recovery-Wipe " +
-                "wieder einrichten darfst. Eine Adresse pro Zeile. Ohne gespeichertes Konto " +
-                "wird die Kontosperre nicht gesetzt (kein Brick). ⚠ Es muss ein echtes " +
-                "Google-Konto sein — Samsung- oder andere Herstellerkonten werden vom " +
-                "FRP-Agenten nicht akzeptiert. Halte Passwort UND zweiten Faktor außerhalb " +
-                "dieses Geräts bereit: die Ersteinrichtung nach dem Wipe verlangt genau dieses " +
-                "Konto, und wenn der zweite Faktor nur auf diesem Gerät liegt, sperrst du dich " +
-                "selbst aus. Das Konto muss zum Zeitpunkt des Wipes noch existieren — ein " +
-                "gelöschtes Google-Konto macht das Gerät nicht wieder frei, sondern " +
-                "unbrauchbar.",
+            text = stringResource(R.string.safeguards_frp_accounts_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
@@ -614,12 +604,12 @@ private fun FactoryResetProtectionAccountsField(
         OutlinedTextField(
             value = draft,
             onValueChange = { draft = it },
-            label = { Text("Konto-E-Mail") },
+            label = { Text(stringResource(R.string.safeguards_frp_accounts_field_label)) },
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
             TextButton(onClick = { onSave(draft) }, enabled = changed) {
-                Text("Speichern")
+                Text(stringResource(R.string.action_save))
             }
             TextButton(
                 onClick = {
@@ -628,7 +618,7 @@ private fun FactoryResetProtectionAccountsField(
                 },
                 enabled = draft.isNotEmpty() || initialValue.isNotEmpty(),
             ) {
-                Text("Löschen")
+                Text(stringResource(R.string.action_delete))
             }
         }
     }
@@ -666,9 +656,7 @@ private fun CatalogEntryRow(
 ) {
     val isFrp = entry.id == FactoryResetProtectionSafeguard.ID
     val supportingText = if (isFrp && !factoryResetProtectionAgentAvailable) {
-        entry.supportingText.orEmpty() +
-            " ⚠ Google-Play-Dienste nicht gefunden — Schalter zeigt \"aktiv\", " +
-            "wird vom FRP-Agenten aber vermutlich nicht durchgesetzt."
+        entry.supportingText.orEmpty() + stringResource(R.string.safeguards_frp_no_agent_suffix)
     } else {
         entry.supportingText
     }
@@ -696,21 +684,17 @@ private fun CatalogEntryRow(
     )
     if (state.locked == null) {
         ErrorStateRow(
-            headline = "Status konnte nicht gelesen werden",
-            detail = "Vermutlich kein Device Owner aktiv.",
+            headline = stringResource(R.string.error_status_unreadable_headline),
+            detail = stringResource(R.string.error_status_no_device_owner_detail),
         )
     }
     if (pendingConfirm) {
         val enabling = entry.riskSide == SafeguardUiCatalog.RiskSide.ENABLING
         AlertDialog(
             onDismissRequest = { pendingConfirm = false },
-            title = { Text(entry.confirmTitle ?: "\"${entry.label}\" deaktivieren?") },
+            title = { Text(entry.confirmTitle ?: stringResource(R.string.safeguards_disable_confirm_title, entry.label)) },
             text = {
-                Text(
-                    entry.confirmText
-                        ?: "Dieser Schalter gehört zum Reset-Schutz. Ohne ihn lässt sich das Gerät " +
-                        "nach einem Wipe leichter wieder in Betrieb nehmen.",
-                )
+                Text(entry.confirmText ?: stringResource(R.string.safeguards_disable_confirm_body_default))
             },
             confirmButton = {
                 TextButton(
@@ -718,10 +702,10 @@ private fun CatalogEntryRow(
                         state.onToggle(enabling)
                         pendingConfirm = false
                     },
-                ) { Text(if (enabling) "Sperren" else "Deaktivieren") }
+                ) { Text(stringResource(if (enabling) R.string.safeguards_lock_action else R.string.safeguards_disable_action)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingConfirm = false }) { Text("Abbrechen") }
+                TextButton(onClick = { pendingConfirm = false }) { Text(stringResource(R.string.action_cancel)) }
             },
         )
     }
@@ -751,10 +735,14 @@ private fun SafeguardToggleRow(
 ) {
     val haptic = LocalHapticFeedback.current
     val profileText = if (profiles.isEmpty()) {
-        "In keinem Profil — eine Profilanwendung schaltet ihn wieder aus."
+        stringResource(R.string.safeguards_toggle_no_profile)
     } else {
-        "Profil: " + profiles.sortedBy { it.strength }.joinToString { it.label }
+        stringResource(R.string.status_profile, profiles.sortedBy { it.strength }.joinToString { it.label })
     }
+    // stringResource() braucht einen Composable-Aufrufkontext — innerhalb der .semantics{}-Lambda
+    // unten (kein Composable-Scope) nicht verfügbar, deshalb hier vorab aufgelöst.
+    val lockedDescription = stringResource(R.string.safeguards_toggle_state_locked)
+    val unlockedDescription = stringResource(R.string.safeguards_toggle_state_unlocked)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -769,7 +757,7 @@ private fun SafeguardToggleRow(
             )
             .padding(vertical = 14.dp)
             .semantics {
-                stateDescription = if (checked) "gesperrt" else "entsperrt"
+                stateDescription = if (checked) lockedDescription else unlockedDescription
                 // Ohne dies liest TalkBack Titel, Beschreibung und Profilzeile als drei getrennte
                 // Fragmente vor; toggleable oben macht die Zeile ohnehin schon zu *einem* Knoten.
                 contentDescription = listOfNotNull(label, supportingText, profileText)

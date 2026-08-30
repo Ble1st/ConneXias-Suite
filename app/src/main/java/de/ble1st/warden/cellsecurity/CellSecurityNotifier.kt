@@ -24,21 +24,22 @@ class CellSecurityNotifier(private val context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Mobilfunkzellen-Auffälligkeit",
+            context.getString(R.string.notification_cell_security_channel_name),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = "Meldet ungewöhnliches Verhalten der registrierten Mobilfunkzelle " +
-                "(möglicher Hinweis auf einen IMSI-Catcher, kein Beweis)."
+            description = context.getString(R.string.notification_cell_security_channel_description)
         }
         manager?.createNotificationChannel(channel)
     }
 
     fun notify(outcome: CellSecurityOutcome.Suspicious, reactionText: String) {
-        val title = if (outcome.severity == ThreatSeverity.CRITICAL) {
-            "Verdächtige Mobilfunkzelle"
-        } else {
-            "Ungewöhnliches Zellverhalten"
-        }
+        val title = context.getString(
+            if (outcome.severity == ThreatSeverity.CRITICAL) {
+                R.string.notification_cell_security_critical_title
+            } else {
+                R.string.notification_cell_security_warning_title
+            },
+        )
         val indicatorText = outcome.indicators.joinToString(", ") { it.label }
         val text = "$indicatorText. $reactionText"
         val contentIntent = PendingIntent.getActivity(

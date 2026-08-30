@@ -15,7 +15,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.pin.WardenLockScreenTextStorage
 
 /**
@@ -45,11 +47,9 @@ fun LockScreenMessageField(initialValue: String?, onSave: (String?) -> Unit, mod
     val changed = draft.trim() != initialValue.orEmpty()
 
     Column(modifier = modifier) {
-        Text(text = "Sperrbildschirm-Text", style = MaterialTheme.typography.labelLarge)
+        Text(text = stringResource(R.string.lock_screen_message_field_title), style = MaterialTheme.typography.labelLarge)
         Text(
-            text = "Wird auf dem echten Sperrbildschirm des Geräts angezeigt — z. B. \"Dieses " +
-                "Gerät wird von deiner Organisation verwaltet\" oder ein Rückgabe-/Kontakthinweis. " +
-                "Leer lassen, um ihn auszublenden.",
+            text = stringResource(R.string.lock_screen_message_field_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
@@ -57,8 +57,8 @@ fun LockScreenMessageField(initialValue: String?, onSave: (String?) -> Unit, mod
         OutlinedTextField(
             value = draft,
             onValueChange = { if (it.length <= WardenLockScreenTextStorage.MAX_LENGTH) draft = it },
-            label = { Text("Nachricht") },
-            supportingText = { Text("${draft.length} / ${WardenLockScreenTextStorage.MAX_LENGTH}") },
+            label = { Text(stringResource(R.string.lock_screen_message_field_label)) },
+            supportingText = { Text(String.format(stringResource(R.string.field_character_counter), draft.length, WardenLockScreenTextStorage.MAX_LENGTH)) },
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
@@ -70,13 +70,13 @@ fun LockScreenMessageField(initialValue: String?, onSave: (String?) -> Unit, mod
                 },
                 enabled = changed,
             ) {
-                Text("Speichern")
+                Text(stringResource(R.string.action_save))
             }
             TextButton(
                 onClick = { draft = ""; onSave(null) },
                 enabled = draft.isNotEmpty() || !initialValue.isNullOrEmpty(),
             ) {
-                Text("Löschen")
+                Text(stringResource(R.string.action_delete))
             }
         }
     }

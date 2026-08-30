@@ -20,7 +20,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.domain.cellsecurity.CellSecurityReaction
 import de.ble1st.warden.domain.sim.SimChangeReaction
 import de.ble1st.warden.domain.profile.AutoProfileConfig
@@ -110,10 +112,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Einstellungen") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_description_back))
                     }
                 },
             )
@@ -126,22 +128,22 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            SectionLabel("Darstellung")
+            SectionLabel(stringResource(R.string.settings_section_appearance))
             AccentPickerRow(
                 selected = accent,
                 onSelect = onAccentChange,
                 modifier = Modifier.padding(top = 4.dp),
             )
 
-            SectionLabel("Sperrbildschirm")
+            SectionLabel(stringResource(R.string.settings_section_lock_screen))
             MenuRow(
-                title = "Namensvergebung",
-                subtitle = "Zusatztext, Organisationsname, Support-Hinweis",
+                title = stringResource(R.string.settings_naming_title),
+                subtitle = stringResource(R.string.settings_naming_subtitle),
                 tag = "AA",
                 onClick = { showNamingSettings = true },
             )
 
-            SectionLabel("Härtung")
+            SectionLabel(stringResource(R.string.settings_section_hardening))
             AutoRebootField(
                 selectedHours = autoRebootThresholdHours,
                 onSelect = onAutoRebootThresholdHoursChange,
@@ -169,10 +171,10 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 16.dp),
             )
 
-            SectionLabel("Info")
+            SectionLabel(stringResource(R.string.settings_section_info))
             MenuRow(
-                title = "Lizenzen",
-                subtitle = "Open-Source-Bestandteile dieser App",
+                title = stringResource(R.string.settings_licenses_title),
+                subtitle = stringResource(R.string.settings_licenses_subtitle),
                 tag = "LZ",
                 onClick = { showLicenses = true },
             )

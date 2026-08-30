@@ -18,7 +18,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.presence.WardenLockActivity
 import de.ble1st.warden.presence.WardenLockSession
@@ -152,11 +154,12 @@ private fun ConfirmScreen(
 ) {
     val (title, warning) = when (action) {
         SuspiciousAppActionConfirmActivity.ACTION_UNINSTALL ->
-            "Deinstallieren bestätigen" to "„$label“ ($packageName) wird deinstalliert."
+            stringResource(R.string.suspicious_app_confirm_uninstall_title) to
+                String.format(stringResource(R.string.suspicious_app_confirm_uninstall_warning), label, packageName)
         SuspiciousAppActionConfirmActivity.ACTION_CLEAR_DATA ->
-            "Daten löschen bestätigen" to
-                "Alle Daten von „$label“ ($packageName) werden gelöscht — das lässt sich nicht rückgängig machen."
-        else -> "Aktion bestätigen" to packageName
+            stringResource(R.string.suspicious_app_confirm_clear_data_title) to
+                String.format(stringResource(R.string.suspicious_app_confirm_clear_data_warning), label, packageName)
+        else -> stringResource(R.string.suspicious_app_confirm_generic_title) to packageName
     }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
@@ -168,8 +171,8 @@ private fun ConfirmScreen(
                 modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onCancel) { Text("Abbrechen") }
-                TextButton(onClick = onConfirm) { Text("Bestätigen") }
+                TextButton(onClick = onCancel) { Text(stringResource(R.string.action_cancel)) }
+                TextButton(onClick = onConfirm) { Text(stringResource(R.string.action_confirm)) }
             }
         }
     }

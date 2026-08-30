@@ -28,23 +28,23 @@ class SimChangeNotifier(private val context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "SIM-Wechsel",
+            context.getString(R.string.notification_sim_change_channel_name),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = "Meldet, wenn die eingelegte SIM-Karte wechselt oder entfernt wird."
+            description = context.getString(R.string.notification_sim_change_channel_description)
         }
         manager?.createNotificationChannel(channel)
     }
 
     fun notifyChange(simRemoved: Boolean, reactionText: String) {
-        val title = if (simRemoved) "SIM-Karte entfernt" else "Andere SIM-Karte erkannt"
+        val title = context.getString(
+            if (simRemoved) R.string.notification_sim_change_removed_title else R.string.notification_sim_change_swapped_title,
+        )
         val text = buildString {
             append(
-                if (simRemoved) {
-                    "Die zuvor erkannte SIM steckt nicht mehr im Gerät."
-                } else {
-                    "Es steckt eine andere SIM im Gerät als beim letzten Prüflauf."
-                },
+                context.getString(
+                    if (simRemoved) R.string.notification_sim_change_removed_text else R.string.notification_sim_change_swapped_text,
+                ),
             )
             append(" ")
             append(reactionText)

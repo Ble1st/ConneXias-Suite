@@ -20,8 +20,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import de.ble1st.warden.R
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.domain.pin.WardenPinStateDecision
 import de.ble1st.warden.pin.WardenPinStorage
@@ -93,8 +95,8 @@ class WardenLockActivity : FragmentActivity() {
                     onBootstrap = ::grant,
                     onRequestBiometric = { onUnavailable ->
                         presenceManager.request(
-                            title = "Warden entsperren",
-                            subtitle = "Präsenznachweis für den App-Zugriff",
+                            title = getString(R.string.warden_lock_biometric_prompt_title),
+                            subtitle = getString(R.string.warden_lock_biometric_prompt_subtitle),
                         ) { result ->
                             when (result) {
                                 is PresenceManager.Result.Success ->
@@ -143,24 +145,24 @@ private fun WardenLockScreen(
             modifier = Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(text = "Warden gesperrt", style = MaterialTheme.typography.headlineSmall)
+            Text(text = stringResource(R.string.warden_lock_screen_title), style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = "Präsenznachweis erforderlich, bevor der App-Inhalt angezeigt wird.",
+                text = stringResource(R.string.warden_lock_presence_required),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
             )
             if (biometricUnavailable) {
                 Text(
-                    text = "⚠ Keine Biometrie eingerichtet — mit Warden-PIN fortfahren.",
+                    text = stringResource(R.string.warden_lock_biometric_unavailable),
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
             TextButton(onClick = { onRequestBiometric { biometricUnavailable = true } }) {
-                Text("Mit Biometrie entsperren")
+                Text(stringResource(R.string.warden_lock_unlock_biometric_action))
             }
             TextButton(onClick = onRequestPin) {
-                Text("Mit Warden-PIN entsperren")
+                Text(stringResource(R.string.warden_lock_unlock_pin_action))
             }
         }
     }

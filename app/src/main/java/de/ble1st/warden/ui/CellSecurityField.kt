@@ -11,10 +11,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.domain.cellsecurity.CellSecurityReaction
 
 /**
@@ -33,19 +35,16 @@ fun CellSecurityField(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        Text(text = "Reaktion auf Mobilfunkzellen-Auffälligkeiten", style = MaterialTheme.typography.labelLarge)
+        Text(text = stringResource(R.string.cell_security_field_title), style = MaterialTheme.typography.labelLarge)
         Text(
-            text = "Prüft regelmäßig die registrierte Mobilfunkzelle auf Anzeichen, die bei " +
-                "einem IMSI-Catcher (Fake-Sendemast) auftreten können — z. B. eine plötzliche " +
-                "Funkgenerations-Herabstufung oder ein widersprüchlicher Gebietscode. Das ist ein " +
-                "Verdachtssignal, kein Beweis: Android erlaubt Apps keinen Zugriff auf das " +
-                "Basisband, echte Fehlalarme (z. B. beim Fahren durch ein Funkloch) sind möglich.",
+            text = stringResource(R.string.cell_security_field_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
         )
+        val offLabel = stringResource(R.string.field_off_label)
         CELL_SECURITY_OPTIONS.forEach { reaction ->
-            val label = reaction?.label ?: "Aus"
+            val label = reaction?.label ?: offLabel
             val isSelected = reaction == selectedReaction
             Row(
                 modifier = Modifier

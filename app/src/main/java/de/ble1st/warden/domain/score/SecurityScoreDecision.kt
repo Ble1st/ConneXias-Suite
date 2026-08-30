@@ -14,9 +14,11 @@ package de.ble1st.warden.domain.score
  *   Signalen berechnet werden: Bedrohungen (Verdachtsscanner), Rechte-Hygiene (Permission-Audit),
  *   Geräte-Integrität ([de.ble1st.warden.integrity.DeviceIntegrityStatus]) und Härtungsgrad
  *   (Anteil aktiver Safeguards aus dem reversiblen Katalog).
- * - Kein kreisförmiger Gauge, keine 30-Tage-Historie, kein Kategorie-Drill-down — bewusste
- *   Scope-Reduktion; jede Berechnung ist eine Momentaufnahme, keine über die Zeit gespeicherte
- *   Reihe. Bei Bedarf später ergänzbar, ohne dass sich an dieser Berechnungslogik etwas ändert.
+ * - Kein kreisförmiger Gauge, kein Kategorie-Drill-down — weiterhin bewusste Scope-Reduktion.
+ *   Die 30-Tage-Historie selbst wurde am 2026-08-30 nachgereicht
+ *   ([de.ble1st.warden.score.SecurityScoreHistoryStore]), genau wie hier vorgezeichnet: als reiner
+ *   Anbau, ohne dass sich an dieser Berechnungslogik etwas geändert hat — [evaluate] bleibt eine
+ *   zustandslose Momentaufnahme, die Historie lebt ausschließlich im Store.
  *
  * **Gewichtung** (muss in Summe 1.0 ergeben, s. [SecurityScoreDecisionTest.weightsSumToOne]):
  * Bedrohungen zählen am stärksten, weil ein einzelner kritischer Fund einen akuten, laufenden

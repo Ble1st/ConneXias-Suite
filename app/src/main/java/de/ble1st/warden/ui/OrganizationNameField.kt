@@ -15,7 +15,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.registry.WardenOrganizationNameStorage
 
 /**
@@ -43,12 +45,9 @@ fun OrganizationNameField(initialValue: String?, onSave: (String?) -> Unit, modi
     val changed = draft.trim() != initialValue.orEmpty()
 
     Column(modifier = modifier) {
-        Text(text = "Organisationsname", style = MaterialTheme.typography.labelLarge)
+        Text(text = stringResource(R.string.organization_name_field_title), style = MaterialTheme.typography.labelLarge)
         Text(
-            text = "Manche Geräte (z. B. Samsung One UI auf voll verwalteten Geräten) zeigen " +
-                "auf dem Sperrbildschirm statt des freien Textes oben nur einen festen Satz mit " +
-                "diesem Namen: \"Dieses Gerät gehört zu <Name>\". Leer lassen für den " +
-                "generischen Standardtext.",
+            text = stringResource(R.string.organization_name_field_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
@@ -56,8 +55,8 @@ fun OrganizationNameField(initialValue: String?, onSave: (String?) -> Unit, modi
         OutlinedTextField(
             value = draft,
             onValueChange = { if (it.length <= WardenOrganizationNameStorage.MAX_LENGTH) draft = it },
-            label = { Text("Name") },
-            supportingText = { Text("${draft.length} / ${WardenOrganizationNameStorage.MAX_LENGTH}") },
+            label = { Text(stringResource(R.string.organization_name_field_label)) },
+            supportingText = { Text(String.format(stringResource(R.string.field_character_counter), draft.length, WardenOrganizationNameStorage.MAX_LENGTH)) },
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
@@ -69,13 +68,13 @@ fun OrganizationNameField(initialValue: String?, onSave: (String?) -> Unit, modi
                 },
                 enabled = changed,
             ) {
-                Text("Speichern")
+                Text(stringResource(R.string.action_save))
             }
             TextButton(
                 onClick = { draft = ""; onSave(null) },
                 enabled = draft.isNotEmpty() || !initialValue.isNullOrEmpty(),
             ) {
-                Text("Löschen")
+                Text(stringResource(R.string.action_delete))
             }
         }
     }

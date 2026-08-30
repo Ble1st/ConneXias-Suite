@@ -2,6 +2,7 @@ package de.ble1st.warden.pin
 
 import android.content.Context
 import androidx.core.content.edit
+import de.ble1st.warden.R
 
 /** [requiresConfirmation]: `true` heißt, der Abholpunkt (`de.ble1st.warden.ui
  * .WardenStatusActivity.consumePendingLockTaskEngage`) muss vor dem tatsächlichen Scharfschalten
@@ -62,7 +63,7 @@ object WardenLockTaskPendingEngageStore {
     fun consumeIfPending(context: Context): PendingLockTaskEngage? {
         val prefs = prefs(context)
         if (!prefs.getBoolean(KEY_PENDING, false)) return null
-        val reason = prefs.getString(KEY_REASON, null) ?: "Kritischer Verdachtsfund"
+        val reason = prefs.getString(KEY_REASON, null) ?: context.getString(R.string.lock_task_pending_engage_default_reason)
         val requiresConfirmation = prefs.getBoolean(KEY_REQUIRES_CONFIRMATION, false)
         prefs.edit {
             putBoolean(KEY_PENDING, false)

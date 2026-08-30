@@ -24,8 +24,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import de.ble1st.warden.R
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.presence.PresenceManager
 import de.ble1st.warden.presence.WardenPinActivity
@@ -69,8 +71,8 @@ class NetworkLogViewerActivity : FragmentActivity() {
                 NetworkLogViewerScreen(
                     onRequestPresence = { onResult ->
                         presenceManager.request(
-                            title = "Netzwerk-Log-Einsicht bestätigen",
-                            subtitle = "Zugriff auf die strukturierten DNS-/Verbindungs-Ereignisse",
+                            title = getString(R.string.network_log_viewer_presence_title),
+                            subtitle = getString(R.string.network_log_viewer_presence_subtitle),
                         ) { result ->
                             when (result) {
                                 is PresenceManager.Result.Success -> {
@@ -123,37 +125,40 @@ private fun NetworkLogViewerScreen(
     var outcome by remember { mutableStateOf<NetworkLogAccessOutcome?>(null) }
     var packageFilter by remember { mutableStateOf("") }
     val dateFormat = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM) }
+    val unknownPackage = stringResource(R.string.network_log_viewer_unknown_package)
+    val lineTemplate = stringResource(R.string.network_log_viewer_line)
+    val visibleCountTemplate = stringResource(R.string.log_viewer_visible_count)
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(text = "Netzwerk-Log", style = MaterialTheme.typography.headlineSmall)
+            Text(text = stringResource(R.string.network_log_viewer_screen_title), style = MaterialTheme.typography.headlineSmall)
 
             when (val current = outcome) {
                 null -> {
                     Text(
-                        "Presence-Nachweis erforderlich, bevor der Log-Inhalt angezeigt wird.",
+                        stringResource(R.string.network_log_viewer_presence_required),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     TextButton(onClick = { onRequestPresence { result -> outcome = result } }) {
-                        Text("Mit Biometrie bestätigen")
+                        Text(stringResource(R.string.sensitive_action_confirm_biometric_action))
                     }
                     TextButton(onClick = { onRequestPinPresence { result -> outcome = result } }) {
-                        Text("Mit Warden-PIN bestätigen")
+                        Text(stringResource(R.string.sensitive_action_confirm_pin_action))
                     }
                 }
                 NetworkLogAccessOutcome.Unavailable ->
                     Text(
-                        "⚠ Keine Biometrie eingerichtet — Log-Einsicht nicht möglich.",
+                        stringResource(R.string.log_viewer_biometric_unavailable),
                         color = MaterialTheme.colorScheme.error,
                     )
                 NetworkLogAccessOutcome.Denied ->
-                    Text("Abgebrochen oder fehlgeschlagen — kein Log-Inhalt angezeigt.")
+                    Text(stringResource(R.string.log_viewer_denied))
                 is NetworkLogAccessOutcome.Granted -> {
                     OutlinedTextField(
                         value = packageFilter,
                         onValueChange = { packageFilter = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Nach Paketname filtern") },
+                        label = { Text(stringResource(R.string.network_log_viewer_package_filter_label)) },
                         singleLine = true,
                     )
                     val filtered = remember(current.entries, packageFilter) {
@@ -163,15 +168,20 @@ private fun NetworkLogViewerScreen(
                         }
                     }
                     Text(
-                        text = "${filtered.size} von ${current.entries.size} Ereignissen",
+                        text = String.format(visibleCountTemplate, filtered.size, current.entries.size),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(filtered) { entry ->
                             Text(
-                                text = "${dateFormat.format(Date(entry.timestampMillis))} " +
-                                    "[${entry.kind}] ${entry.packageName ?: "?"}: ${entry.detail}",
+                                text = String.format(
+                                    lineTemplate,
+                                    dateFormat.format(Date(entry.timestampMillis)),
+                                    entry.kind,
+                                    entry.packageName ?: unknownPackage,
+                                    entry.detail,
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }

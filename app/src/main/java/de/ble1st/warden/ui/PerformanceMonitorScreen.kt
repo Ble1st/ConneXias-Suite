@@ -24,9 +24,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.performance.AppUsageInfo
 import de.ble1st.warden.performance.BatterySnapshot
 import de.ble1st.warden.performance.DeviceMemorySnapshot
@@ -63,10 +65,10 @@ fun PerformanceMonitorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Performance-Monitor") },
+                title = { Text(stringResource(R.string.performance_monitor_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_description_back))
                     }
                 },
             )
@@ -84,23 +86,20 @@ fun PerformanceMonitorScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onRefresh) { Text("Aktualisieren") }
+                TextButton(onClick = onRefresh) { Text(stringResource(R.string.performance_monitor_refresh_action)) }
             }
             HorizontalDivider()
-            Text(text = "Arbeitsspeicher", style = MaterialTheme.typography.titleMedium)
+            Text(text = stringResource(R.string.performance_monitor_memory_title), style = MaterialTheme.typography.titleMedium)
             MemorySection(memory, onRetry = onRefresh)
 
             HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
-            Text(text = "Akku", style = MaterialTheme.typography.titleMedium)
+            Text(text = stringResource(R.string.performance_monitor_battery_title), style = MaterialTheme.typography.titleMedium)
             BatterySection(battery, batteryDrainPercentPerHour, onRetry = onRefresh)
 
             HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
-            Text(text = "App-Aktivität (verdächtige Apps hervorgehoben)", style = MaterialTheme.typography.titleMedium)
+            Text(text = stringResource(R.string.performance_monitor_usage_title), style = MaterialTheme.typography.titleMedium)
             Text(
-                text = "Vordergrund-Nutzungszeit der letzten 24h — kein echter CPU-/RAM-Wert. " +
-                    "Android gibt Drittapps (auch Device Owner) keinen Zugriff auf die " +
-                    "tatsächliche Prozessorlast/den Speicherverbrauch fremder Apps; " +
-                    "Nutzungszeit ist die einzige real verfügbare Aktivitäts-Näherung.",
+                text = stringResource(R.string.performance_monitor_usage_intro),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 4.dp),
@@ -116,7 +115,7 @@ private fun MemorySection(memory: DeviceMemorySnapshot?, onRetry: () -> Unit) {
         // Vorschlag V-12 (2026-08-29): derselbe zweite Versuch wie in V-6. Der
         // "Aktualisieren"-Knopf oben tut dasselbe, steht aber je nach Bildschirmhöhe außer Sicht,
         // sobald man bei einem der unteren Abschnitte angekommen ist.
-        ErrorStateRow(headline = "Speicherstatus nicht lesbar", detail = "ActivityManager nicht verfügbar.", onRetry = onRetry)
+        ErrorStateRow(headline = stringResource(R.string.performance_monitor_memory_unreadable_headline), detail = stringResource(R.string.performance_monitor_memory_unreadable_detail), onRetry = onRetry)
         return
     }
     val usedFraction = if (memory.totalMemBytes > 0) {
@@ -131,8 +130,8 @@ private fun MemorySection(memory: DeviceMemorySnapshot?, onRetry: () -> Unit) {
             color = if (memory.lowMemory) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = "${formatBytes(memory.totalMemBytes - memory.availMemBytes)} / ${formatBytes(memory.totalMemBytes)} belegt" +
-                if (memory.lowMemory) " · ⚠ System meldet Speicherknappheit" else "",
+            text = String.format(stringResource(R.string.performance_monitor_memory_used), formatBytes(memory.totalMemBytes - memory.availMemBytes), formatBytes(memory.totalMemBytes)) +
+                if (memory.lowMemory) stringResource(R.string.performance_monitor_memory_low_suffix) else "",
             style = MaterialTheme.typography.bodySmall,
             color = if (memory.lowMemory) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -142,12 +141,16 @@ private fun MemorySection(memory: DeviceMemorySnapshot?, onRetry: () -> Unit) {
 @Composable
 private fun BatterySection(battery: BatterySnapshot?, drainPercentPerHour: Double?, onRetry: () -> Unit) {
     if (battery == null) {
-        ErrorStateRow(headline = "Akkustatus nicht lesbar", detail = "Kein ACTION_BATTERY_CHANGED-Broadcast erhalten.", onRetry = onRetry)
+        ErrorStateRow(headline = stringResource(R.string.performance_monitor_battery_unreadable_headline), detail = stringResource(R.string.performance_monitor_battery_unreadable_detail), onRetry = onRetry)
         return
     }
     Column {
         Text(
-            text = "${battery.percent}% — " + if (battery.charging) "lädt" else "entlädt",
+            text = if (battery.charging) {
+                String.format(stringResource(R.string.performance_monitor_battery_percent_charging), battery.percent)
+            } else {
+                String.format(stringResource(R.string.performance_monitor_battery_percent_discharging), battery.percent)
+            },
             style = MaterialTheme.typography.bodyMedium,
         )
         val details = buildList {
@@ -159,9 +162,9 @@ private fun BatterySection(battery: BatterySnapshot?, drainPercentPerHour: Doubl
         }
         Text(
             text = when {
-                battery.charging -> "Drain-Rate: lädt gerade, keine Berechnung."
-                drainPercentPerHour == null -> "Drain-Rate: noch nicht genug Messpunkte (Sammlung läuft alle 30 Minuten)."
-                else -> "Drain-Rate: ~${formatOneDecimal(drainPercentPerHour)}%/h seit letztem Ladevorgang."
+                battery.charging -> stringResource(R.string.performance_monitor_drain_charging)
+                drainPercentPerHour == null -> stringResource(R.string.performance_monitor_drain_insufficient_data)
+                else -> String.format(stringResource(R.string.performance_monitor_drain_rate), formatOneDecimal(drainPercentPerHour))
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -181,20 +184,20 @@ private fun UsageSection(
     if (!usageAccessGranted) {
         Column {
             Text(
-                text = "Nutzungsdatenzugriff nicht erteilt — einmalig manuell freigeben.",
+                text = stringResource(R.string.performance_monitor_usage_access_missing),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
-            TextButton(onClick = onRequestUsageAccess) { Text("Einstellungen öffnen") }
+            TextButton(onClick = onRequestUsageAccess) { Text(stringResource(R.string.performance_monitor_open_settings_action)) }
         }
         return
     }
     if (usageFindings == null) {
-        ErrorStateRow(headline = "Nutzungsdaten nicht lesbar", detail = "UsageStatsManager nicht verfügbar.", onRetry = onRetry)
+        ErrorStateRow(headline = stringResource(R.string.performance_monitor_usage_unreadable_headline), detail = stringResource(R.string.performance_monitor_usage_unreadable_detail), onRetry = onRetry)
         return
     }
     if (usageFindings.isEmpty()) {
-        EmptyStateRow(headline = "Keine Vordergrund-Aktivität in den letzten 24h")
+        EmptyStateRow(headline = stringResource(R.string.performance_monitor_usage_empty_headline))
         return
     }
     // Plain Column statt LazyColumn: dieser Screen ist bereits als Ganzes per verticalScroll
@@ -212,6 +215,9 @@ private fun UsageSection(
                 .thenByDescending { it.totalForegroundTimeMillis },
         )
     }
+    val contentDescriptionTemplate = stringResource(R.string.performance_monitor_row_content_description)
+    val suspiciousSuffix = stringResource(R.string.performance_monitor_row_suspicious_suffix)
+    val suspiciousMarker = stringResource(R.string.performance_monitor_suspicious_marker)
     Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         for (info in ordered) {
             val suspicious = info.packageName in suspiciousPackageNames
@@ -228,16 +234,15 @@ private fun UsageSection(
                     // oder gar nicht angesagt. Jetzt steht sie als Wort in der Beschreibung.
                     .semantics(mergeDescendants = true) {
                         contentDescription = buildString {
-                            append(label).append(", ").append(info.packageName)
-                            append(", ").append(duration).append(" im Vordergrund")
-                            if (suspicious) append(", als verdächtig eingestuft")
+                            append(String.format(contentDescriptionTemplate, label, info.packageName, duration))
+                            if (suspicious) append(suspiciousSuffix)
                         }
                     },
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(
-                        text = label + if (suspicious) " ⚠" else "",
+                        text = label + if (suspicious) suspiciousMarker else "",
                         color = if (suspicious) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     )
                     Text(text = info.packageName, style = MaterialTheme.typography.bodySmall.mono())

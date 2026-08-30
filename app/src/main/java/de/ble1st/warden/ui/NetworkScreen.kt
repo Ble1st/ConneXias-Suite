@@ -31,10 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.appmanagement.InstalledAppEntry
 import de.ble1st.warden.netlock.FirewallMode
 
@@ -63,10 +65,10 @@ fun NetworkScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Netzwerk") },
+                title = { Text(stringResource(R.string.network_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_description_back))
                     }
                 },
             )
@@ -81,17 +83,15 @@ fun NetworkScreen(
         ) {
             NetLockdownToggleRow(active = lockdownActive, onToggle = onToggleLockdown)
             HorizontalDivider()
-            Text(text = "App-Zugriff", style = MaterialTheme.typography.titleMedium)
+            Text(text = stringResource(R.string.network_app_access_title), style = MaterialTheme.typography.titleMedium)
             Text(
-                text = "Direktzugriff = App geht am Tunnel komplett vorbei (ungefiltertes Internet). " +
-                    "Standard = App läuft durch die Netz-Sperre, DNS-Anfragen werden gegen die " +
-                    "Blockliste geprüft.",
+                text = stringResource(R.string.network_app_access_intro),
                 style = MaterialTheme.typography.bodySmall,
             )
             if (appsLoadFailed) {
                 ErrorStateRow(
-                    headline = "App-Liste konnte nicht geladen werden",
-                    detail = "Vermutlich kein Device Owner aktiv.",
+                    headline = stringResource(R.string.network_app_list_unreadable_headline),
+                    detail = stringResource(R.string.network_no_device_owner_detail),
                 )
             }
             NetworkAppList(apps = apps, modeFor = modeFor, onSetMode = onSetMode, modifier = Modifier.weight(1f))
@@ -108,19 +108,20 @@ fun NetworkScreen(
 
 @Composable
 private fun NetLockdownToggleRow(active: Boolean?, onToggle: (Boolean) -> Unit) {
+    val stateActive = stringResource(R.string.network_lockdown_state_active)
+    val stateInactive = stringResource(R.string.network_lockdown_state_inactive)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
-            .semantics { stateDescription = if (active == true) "scharf" else "entschärft" },
+            .semantics { stateDescription = if (active == true) stateActive else stateInactive },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(text = "Netz-Sperre", style = MaterialTheme.typography.titleMedium)
+            Text(text = stringResource(R.string.network_lockdown_title), style = MaterialTheme.typography.titleMedium)
             Text(
-                text = "Kill-Switch + DNS-Blockliste für den gesamten Gerätetraffic (Always-On-VPN, " +
-                    "Device-Owner-erzwungen).",
+                text = stringResource(R.string.network_lockdown_description),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -128,8 +129,8 @@ private fun NetLockdownToggleRow(active: Boolean?, onToggle: (Boolean) -> Unit) 
     }
     if (active == null) {
         ErrorStateRow(
-            headline = "Status konnte nicht gelesen werden",
-            detail = "Vermutlich kein Device Owner aktiv.",
+            headline = stringResource(R.string.network_lockdown_status_unreadable_headline),
+            detail = stringResource(R.string.network_no_device_owner_detail),
         )
     }
 }
@@ -160,7 +161,7 @@ private fun NetworkAppList(
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Suchen") },
+            label = { Text(stringResource(R.string.network_search_label)) },
             singleLine = true,
         )
         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -173,13 +174,16 @@ private fun NetworkAppList(
 
 @Composable
 private fun NetworkAppRow(app: InstalledAppEntry, mode: FirewallMode, onSetMode: (FirewallMode) -> Unit) {
+    val rowContentDescription = String.format(stringResource(R.string.network_app_row_content_description), app.label)
+    val stateDirect = stringResource(R.string.network_app_row_state_direct)
+    val stateStandard = stringResource(R.string.network_app_row_state_standard)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .semantics {
-                contentDescription = "Netzwerk-Zugriff ${app.label}"
-                stateDescription = if (mode == FirewallMode.ALLOWED) "Direktzugriff" else "Standard"
+                contentDescription = rowContentDescription
+                stateDescription = if (mode == FirewallMode.ALLOWED) stateDirect else stateStandard
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -204,10 +208,9 @@ private fun BlocklistSection(
 ) {
     var draft by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = "Blockliste", style = MaterialTheme.typography.titleMedium)
+        Text(text = stringResource(R.string.network_blocklist_title), style = MaterialTheme.typography.titleMedium)
         Text(
-            text = "$defaultSize eingebaute Tracker-/Ad-Domains + ${userDomains.size} eigene. " +
-                "DNS-Anfragen an gesperrte Domains (und ihre Subdomains) werden mit NXDOMAIN beantwortet.",
+            text = String.format(stringResource(R.string.network_blocklist_summary), defaultSize, userDomains.size),
             style = MaterialTheme.typography.bodySmall,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -215,7 +218,7 @@ private fun BlocklistSection(
                 value = draft,
                 onValueChange = { draft = it },
                 modifier = Modifier.weight(1f),
-                label = { Text("Domain hinzufügen") },
+                label = { Text(stringResource(R.string.network_add_domain_label)) },
                 singleLine = true,
             )
             TextButton(
@@ -224,7 +227,7 @@ private fun BlocklistSection(
                     draft = ""
                 },
                 enabled = draft.isNotBlank(),
-            ) { Text("Hinzufügen") }
+            ) { Text(stringResource(R.string.network_add_domain_action)) }
         }
         userDomains.sorted().forEach { domain ->
             Row(
@@ -234,7 +237,7 @@ private fun BlocklistSection(
             ) {
                 Text(text = domain, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 IconButton(onClick = { onRemoveDomain(domain) }) {
-                    Icon(imageVector = Icons.Filled.Close, contentDescription = "$domain entfernen")
+                    Icon(imageVector = Icons.Filled.Close, contentDescription = String.format(stringResource(R.string.network_remove_domain_content_description), domain))
                 }
             }
         }

@@ -25,8 +25,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import de.ble1st.warden.R
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.logging.ChainVerificationResult
 import de.ble1st.warden.logging.HashChainLogStore
@@ -111,8 +113,8 @@ class LogViewerActivity : FragmentActivity() {
                 LogViewerScreen(
                     onRequestPresence = { onResult ->
                         presenceManager.request(
-                            title = "Log-Einsicht bestätigen",
-                            subtitle = "Zugriff auf das sicherheitsrelevante Log (Konzept G.4)",
+                            title = getString(R.string.log_viewer_biometric_prompt_title),
+                            subtitle = getString(R.string.log_viewer_biometric_prompt_subtitle),
                         ) { result ->
                             when (result) {
                                 is PresenceManager.Result.Success -> {
@@ -222,24 +224,24 @@ private fun LogViewerScreen(
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(text = "Log-Einsicht", style = MaterialTheme.typography.headlineSmall)
+            Text(text = stringResource(R.string.log_viewer_screen_title), style = MaterialTheme.typography.headlineSmall)
 
             when (val current = outcome) {
                 null -> {
                     Text(
-                        "Presence-Nachweis erforderlich, bevor der Log-Inhalt angezeigt wird (Konzept G.4).",
+                        stringResource(R.string.log_viewer_presence_required),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     TextButton(onClick = { onRequestPresence { result -> outcome = result } }) {
-                        Text("Mit Biometrie bestätigen")
+                        Text(stringResource(R.string.sensitive_action_confirm_biometric_action))
                     }
                     TextButton(onClick = { onRequestPinPresence { result -> outcome = result } }) {
-                        Text("Mit Warden-PIN bestätigen")
+                        Text(stringResource(R.string.sensitive_action_confirm_pin_action))
                     }
                 }
                 LogAccessOutcome.Unavailable ->
                     Text(
-                        "⚠ Keine Biometrie eingerichtet — Log-Einsicht nicht möglich.",
+                        stringResource(R.string.log_viewer_biometric_unavailable),
                         color = MaterialTheme.colorScheme.error,
                     )
                 // Vorschlag V-14 (2026-08-29): ein abgebrochener Nachweis war eine Sackgasse — der
@@ -247,12 +249,12 @@ private fun LogViewerScreen(
                 // Ein versehentlich weggewischter Biometrie-Dialog ist der wahrscheinlichste Weg
                 // hierher und rechtfertigt das nicht.
                 LogAccessOutcome.Denied -> {
-                    Text("Abgebrochen oder fehlgeschlagen — kein Log-Inhalt angezeigt.")
+                    Text(stringResource(R.string.log_viewer_denied))
                     TextButton(onClick = { onRequestPresence { result -> outcome = result } }) {
-                        Text("Erneut mit Biometrie versuchen")
+                        Text(stringResource(R.string.log_viewer_retry_biometric_action))
                     }
                     TextButton(onClick = { onRequestPinPresence { result -> outcome = result } }) {
-                        Text("Erneut mit Warden-PIN versuchen")
+                        Text(stringResource(R.string.log_viewer_retry_pin_action))
                     }
                 }
                 is LogAccessOutcome.Granted -> {
@@ -265,12 +267,12 @@ private fun LogViewerScreen(
                         Tab(
                             selected = !showSystemEvents,
                             onClick = { showSystemEvents = false },
-                            text = { Text("Warden-Audit (${current.entries.size})") },
+                            text = { Text(String.format(stringResource(R.string.log_viewer_tab_audit), current.entries.size)) },
                         )
                         Tab(
                             selected = showSystemEvents,
                             onClick = { showSystemEvents = true },
-                            text = { Text("System (${current.systemEvents.records.size})") },
+                            text = { Text(String.format(stringResource(R.string.log_viewer_tab_system), current.systemEvents.records.size)) },
                         )
                     }
                     if (showSystemEvents) {
@@ -290,8 +292,8 @@ private fun AuditLogList(granted: LogAccessOutcome.Granted) {
         item {
             Text(
                 text = when (val chain = granted.chain) {
-                    is ChainVerificationResult.Valid -> "Kette gültig (${chain.entryCount} Einträge)"
-                    is ChainVerificationResult.Broken -> "⚠ Kette gebrochen bei #${chain.atSequence}: ${chain.reason}"
+                    is ChainVerificationResult.Valid -> String.format(stringResource(R.string.log_viewer_chain_valid), chain.entryCount)
+                    is ChainVerificationResult.Broken -> String.format(stringResource(R.string.log_viewer_chain_broken), chain.atSequence, chain.reason)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (granted.chain is ChainVerificationResult.Broken) {
@@ -307,8 +309,7 @@ private fun AuditLogList(granted: LogAccessOutcome.Granted) {
         granted.discardedThroughSequence?.let { sequence ->
             item {
                 Text(
-                    text = "Ältere Einträge bis #$sequence wurden nach der Aufbewahrungsgrenze " +
-                        "verworfen; die Kette schließt lückenlos daran an.",
+                    text = String.format(stringResource(R.string.log_viewer_discarded_notice), sequence),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -316,7 +317,7 @@ private fun AuditLogList(granted: LogAccessOutcome.Granted) {
         }
         items(granted.entries.asReversed()) { entry ->
             Text(
-                text = "#${entry.sequence} [${entry.tag}] ${entry.message}",
+                text = String.format(stringResource(R.string.log_viewer_audit_line), entry.sequence, entry.tag, entry.message),
                 // Vorschlag U-9 (2026-08-29): body* ist seither proportional — die Protokollzeilen
                 // fordern Monospace gezielt an. Hier hat feste Zeichenbreite eine Funktion:
                 // Sequenznummern und Tags stehen dadurch über die Zeilen hinweg untereinander.
@@ -337,14 +338,18 @@ private fun SystemEventList(decoded: SecurityLogCodec.DecodeResult) {
     var minimumSeverity by remember { mutableStateOf(ThreatSeverity.WARNING) }
     val visible = decoded.records.filter { it.severity.ordinal >= minimumSeverity.ordinal }
 
+    val filterAll = stringResource(R.string.log_viewer_filter_all)
+    val filterWarning = stringResource(R.string.log_viewer_filter_warning)
+    val filterCritical = stringResource(R.string.log_viewer_filter_critical)
+    val systemLineTemplate = stringResource(R.string.log_viewer_system_line)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         for (severity in ThreatSeverity.entries) {
             TextButton(onClick = { minimumSeverity = severity }) {
                 Text(
                     text = when (severity) {
-                        ThreatSeverity.INFO -> "Alle"
-                        ThreatSeverity.WARNING -> "Ab Warnung"
-                        ThreatSeverity.CRITICAL -> "Nur kritisch"
+                        ThreatSeverity.INFO -> filterAll
+                        ThreatSeverity.WARNING -> filterWarning
+                        ThreatSeverity.CRITICAL -> filterCritical
                     },
                     color = if (severity == minimumSeverity) {
                         MaterialTheme.colorScheme.primary
@@ -358,14 +363,12 @@ private fun SystemEventList(decoded: SecurityLogCodec.DecodeResult) {
 
     when {
         decoded.skippedLines < 0 -> Text(
-            "⚠ System-Ereignisprotokoll nicht lesbar — Datei beschädigt oder Schlüssel verloren.",
+            stringResource(R.string.log_viewer_system_unreadable),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.error,
         )
         decoded.records.isEmpty() -> Text(
-            "Keine Ereignisse gespeichert. System-Sicherheitslog und/oder Netzwerk-Metadaten-Log " +
-                "müssen unter Safeguards ▸ Forensik/Audit eingeschaltet sein; das System liefert " +
-                "die Ereignisse danach schubweise, nicht sofort.",
+            stringResource(R.string.log_viewer_system_empty),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -373,7 +376,7 @@ private fun SystemEventList(decoded: SecurityLogCodec.DecodeResult) {
             if (decoded.skippedLines > 0) {
                 item {
                     Text(
-                        "⚠ ${decoded.skippedLines} beschädigte Zeile(n) übersprungen",
+                        String.format(stringResource(R.string.log_viewer_skipped_lines), decoded.skippedLines),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -381,15 +384,20 @@ private fun SystemEventList(decoded: SecurityLogCodec.DecodeResult) {
             }
             item {
                 Text(
-                    "${visible.size} von ${decoded.records.size} Ereignissen",
+                    String.format(stringResource(R.string.log_viewer_visible_count), visible.size, decoded.records.size),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             items(visible.asReversed()) { record ->
                 Text(
-                    text = "${formatTimestamp(record.timestampMillis)} ${severityMarker(record.severity)} " +
-                        "${record.type.label}: ${record.detail}",
+                    text = String.format(
+                        systemLineTemplate,
+                        formatTimestamp(record.timestampMillis),
+                        severityMarker(record.severity),
+                        record.type.label,
+                        record.detail,
+                    ),
                     // Monospace wie bei den Audit-Zeilen (Vorschlag U-9): Zeitstempel und
                     // Schweregrad-Marker fluchten nur bei fester Zeichenbreite.
                     style = MaterialTheme.typography.bodySmall.mono(),

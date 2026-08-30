@@ -3,6 +3,7 @@ package de.ble1st.warden.presence
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import de.ble1st.warden.R
 import de.ble1st.warden.crypto.PresenceGate
 import de.ble1st.warden.crypto.PresenceProof
 import de.ble1st.warden.crypto.PresenceUnavailableException
@@ -50,7 +51,7 @@ class PresenceManager(
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
             .setSubtitle(subtitle)
-            .setNegativeButtonText("Abbrechen")
+            .setNegativeButtonText(activity.getString(R.string.action_cancel))
             .build()
 
         val prompt = BiometricPrompt(

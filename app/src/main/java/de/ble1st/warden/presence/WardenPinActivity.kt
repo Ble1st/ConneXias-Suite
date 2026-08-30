@@ -33,10 +33,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import de.ble1st.warden.BuildConfig
+import de.ble1st.warden.R
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.crypto.Engine
 import de.ble1st.warden.failsafe.FailsafeActivity
@@ -306,6 +308,22 @@ private fun WardenPinScreen(
      */
     var nowSeconds by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
 
+    // stringResource() braucht einen Composable-Aufrufkontext — die lokalen Funktionen unten
+    // (onConfirmSetup & Co.) laufen als reine Klick-Callbacks außerhalb der Komposition, deshalb
+    // hier vorab aufgelöst statt an jeder Verwendungsstelle einzeln aufgerufen.
+    val msgConfirmAgain = stringResource(R.string.pin_confirm_again_message)
+    val msgPinChanged = stringResource(R.string.pin_changed_message)
+    val msgPinSaved = stringResource(R.string.pin_saved_message)
+    val msgMismatch = stringResource(R.string.pin_mismatch_message)
+    val msgDuressMatchesMain = stringResource(R.string.pin_duress_matches_main_message)
+    val msgDuressSaved = stringResource(R.string.pin_duress_saved_message)
+    val msgDuressCleared = stringResource(R.string.pin_duress_cleared_message)
+    val templateLockedRemaining = stringResource(R.string.pin_locked_remaining)
+    val templateWrongWithBackoff = stringResource(R.string.pin_wrong_with_backoff)
+    val msgWrong = stringResource(R.string.pin_wrong_message)
+    val msgNotConfigured = stringResource(R.string.pin_not_configured_message)
+    val msgUnlocked = stringResource(R.string.pin_unlocked_label)
+
     fun onDigit(d: Int) {
         message = null
         if (digits.size < MAX_PIN_LENGTH) digits = digits + d
@@ -322,7 +340,7 @@ private fun WardenPinScreen(
         when {
             firstPin == null -> {
                 pendingFirstPin = digits
-                message = "Jetzt zur Bestätigung erneut eingeben."
+                message = msgConfirmAgain
             }
             firstPin == digits -> {
                 val pinBytes = digits.joinToString(separator = "").toByteArray(StandardCharsets.UTF_8)
@@ -333,13 +351,13 @@ private fun WardenPinScreen(
                 }
                 logStore.append(Log.INFO, "WardenPin", if (isChangingPin) "pin changed" else "pin configured")
                 pendingFirstPin = null
-                message = if (isChangingPin) "PIN geändert." else "PIN gespeichert."
+                message = if (isChangingPin) msgPinChanged else msgPinSaved
                 isChangingPin = false
                 loadResult = currentLoadResult()
             }
             else -> {
                 pendingFirstPin = null
-                message = "PINs stimmten nicht überein — von vorn."
+                message = msgMismatch
             }
         }
         digits = emptyList()
@@ -356,7 +374,7 @@ private fun WardenPinScreen(
         when {
             firstPin == null -> {
                 pendingFirstPin = digits
-                message = "Jetzt zur Bestätigung erneut eingeben."
+                message = msgConfirmAgain
             }
             firstPin == digits -> {
                 val pinBytes = digits.joinToString(separator = "").toByteArray(StandardCharsets.UTF_8)
@@ -364,7 +382,7 @@ private fun WardenPinScreen(
                 if (matchesMainPin) {
                     pinBytes.fill(0)
                     pendingFirstPin = null
-                    message = "Duress-PIN darf nicht der Haupt-PIN entsprechen — von vorn."
+                    message = msgDuressMatchesMain
                 } else {
                     val hash = Engine.hashPassword(pinBytes)
                     pinBytes.fill(0)
@@ -373,14 +391,14 @@ private fun WardenPinScreen(
                     }
                     logStore.append(Log.INFO, "WardenPin", "duress pin configured")
                     pendingFirstPin = null
-                    message = "Duress-PIN gespeichert."
+                    message = msgDuressSaved
                     isSettingDuressPin = false
                     duressConfigured = currentDuressConfigured()
                 }
             }
             else -> {
                 pendingFirstPin = null
-                message = "PINs stimmten nicht überein — von vorn."
+                message = msgMismatch
             }
         }
         digits = emptyList()
@@ -392,14 +410,14 @@ private fun WardenPinScreen(
         }
         logStore.append(Log.INFO, "WardenPin", "duress pin cleared")
         duressConfigured = currentDuressConfigured()
-        message = "Duress-PIN gelöscht."
+        message = msgDuressCleared
     }
 
     fun onConfirmVerify(blob: WardenPinBlob) {
         if (digits.size < UNLOCK_MIN_PIN_LENGTH) return
         val nowSeconds = System.currentTimeMillis() / 1000
         if (!WardenAntiHammeringDecision.isAttemptAllowedNow(blob.backoffUntilEpochSeconds, nowSeconds)) {
-            message = "Gesperrt — noch ${blob.backoffUntilEpochSeconds - nowSeconds}s warten."
+            message = String.format(templateLockedRemaining, blob.backoffUntilEpochSeconds - nowSeconds)
             digits = emptyList()
             return
         }
@@ -423,7 +441,7 @@ private fun WardenPinScreen(
                 current.copy(locked = true, failedAttempts = failedAttempts, backoffUntilEpochSeconds = nowSeconds + backoff)
             }
             val backoff = persisted.backoffUntilEpochSeconds - nowSeconds
-            message = if (backoff > 0) "Falsche PIN — Sperre für ${backoff}s." else "Falsche PIN."
+            message = if (backoff > 0) String.format(templateWrongWithBackoff, backoff) else msgWrong
             loadResult = currentLoadResult()
             digits = emptyList()
             runCatching { duressResponder.trigger() }
@@ -452,7 +470,7 @@ private fun WardenPinScreen(
                 } else {
                     logStore.append(Log.INFO, "WardenPin", "pin verified, unlocked")
                     unlocked = true
-                    message = "Entsperrt."
+                    message = msgUnlocked
                 }
             }
             WardenPinDecisionResult.Rejected -> {
@@ -463,10 +481,10 @@ private fun WardenPinScreen(
                 }
                 val backoff = persisted.backoffUntilEpochSeconds - nowSeconds
                 logStore.append(Log.WARN, "WardenPin", "pin rejected, failedAttempts=${persisted.failedAttempts} backoffSeconds=$backoff")
-                message = if (backoff > 0) "Falsche PIN — Sperre für ${backoff}s." else "Falsche PIN."
+                message = if (backoff > 0) String.format(templateWrongWithBackoff, backoff) else msgWrong
             }
             WardenPinDecisionResult.NotConfigured -> {
-                message = "Keine PIN eingerichtet."
+                message = msgNotConfigured
             }
         }
         loadResult = currentLoadResult()
@@ -479,10 +497,10 @@ private fun WardenPinScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(text = "Warden-PIN", style = MaterialTheme.typography.headlineMedium)
+            Text(text = stringResource(R.string.pin_screen_title), style = MaterialTheme.typography.headlineMedium)
             if (isPresenceRequest) {
                 Text(
-                    text = "Präsenznachweis angefordert",
+                    text = stringResource(R.string.pin_presence_requested_label),
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -493,15 +511,14 @@ private fun WardenPinScreen(
                     // Presence muss ein *bestehendes* Owner-Geheimnis bestätigen — eine
                     // Ersteinrichtung an Ort und Stelle wäre kein Nachweis, s. Klassendoc.
                     Text(
-                        text = "⚠ Noch keine PIN eingerichtet — Presence-Nachweis nicht möglich. " +
-                            "Zuerst eine PIN festlegen.",
+                        text = stringResource(R.string.pin_presence_not_yet_configured),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 16.dp),
                     )
                 } else {
                     SetupContent(
-                        subtitle = if (pendingFirstPin == null) "PIN festlegen (6–8 Ziffern)" else "PIN zur Bestätigung erneut eingeben",
+                        subtitle = if (pendingFirstPin == null) stringResource(R.string.pin_setup_subtitle) else stringResource(R.string.pin_setup_confirm_subtitle),
                         message = message,
                         digits = digits,
                         onDigit = ::onDigit,
@@ -513,7 +530,7 @@ private fun WardenPinScreen(
                 is WardenPinStateDecision.LoadResult.Loaded -> if (unlocked) {
                     if (isChangingPin) {
                         SetupContent(
-                            subtitle = if (pendingFirstPin == null) "Neue PIN festlegen (6–8 Ziffern)" else "Neue PIN zur Bestätigung erneut eingeben",
+                            subtitle = if (pendingFirstPin == null) stringResource(R.string.pin_change_setup_subtitle) else stringResource(R.string.pin_change_confirm_subtitle),
                             message = message,
                             digits = digits,
                             onDigit = ::onDigit,
@@ -524,11 +541,11 @@ private fun WardenPinScreen(
                             onClick = { isChangingPin = false; pendingFirstPin = null; digits = emptyList(); message = null },
                             modifier = Modifier.padding(top = 8.dp),
                         ) {
-                            Text("Abbrechen")
+                            Text(stringResource(R.string.action_cancel))
                         }
                     } else if (isSettingDuressPin) {
                         SetupContent(
-                            subtitle = if (pendingFirstPin == null) "Duress-PIN festlegen (6–8 Ziffern)" else "Duress-PIN zur Bestätigung erneut eingeben",
+                            subtitle = if (pendingFirstPin == null) stringResource(R.string.pin_duress_setup_subtitle) else stringResource(R.string.pin_duress_confirm_subtitle),
                             message = message,
                             digits = digits,
                             onDigit = ::onDigit,
@@ -539,15 +556,15 @@ private fun WardenPinScreen(
                             onClick = { isSettingDuressPin = false; pendingFirstPin = null; digits = emptyList(); message = null },
                             modifier = Modifier.padding(top = 8.dp),
                         ) {
-                            Text("Abbrechen")
+                            Text(stringResource(R.string.action_cancel))
                         }
                     } else {
-                        Text(text = "Entsperrt", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                        Text(text = stringResource(R.string.pin_unlocked_label), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
                         Button(
                             onClick = { unlocked = false; digits = emptyList(); message = null },
                             modifier = Modifier.padding(top = 24.dp),
                         ) {
-                            Text("Erneut sperren")
+                            Text(stringResource(R.string.pin_relock_action))
                         }
                         // Punkt 7 ("weitere App-UI-Verschönerungen", 2026-08-22) — die beiden
                         // gleichrangigen "PIN-Verwaltung ändern"-Einstiege zu einer verbundenen
@@ -568,14 +585,14 @@ private fun WardenPinScreen(
                                 shape = ButtonGroupStartShape,
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text("PIN ändern", maxLines = 1)
+                                Text(stringResource(R.string.pin_change_action), maxLines = 1)
                             }
                             Button(
                                 onClick = { isSettingDuressPin = true; pendingFirstPin = null; digits = emptyList(); message = null },
                                 shape = ButtonGroupEndShape,
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text(if (duressConfigured) "Duress-PIN ändern" else "Duress-PIN einrichten", maxLines = 1)
+                                Text(if (duressConfigured) stringResource(R.string.pin_duress_change_action) else stringResource(R.string.pin_duress_setup_action), maxLines = 1)
                             }
                         }
                         if (duressConfigured) {
@@ -588,20 +605,15 @@ private fun WardenPinScreen(
                                 onClick = { confirmClearDuress = true },
                                 modifier = Modifier.padding(top = 8.dp),
                             ) {
-                                Text("Duress-PIN löschen")
+                                Text(stringResource(R.string.pin_duress_delete_action))
                             }
                         }
                         if (confirmClearDuress) {
                             AlertDialog(
                                 onDismissRequest = { confirmClearDuress = false },
-                                title = { Text("Duress-PIN löschen?") },
+                                title = { Text(stringResource(R.string.pin_duress_delete_dialog_title)) },
                                 text = {
-                                    Text(
-                                        "Danach gibt es keine PIN mehr, die unter Zwang eingegeben " +
-                                            "werden kann, ohne dass es auffällt — das Gerät startet " +
-                                            "dann nicht mehr unbemerkt in den BFU-Zustand neu. " +
-                                            "Erneut einrichten geht jederzeit.",
-                                    )
+                                    Text(stringResource(R.string.pin_duress_delete_dialog_body))
                                 },
                                 confirmButton = {
                                     TextButton(
@@ -609,10 +621,10 @@ private fun WardenPinScreen(
                                             onClearDuressPin()
                                             confirmClearDuress = false
                                         },
-                                    ) { Text("Löschen") }
+                                    ) { Text(stringResource(R.string.action_delete)) }
                                 },
                                 dismissButton = {
-                                    TextButton(onClick = { confirmClearDuress = false }) { Text("Abbrechen") }
+                                    TextButton(onClick = { confirmClearDuress = false }) { Text(stringResource(R.string.action_cancel)) }
                                 },
                             )
                         }
@@ -633,10 +645,10 @@ private fun WardenPinScreen(
                         }
                     }
                     SetupContent(
-                        subtitle = "PIN eingeben",
+                        subtitle = stringResource(R.string.pin_enter_subtitle),
                         // Die mitlaufende Restzeit ersetzt die eingefrorene Meldung aus
                         // onConfirmVerify, solange die Sperre steht.
-                        message = if (blocked && remaining > 0) "Gesperrt — noch ${remaining}s warten." else message,
+                        message = if (blocked && remaining > 0) String.format(stringResource(R.string.pin_locked_remaining), remaining) else message,
                         digits = digits,
                         onDigit = ::onDigit,
                         onBackspace = ::onBackspace,
@@ -661,14 +673,14 @@ private fun WardenPinScreen(
                     // Zustand wird über den ohnehin vorhandenen Offline-Failsafe behandelt, s.
                     // Klassendoc.
                     Text(
-                        text = "⚠ Zustand beschädigt — Wiederherstellung über den Offline-Failsafe",
+                        text = stringResource(R.string.pin_corrupted_message),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 16.dp),
                     )
                     onOpenFailsafe?.let { openFailsafe ->
                         Button(onClick = openFailsafe, modifier = Modifier.padding(top = 16.dp)) {
-                            Text("Zum Offline-Failsafe")
+                            Text(stringResource(R.string.pin_open_failsafe_action))
                         }
                     }
                 }
@@ -703,9 +715,10 @@ private fun SetupContent(
 
 @Composable
 private fun PinDots(enteredLength: Int, maxLength: Int, modifier: Modifier = Modifier) {
+    val description = String.format(stringResource(R.string.pin_dots_content_description), enteredLength, maxLength)
     Row(
         modifier = modifier.semantics {
-            contentDescription = "$enteredLength von $maxLength Ziffern eingegeben"
+            contentDescription = description
         },
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -732,18 +745,21 @@ private fun Numpad(
     onConfirm: () -> Unit,
     confirmEnabled: Boolean,
 ) {
+    val digitDescriptionTemplate = stringResource(R.string.pin_digit_content_description)
+    val backspaceDescription = stringResource(R.string.pin_backspace_content_description)
+    val confirmDescription = stringResource(R.string.action_confirm)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         NUMPAD_ROWS.forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEach { digit ->
-                    NumpadButton(label = "$digit", description = "Ziffer $digit", onClick = { onDigit(digit) })
+                    NumpadButton(label = "$digit", description = String.format(digitDescriptionTemplate, digit), onClick = { onDigit(digit) })
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            NumpadButton(label = "⌫", description = "Löschen", onClick = onBackspace)
-            NumpadButton(label = "0", description = "Ziffer 0", onClick = { onDigit(0) })
-            NumpadButton(label = "OK", description = "Bestätigen", onClick = onConfirm, enabled = confirmEnabled)
+            NumpadButton(label = "⌫", description = backspaceDescription, onClick = onBackspace)
+            NumpadButton(label = "0", description = String.format(digitDescriptionTemplate, 0), onClick = { onDigit(0) })
+            NumpadButton(label = "OK", description = confirmDescription, onClick = onConfirm, enabled = confirmEnabled)
         }
     }
 }

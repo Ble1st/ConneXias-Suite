@@ -11,10 +11,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.domain.sim.SimChangeReaction
 
 /**
@@ -33,18 +35,16 @@ fun SimChangeField(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        Text(text = "Reaktion auf SIM-Wechsel", style = MaterialTheme.typography.labelLarge)
+        Text(text = stringResource(R.string.sim_change_field_title), style = MaterialTheme.typography.labelLarge)
         Text(
-            text = "Prüft regelmäßig, ob noch dieselbe SIM steckt — der einzige Auslöser in " +
-                "Warden, der ohne dich funktioniert (kein Standort, kein Fernzugriff, kein Netz " +
-                "nötig). Eine entfernte SIM zählt genauso als Wechsel wie eine fremde. Der " +
-                "eigene Kartentausch löst dasselbe aus.",
+            text = stringResource(R.string.sim_change_field_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
         )
+        val offLabel = stringResource(R.string.field_off_label)
         SIM_CHANGE_OPTIONS.forEach { reaction ->
-            val label = reaction?.label ?: "Aus"
+            val label = reaction?.label ?: offLabel
             val isSelected = reaction == selectedReaction
             Row(
                 modifier = Modifier

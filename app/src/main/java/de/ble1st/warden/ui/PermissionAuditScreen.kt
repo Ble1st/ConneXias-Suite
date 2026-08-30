@@ -31,11 +31,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import de.ble1st.warden.R
 import de.ble1st.warden.appmanagement.PermissionAuditInfo
 import de.ble1st.warden.domain.appmanagement.PermissionAuditDecision
 import de.ble1st.warden.ui.theme.mono
@@ -71,10 +73,10 @@ fun PermissionAuditScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Permission-Audit") },
+                title = { Text(stringResource(R.string.permission_audit_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_description_back))
                     }
                 },
             )
@@ -88,9 +90,7 @@ fun PermissionAuditScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "Klassifiziert die von jeder installierten Fremd-App deklarierten Rechte " +
-                    "(Normal/Gefährlich/Speziell) und warnt ab ${PermissionAuditDecision.THRESHOLD} " +
-                    "gleichzeitig deklarierten gefährlichen Rechten. Systemapps sind ausgenommen.",
+                text = String.format(stringResource(R.string.permission_audit_intro), PermissionAuditDecision.THRESHOLD),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
@@ -99,7 +99,7 @@ fun PermissionAuditScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onScan, enabled = !scanInProgress) {
-                    Text(if (findings == null) "Scannen" else "Erneut scannen")
+                    Text(if (findings == null) stringResource(R.string.permission_audit_scan_action) else stringResource(R.string.permission_audit_rescan_action))
                 }
                 if (scanInProgress) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -121,6 +121,13 @@ fun PermissionAuditScreen(
                     )
             }
             if (findings != null) {
+                val filterStateOn = stringResource(R.string.security_scanner_autofreeze_state_on)
+                val filterStateOff = stringResource(R.string.security_scanner_autofreeze_state_off)
+                val filterContentDescription = String.format(
+                    stringResource(R.string.permission_audit_filter_content_description),
+                    visible?.size ?: 0,
+                    findings.size,
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -131,17 +138,16 @@ fun PermissionAuditScreen(
                         )
                         .padding(vertical = 4.dp)
                         .semantics {
-                            stateDescription = if (onlyFlagged) "an" else "aus"
-                            contentDescription = "Nur auffällige Apps zeigen. " +
-                                "${visible?.size ?: 0} von ${findings.size} Apps sichtbar."
+                            stateDescription = if (onlyFlagged) filterStateOn else filterStateOff
+                            contentDescription = filterContentDescription
                         },
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text(text = "Nur auffällige zeigen", style = MaterialTheme.typography.bodyMedium)
+                        Text(text = stringResource(R.string.permission_audit_filter_label), style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            text = "${visible?.size ?: 0} von ${findings.size} Apps",
+                            text = String.format(stringResource(R.string.permission_audit_visible_count), visible?.size ?: 0, findings.size),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -152,15 +158,17 @@ fun PermissionAuditScreen(
             HorizontalDivider()
             when {
                 findings == null && !scanInProgress ->
-                    EmptyStateRow(headline = "Noch nicht gescannt", detail = "Auf \"Scannen\" tippen.")
+                    EmptyStateRow(headline = stringResource(R.string.permission_audit_not_scanned_headline), detail = stringResource(R.string.permission_audit_not_scanned_detail))
                 findings == null -> {}
-                findings.isEmpty() -> EmptyStateRow(headline = "Keine Fremd-Apps gefunden")
+                findings.isEmpty() -> EmptyStateRow(headline = stringResource(R.string.permission_audit_no_apps_headline))
                 visible.isNullOrEmpty() ->
                     EmptyStateRow(
-                        headline = "Keine auffällige App",
-                        detail = "Keine der ${findings.size} Apps deklariert " +
-                            "${PermissionAuditDecision.THRESHOLD} oder mehr gefährliche Rechte " +
-                            "gleichzeitig. Filter ausschalten, um alle zu sehen.",
+                        headline = stringResource(R.string.permission_audit_none_flagged_headline),
+                        detail = String.format(
+                            stringResource(R.string.permission_audit_none_flagged_detail),
+                            findings.size,
+                            PermissionAuditDecision.THRESHOLD,
+                        ),
                     )
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -192,6 +200,15 @@ private fun PermissionAuditRow(
     // Zurückscrollen war sie wieder zu. Mit dem `key = { it.packageName }` der LazyColumn hat
     // jede Zeile einen stabilen Speicherplatz.
     var expanded by rememberSaveable { mutableStateOf(false) }
+    val rowContentDescription = String.format(
+        stringResource(R.string.permission_audit_row_content_description),
+        info.label,
+        info.packageName,
+        info.dangerousPermissions.size,
+        info.specialPermissions.size,
+    )
+    val rowStateFlagged = stringResource(R.string.permission_audit_row_state_flagged)
+    val rowStateUnremarkable = stringResource(R.string.permission_audit_row_state_unremarkable)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -202,10 +219,8 @@ private fun PermissionAuditRow(
             // Paketnamen anschließend noch einmal einzeln. Die Rechte-Zahlen kommen mit in die
             // Beschreibung — sie sind die eigentliche Information dieser Zeile.
             .semantics(mergeDescendants = true) {
-                contentDescription = "Permission-Audit ${info.label}, ${info.packageName}, " +
-                    "${info.dangerousPermissions.size} gefährliche und " +
-                    "${info.specialPermissions.size} spezielle Rechte"
-                stateDescription = if (info.tooManyDangerousPermissions) "zu viele gefährliche Rechte" else "unauffällig"
+                contentDescription = rowContentDescription
+                stateDescription = if (info.tooManyDangerousPermissions) rowStateFlagged else rowStateUnremarkable
             },
     ) {
         Row(
@@ -217,8 +232,8 @@ private fun PermissionAuditRow(
                 Text(text = info.label, style = MaterialTheme.typography.bodyLarge)
                 Text(text = info.packageName, style = MaterialTheme.typography.bodySmall.mono())
                 Text(
-                    text = "${info.dangerousPermissions.size} gefährlich · ${info.specialPermissions.size} speziell" +
-                        if (revoked) " · gesperrt" else "",
+                    text = String.format(stringResource(R.string.permission_audit_row_summary), info.dangerousPermissions.size, info.specialPermissions.size) +
+                        if (revoked) stringResource(R.string.permission_audit_row_revoked_suffix) else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = when {
                         revoked -> MaterialTheme.colorScheme.error
@@ -228,13 +243,13 @@ private fun PermissionAuditRow(
                 )
             }
             TextButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "Weniger" else "Details")
+                Text(if (expanded) stringResource(R.string.permission_audit_less_action) else stringResource(R.string.permission_audit_details_action))
             }
         }
         if (expanded) {
             if (info.dangerousPermissions.isNotEmpty()) {
                 Text(
-                    text = "Gefährlich: " + info.dangerousPermissions.joinToString { it.substringAfterLast('.') },
+                    text = String.format(stringResource(R.string.permission_audit_dangerous_prefix), info.dangerousPermissions.joinToString { it.substringAfterLast('.') }),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -251,15 +266,15 @@ private fun PermissionAuditRow(
             if (info.dangerousPermissions.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (revoked) {
-                        TextButton(onClick = onRestore) { Text("Rechte wiederherstellen") }
+                        TextButton(onClick = onRestore) { Text(stringResource(R.string.permission_audit_restore_action)) }
                     } else {
-                        TextButton(onClick = onRevoke) { Text("Gefährliche Rechte sperren") }
+                        TextButton(onClick = onRevoke) { Text(stringResource(R.string.permission_audit_revoke_action)) }
                     }
                 }
             }
             if (info.specialPermissions.isNotEmpty()) {
                 Text(
-                    text = "Speziell: " + info.specialPermissions.joinToString { it.substringAfterLast('.') },
+                    text = String.format(stringResource(R.string.permission_audit_special_prefix), info.specialPermissions.joinToString { it.substringAfterLast('.') }),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

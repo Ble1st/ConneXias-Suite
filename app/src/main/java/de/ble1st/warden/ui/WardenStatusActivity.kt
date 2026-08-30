@@ -51,8 +51,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import de.ble1st.warden.BuildConfig
+import de.ble1st.warden.R
 import de.ble1st.warden.WardenApplication
 import de.ble1st.warden.admin.DeviceOwnerStatusReader
 import de.ble1st.warden.appmanagement.AppManagementInfo
@@ -62,6 +64,7 @@ import de.ble1st.warden.appmanagement.PermissionAuditInfo
 import de.ble1st.warden.appmanagement.PermissionAuditScanner
 import de.ble1st.warden.domain.score.SecurityScoreBreakdown
 import de.ble1st.warden.score.SecurityScoreCalculator
+import de.ble1st.warden.score.SecurityScoreHistoryStore
 import de.ble1st.warden.appmanagement.SentinelInstallStatus
 import de.ble1st.warden.appmanagement.SentinelInstallStatusReader
 import de.ble1st.warden.appmanagement.SentinelSilentInstaller
@@ -330,22 +333,19 @@ class WardenStatusActivity : ComponentActivity() {
                         )
                         pendingKioskConfirmation.value = null
                     },
-                    title = { Text("Kiosk jetzt aktivieren?") },
+                    title = { Text(stringResource(R.string.kiosk_confirm_title)) },
                     text = {
-                        Text(
-                            "$kioskConfirmReason\n\nStartet sofort den Sentinel-Kiosk-Modus. " +
-                                "Ausstieg nur über Sentinels eigene PIN.",
-                        )
+                        Text("$kioskConfirmReason\n\n" + stringResource(R.string.kiosk_confirm_body))
                     },
                     confirmButton = {
                         TextButton(onClick = {
                             val reason = kioskConfirmReason!!
                             pendingKioskConfirmation.value = null
                             performPendingLockTaskEngage(reason)
-                        }) { Text("Ja") }
+                        }) { Text(stringResource(R.string.action_yes)) }
                     },
                     dismissButton = {
-                        TextButton(onClick = { pendingKioskConfirmation.value = null }) { Text("Nein") }
+                        TextButton(onClick = { pendingKioskConfirmation.value = null }) { Text(stringResource(R.string.action_no)) }
                     },
                 )
             }
@@ -353,7 +353,7 @@ class WardenStatusActivity : ComponentActivity() {
                 if (!isAuthenticated) {
                     // WardenLockActivity läuft parallel (onResume() oben) — hier nur ein
                     // Platzhalter, kein Dashboard-Inhalt darf davor sichtbar sein/gerendert werden.
-                    LoadingScreen(title = "Warden", onBack = { finish() })
+                    LoadingScreen(title = stringResource(R.string.app_name), onBack = { finish() })
                     return@WardenTheme
                 }
                 WardenRoot(
@@ -752,7 +752,7 @@ private fun WardenRoot(
                 initialLoadDone = true
             }
             if (!initialLoadDone) {
-                LoadingScreen(title = "App-Verwaltung", onBack = { screen = WardenScreen.Status })
+                LoadingScreen(title = stringResource(R.string.menu_app_management_title), onBack = { screen = WardenScreen.Status })
             } else {
                 AppManagementScreen(
                     apps = appsResult.orEmpty(),
@@ -797,7 +797,7 @@ private fun WardenRoot(
                 initialLoadDone = true
             }
             if (!initialLoadDone) {
-                LoadingScreen(title = "Sicherheits-Scanner", onBack = { screen = WardenScreen.Status })
+                LoadingScreen(title = stringResource(R.string.menu_security_scanner_title), onBack = { screen = WardenScreen.Status })
             } else {
                 SecurityScannerScreen(
                     // Vorschlag V-6 (2026-08-29): wiederholt genau die drei Lesevorgänge des
@@ -881,7 +881,7 @@ private fun WardenRoot(
             }
             val loaded = snapshot
             if (loaded == null) {
-                LoadingScreen(title = "Safeguards", onBack = { screen = WardenScreen.Status })
+                LoadingScreen(title = stringResource(R.string.menu_safeguards_title), onBack = { screen = WardenScreen.Status })
             } else key(catalogGeneration) {
                 /** Ein Schalter aus dem bereits geladenen Snapshot — s. Kommentar oben. Das
                  * Umschalten selbst läuft auf IO und stößt über `catalogGeneration++` genau einen
@@ -1261,10 +1261,19 @@ private fun WardenRoot(
             var breakdown by remember { mutableStateOf<SecurityScoreBreakdown?>(null) }
             var calculationFailed by remember { mutableStateOf(false) }
             var calculationInProgress by remember { mutableStateOf(false) }
+            var history by remember { mutableStateOf<List<SecurityScoreHistoryStore.HistoryEntry>>(emptyList()) }
+            // Verlauf wird unabhängig von einer frischen Berechnung geladen — beim Öffnen des
+            // Bildschirms zeigt er sofort, was frühere Sitzungen bereits aufgezeichnet haben.
+            LaunchedEffect(Unit) {
+                history = withContext(Dispatchers.IO) {
+                    runCatching { SecurityScoreHistoryStore(appContext).entriesWithinWindow() }.getOrDefault(emptyList())
+                }
+            }
             SecurityScoreScreen(
                 breakdown = breakdown,
                 calculationFailed = calculationFailed,
                 calculationInProgress = calculationInProgress,
+                history = history,
                 onBack = { screen = WardenScreen.Status },
                 onCalculate = {
                     if (!calculationInProgress) {
@@ -1279,6 +1288,14 @@ private fun WardenRoot(
                                 }
                                 breakdown = result
                                 calculationFailed = result == null
+                                if (result != null) {
+                                    // Nur bei echtem Erfolg aufzeichnen — ein fehlgeschlagener
+                                    // Versuch (z. B. kein Device Owner mehr aktiv) ist kein
+                                    // gültiger Score-Datenpunkt.
+                                    val historyStore = SecurityScoreHistoryStore(appContext)
+                                    withContext(Dispatchers.IO) { historyStore.record(result) }
+                                    history = withContext(Dispatchers.IO) { historyStore.entriesWithinWindow() }
+                                }
                             } finally {
                                 calculationInProgress = false
                             }
@@ -1307,7 +1324,7 @@ private fun LoadingScreen(title: String, onBack: () -> Unit) {
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_description_back))
                     }
                 },
             )
@@ -1448,17 +1465,18 @@ private fun loadSentinelLockTaskAuthorizedSafely(context: Context): Boolean? =
  * Vorab-Entscheidung entgegen, s. `SensitiveActionActivity.describeOutcome`-KDoc für die volle
  * Begründung — ein real fehlgeschlagenes `SentinelLockdownEngager.engage()` zeigte hier vorher
  * trotzdem "✓ real ausgeführt". */
+@Composable
 private fun describeKioskDashboardDecision(outcome: SensitiveActionOutcome): String = when (outcome) {
     is SensitiveActionOutcome.Denied -> when (outcome.reason) {
-        SensitiveActionDecisionResult.ExecutionBlocked -> "⚠ Debug-Build — destruktive Kommandos hart abgeschaltet (F.4)."
-        SensitiveActionDecisionResult.RateLimited -> "⚠ Zu viele Versuche — bitte kurz warten."
-        SensitiveActionDecisionResult.WrongConfirmationText -> "⚠ Interner Fehler: Bestätigungstext stimmte nicht."
-        SensitiveActionDecisionResult.PresenceNotProven -> "⚠ Presence-Nachweis fehlgeschlagen."
+        SensitiveActionDecisionResult.ExecutionBlocked -> stringResource(R.string.kiosk_outcome_execution_blocked)
+        SensitiveActionDecisionResult.RateLimited -> stringResource(R.string.kiosk_outcome_rate_limited)
+        SensitiveActionDecisionResult.WrongConfirmationText -> stringResource(R.string.kiosk_outcome_wrong_confirmation)
+        SensitiveActionDecisionResult.PresenceNotProven -> stringResource(R.string.kiosk_outcome_presence_not_proven)
         SensitiveActionDecisionResult.Approved ->
             error("SensitiveActionOutcome.Denied wird nie mit reason=Approved erzeugt, s. dessen Klassendoc")
     }
-    SensitiveActionOutcome.ExecutedSuccessfully -> "✓ Bestätigt — real ausgeführt und protokolliert."
-    is SensitiveActionOutcome.ExecutedWithError -> "⚠ Bestätigt, aber Ausführung fehlgeschlagen: ${outcome.detail}"
+    SensitiveActionOutcome.ExecutedSuccessfully -> stringResource(R.string.kiosk_outcome_executed_successfully)
+    is SensitiveActionOutcome.ExecutedWithError -> stringResource(R.string.kiosk_outcome_executed_with_error, outcome.detail)
     SensitiveActionOutcome.ExecutedAsStub -> error("Kiosk-Dashboard-Knopf löst nie WIPE_DATA aus")
 }
 
@@ -1500,10 +1518,10 @@ private fun WardenStatusScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Warden") },
+                title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     IconButton(onClick = onOpenSettings) {
-                        Icon(imageVector = Icons.Filled.Settings, contentDescription = "Einstellungen")
+                        Icon(imageVector = Icons.Filled.Settings, contentDescription = stringResource(R.string.content_description_settings))
                     }
                 },
             )
@@ -1524,14 +1542,19 @@ private fun WardenStatusScreen(
                 activeProfile = activeProfile,
             )
 
-            SectionLabel("Geräteschutz")
-            MenuRow(title = "Safeguards", subtitle = "Profile, Reset-Schutz, Sperrbildschirm", tag = "SG", onClick = onOpenSafeguards)
+            SectionLabel(stringResource(R.string.section_device_protection))
+            MenuRow(
+                title = stringResource(R.string.menu_safeguards_title),
+                subtitle = stringResource(R.string.menu_safeguards_subtitle),
+                tag = "SG",
+                onClick = onOpenSafeguards,
+            )
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 
-            SectionLabel("App-Sicherheit")
-            MenuRow(title = "App-Verwaltung", tag = "AV", onClick = onOpenAppManagement)
+            SectionLabel(stringResource(R.string.section_app_security))
+            MenuRow(title = stringResource(R.string.menu_app_management_title), tag = "AV", onClick = onOpenAppManagement)
             MenuRow(
-                title = "Sicherheits-Scanner",
+                title = stringResource(R.string.menu_security_scanner_title),
                 tag = "SC",
                 // Vorschlag V-2 (2026-08-29): Anzahl UND Schweregrad. Die Zahl allein beantwortet
                 // die eigentliche Frage nicht — ein kritischer Fund (frisch aktivierter
@@ -1540,7 +1563,10 @@ private fun WardenStatusScreen(
                 // läuft, gar keins.
                 subtitle = when {
                     findingsLoadFailed -> null
-                    highestFindingSeverity != null -> "Höchster Schweregrad: ${severityLabel(highestFindingSeverity)}"
+                    highestFindingSeverity != null -> stringResource(
+                        R.string.menu_security_scanner_highest_severity,
+                        severityLabel(highestFindingSeverity),
+                    )
                     else -> null
                 },
                 badge = when {
@@ -1554,42 +1580,42 @@ private fun WardenStatusScreen(
                 onClick = onOpenSecurityScanner,
             )
             MenuRow(
-                title = "Permission-Audit",
-                subtitle = "Rechte-Klassifizierung je installierter App",
+                title = stringResource(R.string.menu_permission_audit_title),
+                subtitle = stringResource(R.string.menu_permission_audit_subtitle),
                 tag = "PA",
                 onClick = onOpenPermissionAudit,
             )
             MenuRow(
-                title = "Performance-Monitor",
-                subtitle = "Speicher, Akku-Drain, App-Aktivität",
+                title = stringResource(R.string.menu_performance_monitor_title),
+                subtitle = stringResource(R.string.menu_performance_monitor_subtitle),
                 tag = "PM",
                 onClick = onOpenPerformanceMonitor,
             )
             MenuRow(
-                title = "Netzwerk",
-                subtitle = "Netz-Sperre, Firewall-Policy, DNS-Filter",
+                title = stringResource(R.string.menu_network_title),
+                subtitle = stringResource(R.string.menu_network_subtitle),
                 tag = "NW",
                 onClick = onOpenNetwork,
             )
             MenuRow(
-                title = "Sicherheits-Score",
-                subtitle = "Bedrohungen, Rechte, Integrität, Härtung in einer Zahl",
+                title = stringResource(R.string.menu_security_score_title),
+                subtitle = stringResource(R.string.menu_security_score_subtitle),
                 tag = "SCR",
                 onClick = onOpenSecurityScore,
             )
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 
-            SectionLabel("Zugriff & Bestätigung")
+            SectionLabel(stringResource(R.string.section_access_confirmation))
             // Einziger Weg zu einer Ersteinrichtung/Änderung des Warden-PIN — startet
             // WardenPinActivity ohne EXTRA_PRESENCE_REQUEST (s. onOpenPinManagement-Doc oben).
-            MenuRow(title = "Warden-PIN verwalten", tag = "PIN", onClick = onOpenPinManagement)
+            MenuRow(title = stringResource(R.string.menu_pin_management_title), tag = "PIN", onClick = onOpenPinManagement)
             // "LOCK_NOW als Device Command" (2026-08-22) — bewusst als eigener, sofort ausgeführter
             // Menüpunkt statt nur über "Sensible Aktion" erreichbar (dort weiterhin zusätzlich
             // vorhanden, presence-gated); s. ConcordBus.lockNow()/DeviceLockNowManager-Klassendoc,
             // warum kein Bestätigungsschritt nötig ist.
             MenuRow(
-                title = "Jetzt sperren",
-                subtitle = "Sofort, ohne Bestätigung",
+                title = stringResource(R.string.menu_lock_now_title),
+                subtitle = stringResource(R.string.menu_lock_now_subtitle),
                 tag = "LOCK",
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1609,8 +1635,8 @@ private fun WardenStatusScreen(
                 // in derselben gedämpften Farbe standen.
                 var kioskOutcome by remember { mutableStateOf<SensitiveActionOutcome?>(null) }
                 MenuRow(
-                    title = "Kiosk jetzt",
-                    subtitle = "Sentinel-Lock-Task sofort aktivieren",
+                    title = stringResource(R.string.menu_kiosk_now_title),
+                    subtitle = stringResource(R.string.menu_kiosk_now_subtitle),
                     tag = "KIOSK",
                     onClick = {
                         if (LockdownTriggerProfilePolicy.requiresConfirmationDialog(kioskTriggerProfile)) {
@@ -1636,32 +1662,27 @@ private fun WardenStatusScreen(
                 if (showKioskConfirm) {
                     AlertDialog(
                         onDismissRequest = { showKioskConfirm = false },
-                        title = { Text("Kiosk jetzt aktivieren?") },
-                        text = {
-                            Text(
-                                "Startet sofort den Sentinel-Kiosk-Modus. Ausstieg nur über " +
-                                    "Sentinels eigene PIN.",
-                            )
-                        },
+                        title = { Text(stringResource(R.string.kiosk_confirm_title)) },
+                        text = { Text(stringResource(R.string.kiosk_confirm_body)) },
                         confirmButton = {
                             TextButton(onClick = {
                                 showKioskConfirm = false
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 kioskOutcome = onKioskNow()
-                            }) { Text("Ja") }
+                            }) { Text(stringResource(R.string.action_yes)) }
                         },
                         dismissButton = {
-                            TextButton(onClick = { showKioskConfirm = false }) { Text("Nein") }
+                            TextButton(onClick = { showKioskConfirm = false }) { Text(stringResource(R.string.action_no)) }
                         },
                     )
                 }
             }
-            MenuRow(title = "Sensible Aktion", tag = "SA", onClick = onOpenSensitiveAction)
-            MenuRow(title = "Log-Einsicht", tag = "LOG", onClick = onOpenLog)
+            MenuRow(title = stringResource(R.string.menu_sensitive_action_title), tag = "SA", onClick = onOpenSensitiveAction)
+            MenuRow(title = stringResource(R.string.menu_log_viewer_title), tag = "LOG", onClick = onOpenLog)
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 
-            SectionLabel("Wiederherstellung")
-            MenuRow(title = "Offline-Failsafe", tag = "FS", onClick = onOpenFailsafe)
+            SectionLabel(stringResource(R.string.section_recovery))
+            MenuRow(title = stringResource(R.string.menu_offline_failsafe_title), tag = "FS", onClick = onOpenFailsafe)
         }
     }
 }
@@ -1680,14 +1701,14 @@ private fun StatusCard(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = if (isDeviceOwner) "DO aktiv" else "DO NICHT aktiv",
+                text = stringResource(if (isDeviceOwner) R.string.status_do_active else R.string.status_do_inactive),
                 style = MaterialTheme.typography.titleLarge,
                 // Fail-Safe-Grundsatz (Invariante 6) gilt auch für die Anzeige selbst: ein
                 // fehlender/negativer Zustand wird auffällig dargestellt, nie beschönigt.
                 color = if (isDeviceOwner) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
             )
             Text(
-                text = "Version $versionName",
+                text = stringResource(R.string.status_version, versionName),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1696,13 +1717,16 @@ private fun StatusCard(
             // kritischem Fund) — ohne diese Zeile war eine automatische Umschaltung nur im
             // Audit-Log zu sehen. "keins" statt eines geratenen Vorgabewerts, s. ProfilePicker.
             Text(
-                text = "Profil: " + (activeProfile?.label ?: "keins angewandt"),
+                text = stringResource(
+                    R.string.status_profile,
+                    activeProfile?.label ?: stringResource(R.string.status_profile_none),
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (isDebuggableOs) {
                 Text(
-                    text = "⚠ Debuggable OS (Build.TYPE=$buildType) — Vertrauensmodell setzt user-Build voraus",
+                    text = stringResource(R.string.status_debuggable_os_warning, buildType),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 4.dp),

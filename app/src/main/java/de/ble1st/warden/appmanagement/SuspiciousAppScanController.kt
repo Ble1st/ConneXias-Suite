@@ -3,6 +3,7 @@ package de.ble1st.warden.appmanagement
 import android.app.KeyguardManager
 import android.content.Context
 import android.util.Log
+import de.ble1st.warden.R
 import de.ble1st.warden.domain.appmanagement.ActivationTransitionDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppNotificationActionDecision
 import de.ble1st.warden.domain.appmanagement.AppFreezeGuard
@@ -186,7 +187,7 @@ class SuspiciousAppScanController(
             ) {
                 WardenLockTaskPendingEngageStore.requestEngage(
                     context,
-                    reason = "Kritischer Verdachtsfund: ${finding.label} (${finding.packageName})",
+                    reason = context.getString(R.string.suspicious_app_scan_critical_finding_reason, finding.label, finding.packageName),
                 )
                 logStore.append(Log.WARN, TAG, "Lock-Task-Auto-Engage angefordert: pkg=${finding.packageName}")
             }

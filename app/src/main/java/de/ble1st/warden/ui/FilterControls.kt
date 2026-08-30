@@ -9,9 +9,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import de.ble1st.warden.R
 
 /**
  * Milestone "App-Verwaltung: Einfrieren/Deaktivieren" — portiert aus Heralds UI (jetzt Wardens
@@ -24,17 +26,20 @@ import androidx.compose.ui.semantics.stateDescription
  */
 @Composable
 fun SystemAppFilterRow(showSystemApps: Boolean, onShowSystemAppsChange: (Boolean) -> Unit) {
+    val label = stringResource(R.string.filter_controls_show_system_apps)
+    val stateOn = stringResource(R.string.security_scanner_autofreeze_state_on)
+    val stateOff = stringResource(R.string.security_scanner_autofreeze_state_off)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .semantics {
-                contentDescription = "Systemapps anzeigen"
-                stateDescription = if (showSystemApps) "an" else "aus"
+                contentDescription = label
+                stateDescription = if (showSystemApps) stateOn else stateOff
             },
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = "Systemapps anzeigen", style = MaterialTheme.typography.bodyMedium)
+        Text(text = label, style = MaterialTheme.typography.bodyMedium)
         Switch(checked = showSystemApps, onCheckedChange = onShowSystemAppsChange)
     }
 }
