@@ -102,8 +102,11 @@
          davon, ob die aufrufende App die Permission selbst hält (`checkComponentPermission`s
          Same-UID-Kurzschluss) — genau der offizielle `VpnService`-Musteraufbau. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 2026-09-01, Live-Fund ("VPN kann nicht gestartet werden"): [WardenVpnService] deklarierte
+         bis zu diesem Datum `foregroundServiceType="dataSync"` statt `specialUse` (s. Kommentar
+         dort) — FOREGROUND_SERVICE_DATA_SYNC war die dazugehörige Permission und ist mit dem Wechsel
+         auf `specialUse` überflüssig geworden, deshalb entfernt statt nur ungenutzt stehen gelassen. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
@@ -313,12 +316,34 @@
              Firewall-Allowlist) bleiben Direktzugriff auf die verschlüsselten EnvelopeFiles (mehrere
              gleichzeitige Leser sind unproblematisch). Ereignisse zurück zum Hauptprozess (Audit-Log)
              laufen über den neuen Concord-AIDL-Kanal (ConcordBusService, Role.BARBICAN), s. Design-Dok. -->
+        <!-- KRITISCH (2026-09-01, Live-Fund zu "VPN kann nicht gestartet werden"): stand hier bis
+             zu diesem Datum `foregroundServiceType="dataSync"` — falsch für einen dauerhaft
+             laufenden Always-On-VPN-Tunnel. Seit Android 15 (API 35) unterliegt der `dataSync`-Typ
+             einem Ausführungszeit-Kontingent pro rollierendem 24h-Fenster; ist es aufgebraucht,
+             wirft der nächste `startForeground()`-Aufruf `ForegroundServiceStartNotAllowedException:
+             Time limit already exhausted for foreground service type dataSync` statt den Dienst zu
+             starten. Live auf dem Testgerät bestätigt (`dumpsys activity services`/Event-Log):
+             Androids Always-On-VPN-Mechanismus startet [WardenVpnService] nach jedem `stopSelf()`
+             (s. dortiger Klassendoc "Single-Thread-Executor") praktisch sofort neu, was das
+             `dataSync`-Kontingent binnen Minuten aufbraucht — danach starb der `:barbican`-Prozess
+             in einer Endlosschleife (`am_crash`→`am_proc_died`→`am_schedule_service_restart`, hier
+             `crashCount=8`), ohne dass je ein TUN aufgebaut wurde und ohne jede für den Nutzer
+             sichtbare Fehlermeldung (der Crash passiert, bevor `WardenVpnService.onCreate()`
+             überhaupt läuft — [BarbicanConcordClient] kann diesen Fehler strukturell nicht ins
+             Audit-Log spiegeln). `specialUse` (API 34+, s. `FOREGROUND_SERVICE_SPECIAL_USE` oben)
+             ist genau für Fälle gedacht, die in keine der vordefinierten, zeitlich beschränkten
+             Kategorien passen, und unterliegt keinem Zeitkontingent — der `PROPERTY_SPECIAL_USE_FGS
+             _SUBTYPE`-Wert ist ein freier, app-eigener Bezeichner (keine feste Enum-Liste), hier zur
+             Selbstdokumentation "vpn-tunnel" genannt. -->
         <service
             android:name=".vpn.WardenVpnService"
             android:process=":barbican"
             android:exported="false"
             android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="dataSync">
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="vpn-tunnel" />
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
