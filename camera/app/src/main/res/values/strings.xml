@@ -1,0 +1,49 @@
+<resources>
+    <string name="app_name">ConneXias Kamera</string>
+
+    <string name="onboarding_title">Zugriff auf Kamera und Mikrofon</string>
+    <string name="onboarding_body">ConneXias Kamera braucht Zugriff auf die Kamera, um Fotos und Videos aufzunehmen, und auf das Mikrofon, um Videos mit Ton aufzuzeichnen.</string>
+    <string name="onboarding_action_grant">Zugriff erlauben</string>
+
+    <string name="capture_mode_photo">Foto</string>
+    <string name="capture_mode_video">Video</string>
+    <string name="capture_action_shutter">Auslösen</string>
+    <string name="capture_action_switch_camera">Kamera wechseln</string>
+    <string name="capture_action_flash_off">Blitz aus</string>
+    <string name="capture_action_flash_auto">Blitz automatisch</string>
+    <string name="capture_action_flash_on">Blitz an</string>
+    <string name="capture_action_torch_on">Dauerlicht an</string>
+    <string name="capture_action_torch_off">Dauerlicht aus</string>
+    <string name="capture_action_grid">Raster ein-/ausblenden</string>
+    <string name="capture_timer_off">Aus</string>
+    <string name="capture_timer_3s">3 Sekunden</string>
+    <string name="capture_timer_10s">10 Sekunden</string>
+    <string name="capture_last_capture">Letzte Aufnahme</string>
+    <string name="capture_action_hdr_on">HDR an</string>
+    <string name="capture_action_hdr_off">HDR aus</string>
+    <string name="capture_action_manual">Manuelle Belichtung</string>
+    <string name="capture_label_ev">EV %+d</string>
+    <string name="capture_label_iso">ISO %d</string>
+    <string name="capture_label_shutter">%.0f ms</string>
+
+    <string name="review_action_share">Teilen</string>
+    <string name="review_action_delete">Löschen</string>
+    <string name="review_action_open_gallery">In Galerie öffnen</string>
+    <string name="review_action_filter">Filter</string>
+    <string name="review_action_save_filtered">Gefiltertes Foto speichern</string>
+    <string name="review_filtered_saved">Gefiltertes Foto gespeichert</string>
+    <string name="review_filtered_save_failed">Speichern fehlgeschlagen</string>
+    <string name="review_delete_confirm_title">Aufnahme löschen?</string>
+    <string name="review_delete_confirm_body">Diese Aufnahme wird endgültig gelöscht.</string>
+    <string name="filter_none">Original</string>
+    <string name="filter_bw">Schwarz-Weiß</string>
+    <string name="filter_sepia">Sepia</string>
+    <string name="filter_vintage">Vintage</string>
+    <string name="filter_cool">Kühl</string>
+    <string name="filter_warm">Warm</string>
+
+    <string name="action_confirm">Bestätigen</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="content_desc_back">Zurück</string>
+    <string name="error_no_app_found">Keine App gefunden, die das öffnen kann</string>
+</resources>

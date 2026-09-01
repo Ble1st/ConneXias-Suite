@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Getrennte Bild-/Video-Laufzeitberechtigungen seit API 33 (Photo Picker Permissions) statt
+         der pauschalen READ_EXTERNAL_STORAGE — diese App zeigt beides, braucht also beide.
+         Bewusst ohne eigene "Selected Photos Access"-Behandlung (API 34+, teilweise Freigabe
+         einzelner Fotos statt der ganzen Bibliothek): diese App ist als Vollzugriffs-Galerie
+         konzipiert (alle Alben, nicht nur ausgewählte Elemente) — ein UI-Pfad für eine bewusst
+         eingeschränkte Teilmenge ist ein möglicher Ausbauschritt, kein v1-Blocker. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Fallback für API 29–32: vor den granularen READ_MEDIA_*-Berechtigungen (API 33) genügt für
+         MediaStore-Lesezugriff auf fremde Einträge die klassische READ_EXTERNAL_STORAGE. -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Fallback für API 26–28 (vor Scoped Storage): Löschen fremder MediaStore-Einträge
+         (data/media/MediaStoreRepository.kt) braucht dort zusätzlich Schreibrecht, weil
+         MediaStore.createDeleteRequest/RecoverableSecurityException erst ab API 29 existieren. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <!-- Ausschließlich für Cloud-Sync (data/webdav/) — Backup auf einen vom Nutzer eingetragenen
+         WebDAV-Server. Keine andere Funktion dieser App braucht Netzwerkzugriff. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:name=".GalleryApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.ConneXiasGallery">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.ConneXiasGallery">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
