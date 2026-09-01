@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Ohne diese Permission stellt das System ACTION_LOCKED_BOOT_COMPLETED schlicht nicht zu
+         (kommentarlos — kein Fehler, kein Log), s. RegistryReconciliationReceiver-Klassendoc.
+         "normal"-Protection-Level, wird bei Installation automatisch gewährt. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- ChildVPN-Config per QR-Code scannen (2026-08-31, docs/design-barbican-prozess-childvpn.md,
+         NetworkScreen.kt::ChildVpnSection). Anders als READ_PHONE_STATE/ACCESS_FINE_LOCATION unten
+         bewusst NICHT per DevicePolicyManager.setPermissionGrantState selbst gewährt — ein
+         Device-Owner-Kamerazugriff sollte kein dauerhaft scharf geschalteter Ambient-Zustand sein,
+         sondern genau in dem Moment angefragt werden, in dem der Nutzer aktiv auf "QR-Code
+         scannen" tippt (ein echter System-Berechtigungsdialog, kein stiller Self-Grant). Ohne diese
+         install-time-Deklaration würde selbst der normale Laufzeit-Dialog nie erscheinen. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- App-Verwaltung/Verdachtsscanner (InstalledAppLister-Klassendoc) müssen JEDES installierte
+         Fremdpaket sehen, nicht nur die per <queries> deklarierten — seit Android 11 filtert
+         Package-Visibility PackageManager#getInstalledApplications() sonst auf eine unvollständige
+         Teilmenge. Im Quellprojekt war der gezielte <queries>-Ansatz für einzelne Suite-Pakete
+         (Sentinel/Steward/Herald) vorgesehen; hier gibt es keine Geschwister-APKs mehr, dafür muss
+         aber jedes beliebige, zur Installationszeit unbekannte Drittpaket sichtbar sein — dieselbe
+         Begründung, mit der das Quellprojekt QUERY_ALL_PACKAGES bereits für die (dort ebenfalls
+         vorhandene) Firewall-App-Liste einsetzte: gezielt für eine private DO-App, kein
+         Play-Store-Vertrieb. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": Sicherheitswarnungen des
+         Verdachtsscanners (SuspiciousAppNotifier). Wird als Device Owner still selbst gewährt
+         (WardenApplication.onCreate, DevicePolicyManager.setPermissionGrantState) — die
+         install-time-Deklaration hier ist trotzdem Pflicht, ohne sie schlägt die
+         DPM-Selbstfreigabe fehl. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- "SIM-Wechsel-Erkennung" (2026-08-28): SubscriptionManager.getActiveSubscriptionInfoList()
+         braucht READ_PHONE_STATE. Als Device Owner gewährt Warden sich das Recht selbst
+         (setPermissionGrantState, s. SimFingerprintReader) — ohne Nutzerdialog, aber auch ohne
+         stillen Zwang: fehlt die Berechtigung, liefert der Reader bewusst "nicht lesbar" statt
+         eines Messwerts, aus dem eine Reaktion folgen könnte. Kein Zugriff auf Telefonnummer,
+         Anrufliste oder Standort. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <!-- "Mobilfunkzellen-Auffälligkeitserkennung" (2026-08-29, Feature 2 aus
+         docs/umsetzungsplan-7-features.md): TelephonyManager.getAllCellInfo() verlangt seit
+         Android 10 zusätzlich zu READ_PHONE_STATE ausdrücklich ACCESS_FINE_LOCATION (grobe
+         Standortfreigabe reicht laut Android-API-Doku nicht) — Zellstandort-Information gilt
+         seitdem selbst als Standort-Datum. Als Device Owner gewährt Warden sich nur die feine
+         Variante selbst (setPermissionGrantState, s. CellObservationReader) — ohne Nutzerdialog,
+         aber auch ohne stillen Zwang: fehlt die Berechtigung oder ist der System-Standortschalter
+         aus, liefert der Reader bewusst "nicht ermittelbar" statt eines Messwerts. Warden selbst
+         fragt an keiner anderen Stelle den tatsächlichen GPS-/Netz-Standort ab.
+         ACCESS_COARSE_LOCATION steht nur zusätzlich hier, weil Android 12+/Lints
+         CoarseFineLocation-Regel das bei FINE ausdrücklich verlangt (Nutzer sollen FINE auf
+         COARSE herabstufen können) — Warden gewährt/nutzt sie selbst nirgends. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": PackageInstaller.uninstall() für die
+         "Deinstallieren"-Aktion (AppUninstaller). Für eine normale App würde das nur einen
+         Bestätigungsdialog freischalten — als Device Owner läuft die Deinstallation damit still,
+         ohne Dialog (dieselbe Sonderbehandlung wie bei setApplicationHidden ohne eigene
+         Extra-Permission). -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <!-- Performance-Monitor (AppUsageReader): UsageStatsManager#queryAndAggregateUsageStats.
+         "signature|appop"-Protection-Level ohne DPM-Silent-Grant-Pfad (s. AppUsageReader-
+         Klassendoc) — die install-time-Deklaration hier ist trotzdem Pflicht, sonst liefert der
+         AppOps-Check in hasAccess() nie MODE_ALLOWED, egal was der Nutzer unter "Nutzungsdatenzugriff"
+         freigibt. tools:ignore, weil AGP diese Sonderberechtigung sonst als "protected" moniert. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26) — Warden→Sentinel-Richtung: nur
+         Warden selbst darf SentinelActivity starten/an SentinelHeartbeatService binden (s.
+         SentinelLockdownEngager-/SentinelDeathWatchdog-Klassendoc). Sentinel deklariert/besitzt
+         dieses Permission selbst (sentinel/src/main/AndroidManifest.xml), Warden braucht nur die
+         uses-permission-Deklaration. -->
+    <uses-permission android:name="de.ble1st.warden.sentinel.permission.ENGAGE" />
+
+    <!-- Sentinel→Warden-Richtung: das Entwarn-Signal (SentinelSignalReceiver). `signature`-
+         Protection-Level wird von Android selbst am Zertifikat durchgesetzt — nur ein mit
+         demselben Zertifikat signiertes Paket (Sentinel) kann diesen Broadcast überhaupt
+         zustellen, kein Userspace-Caller-Verifier nötig (Plan-Abschnitt "Warum kein AIDL-Bus"). -->
+    <permission
+        android:name="de.ble1st.warden.permission.SENTINEL_SIGNAL"
+        android:protectionLevel="signature" />
+
+    <!-- "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers. Absichtlich KEIN
+         `<uses-permission android:name="android.permission.BIND_VPN_SERVICE" />` hier: das ist
+         eine `signature|privileged`-Permission, die einer Drittanbieter-App (Device Owner
+         eingeschlossen) nie gewährt wird — Lint bricht `./gradlew build` deshalb mit
+         `ProtectedPermissions` ab, sobald sie hier steht (live geprüft 2026-08-29, Regression aus
+         Commit 20b5415/e5dbe70). Sie wird trotzdem nicht gebraucht: das `android:permission`-
+         Attribut unten am `<service>` reicht aus, weil derselbe App-UID (Warden startet seinen
+         eigenen VPN-Service) den Permission-Check des Systems automatisch besteht, unabhängig
+         davon, ob die aufrufende App die Permission selbst hält (`checkComponentPermission`s
+         Same-UID-Kurzschluss) — genau der offizielle `VpnService`-Musteraufbau. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <application
+        android:name=".WardenApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.Warden">
+
+        <!-- Minimale Warden-Eigen-UI — Launcher-Activity, muss exported sein. -->
+        <activity
+            android:name=".ui.WardenStatusActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Warden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Einziger Device-Owner-fähiger Empfänger der App (Konzept Abschnitt 1). Systemgeschützt
+             über BIND_DEVICE_ADMIN. -->
+        <receiver
+            android:name=".admin.WardenDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_receiver" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Pflicht-Handler der Android-11+-Provisionierung (Meilenstein A.4). Ohne diese beiden
+             Activities bricht QR-Provisionierung nach dem APK-Download kommentarlos ab.
+             exported + BIND_DEVICE_ADMIN (hält nur das System), Theme.NoDisplay, da beide sofort
+             in onCreate() finishen. -->
+        <activity
+            android:name=".admin.provisioning.GetProvisioningModeActivity"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.app.action.GET_PROVISIONING_MODE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".admin.provisioning.AdminPolicyComplianceActivity"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.app.action.ADMIN_POLICY_COMPLIANCE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Meilenstein C.4: Registry-Reconciliation bei ACTION_LOCKED_BOOT_COMPLETED — feuert
+             vor dem Entsperren (Direct Boot/FBE), daher directBootAware. Kein anderer Absender
+             als das System kann dieses Protected-Broadcast auslösen; exported="false" trotzdem
+             explizit (targetSdk 37 verlangt das Attribut ohnehin). -->
+        <receiver
+            android:name=".boot.RegistryReconciliationReceiver"
+            android:exported="false"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Wardens lokaler PIN-Presence-Screen (portiert aus Sentinels SentinelActivity, s.
+             dortiges Klassendoc). exported="false" — anders als im Quellprojekt (dort: eigene
+             APK mit eigenem Launcher-Eintrag) nur noch ein interner, von SensitiveActionActivity
+             per startActivityForResult gestarteter Screen, kein Launcher-Intent-Filter mehr. -->
+        <activity
+            android:name=".presence.WardenPinActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Warden" />
+
+        <!-- "WardenLock" (Finalisierungsphase 2026-08-24): App-Eintritts-Gate, von
+             WardenStatusActivity.onResume() per startActivityForResult gestartet, sobald
+             WardenLockSession keinen gültigen Presence-Nachweis (mehr) hält. exported="false" —
+             nur aus der eigenen App heraus gestartet, dieselbe Begründung wie
+             SensitiveActionActivity. -->
+        <activity
+            android:name=".presence.WardenLockActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Warden" />
+
+        <!-- Meilenstein F.2: Presence-/Bestätigungsbildschirm für sensible Kommandos, erreichbar
+             über einen Button auf WardenStatusActivity. exported="false" — nur aus der eigenen
+             App heraus gestartet, kein externer Aufrufer vorgesehen. -->
+        <activity
+            android:name=".presence.SensitiveActionActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Warden" />
+
+        <!-- Meilenstein G.4: Presence-gesteuerte Log-Ansicht, ausschließlich intern gestartet von
+             ConcordBus.requestLogAccess (nie von außen). exported="false" — dieselbe Begründung
+             wie SensitiveActionActivity. -->
+        <activity
+            android:name=".presence.LogViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Warden" />
+
+        <!-- Meilenstein D.3: Offline-Failsafe-Bedienoberfläche, erreichbar über einen Button auf
+             WardenStatusActivity und über WardenPinActivitys Corrupted-Zustand.
+             exported="false" — nur aus der eigenen App heraus gestartet. -->
+        <activity
+            android:name=".failsafe.FailsafeActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Warden" />
+
+        <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": "Einfrieren" (reversibel) sowie
+             der asynchrone PackageInstaller-Deinstallations-Ergebnis-Callback aus
+             SuspiciousAppNotifiers Benachrichtigung. exported="false" — nur Wardens eigene
+             PendingIntents und Androids an dieselbe App gerichteter Ergebnis-Callback lösen
+             diesen Receiver aus. "Deinstallieren"/"Daten löschen" laufen seit der
+             Code-/Sicherheitsanalyse (2026-08-28, Befund S-5) nicht mehr über diesen Receiver,
+             sondern über SuspiciousAppActionConfirmActivity darunter. -->
+        <receiver
+            android:name=".appmanagement.SuspiciousAppActionReceiver"
+            android:exported="false" />
+
+        <!-- Befund S-5 (2026-08-28, aus der Code-/Sicherheitsanalyse): die beiden nicht (oder
+             kaum) rückholbaren Benachrichtigungsaktionen ("Deinstallieren", "Daten löschen")
+             liefen bisher direkt auf SuspiciousAppActionReceiver — ein Tap am entsperrten Gerät,
+             kein Presence-Nachweis, an WardenLockActivity vorbei. Diese Activity erzwingt
+             denselben App-Eintritts-Nachweis wie WardenStatusActivity, bevor sie den Tap
+             überhaupt entgegennimmt — s. Klassendoc. exported="false", nur aus Wardens eigenen
+             PendingIntents erreichbar. -->
+        <activity
+            android:name=".appmanagement.SuspiciousAppActionConfirmActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Warden" />
+
+        <!-- "LockMode/Threat-Protection-Ausbau" (2026-08-25): sofortiger Verdachtsscan bei
+             App-Installation/-Update/-Deinstallation statt bis zu 15 Minuten auf den nächsten
+             periodischen SuspiciousAppScanWorker-Lauf zu warten, s.
+             PackageChangeReceiver-Klassendoc. PACKAGE_ADDED/PACKAGE_REPLACED/PACKAGE_REMOVED sind
+             Protected Broadcasts (nur das System kann sie senden) und gehören zu den wenigen
+             impliziten Broadcasts, die weiterhin an manifest-deklarierte Empfänger zugestellt
+             werden. exported="false" trotzdem explizit (targetSdk 37 verlangt das Attribut
+             ohnehin, dieselbe Vorsicht wie bei RegistryReconciliationReceiver). -->
+        <receiver
+            android:name=".appmanagement.PackageChangeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.PACKAGE_ADDED" />
+                <action android:name="android.intent.action.PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.PACKAGE_REMOVED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
+
+        <!-- "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26): Sentinels Entwarn-Signal
+             (korrekte, separate Sentinel-PIN während aktivem Lock-Task). exported="true" ist für
+             einen signature-geschützten, fremd-adressierten Empfänger Pflicht — die eigentliche
+             Zugriffskontrolle liegt im android:permission-Attribut, s. SentinelSignalReceiver-
+             Klassendoc. -->
+        <receiver
+            android:name=".sentinelbridge.SentinelSignalReceiver"
+            android:exported="true"
+            android:permission="de.ble1st.warden.permission.SENTINEL_SIGNAL">
+            <intent-filter>
+                <action android:name="de.ble1st.warden.sentinel.action.PIN_VERIFIED" />
+                <!-- 2026-08-28: zweite Action auf demselben signature-geschützten Kanal —
+                     Sentinel hat das Scharfschalten abgelehnt (kein Drill / keine benutzbare
+                     Sentinel-PIN) oder einen unverlassbaren Kiosk aufgegeben. Ohne diesen Weg
+                     bliebe Wardens Watchdog scharf und Sentinels Paket auf der Lock-Task-
+                     Whitelist, obwohl kein Kiosk läuft, s. SentinelSignalReceiver-Klassendoc. -->
+                <action android:name="de.ble1st.warden.sentinel.action.ENGAGE_REFUSED" />
+                <!-- 2026-08-29 (Vorschlag U-8): dritte Action, reine Zustandsmeldung "Sentinel-PIN
+                     eingerichtet ja/nein". Warden kann Sentinels PIN-Blob nicht selbst lesen
+                     (eigene UID) und erfuhr vom Fehlen bisher erst über ENGAGE_REFUSED, also im
+                     Ernstfall. Entschärft den Watchdog bewusst NICHT. -->
+                <action android:name="de.ble1st.warden.sentinel.action.PIN_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Silent-Install-Ergebnis (SentinelSilentInstaller, PackageInstaller-Session-Callback).
+             exported="false" — nur Androids an dieselbe App gerichteter Ergebnis-Callback löst
+             diesen Receiver aus, dieselbe Begründung wie SuspiciousAppActionReceiver. -->
+        <receiver
+            android:name=".appmanagement.SentinelInstallResultReceiver"
+            android:exported="false" />
+
+        <!-- "Lockdown-Auslöse-Profil" — zweiter Schnell-Einstieg für LOCKDOWN_TASK_ENGAGE neben dem
+             Dashboard-Button, s. SentinelQuickTile-Klassendoc. exported="true" + BIND_QUICK_SETTINGS_TILE
+             ist für eine Kachel Pflicht (systemgeschützt, dieselbe Idiomatik wie
+             WardenDeviceAdminReceiver/BIND_DEVICE_ADMIN) — das System bindet diesen Dienst exklusiv selbst. -->
+        <!-- "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers.
+             android:process=":barbican" (2026-08-31, Design-Dok docs/design-barbican-prozess-childvpn.md):
+             läuft seither in einem eigenen Prozess, nicht mehr in Wardens Hauptprozess — ein Absturz/
+             Hang der Rust-Engine (s. CLAUDE.md-Abschnitt "Netz-Sperre", RX-Freeze-Bug) reißt damit nicht
+             mehr Wardens sicherheitskritischen Kernprozess (Presence-Gating, Boot-Reconciliation,
+             Audit-Log) mit. Steuerung bleibt Intent-basiert (NetLockdownController -> startService),
+             das funktioniert cross-process unverändert von Haus aus; Config-Reads (Blockliste,
+             Firewall-Allowlist) bleiben Direktzugriff auf die verschlüsselten EnvelopeFiles (mehrere
+             gleichzeitige Leser sind unproblematisch). Ereignisse zurück zum Hauptprozess (Audit-Log)
+             laufen über den neuen Concord-AIDL-Kanal (ConcordBusService, Role.BARBICAN), s. Design-Dok. -->
+        <service
+            android:name=".vpn.WardenVpnService"
+            android:process=":barbican"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+        <activity
+            android:name=".netlock.NetworkLogViewerActivity"
+            android:exported="false" />
+
+        <!-- Concord-Bus-HOST für den :barbican-Prozess (2026-08-31, docs/design-barbican-prozess-
+             childvpn.md) — läuft im Hauptprozess (kein android:process), exported="false" genügt:
+             blockiert nur fremde UIDs, nicht denselben-App-anderen-Prozess. -->
+        <service
+            android:name=".bus.ConcordBusService"
+            android:exported="false" />
+
+        <service
+            android:name=".sentinelbridge.SentinelQuickTile"
+            android:exported="true"
+            android:icon="@drawable/ic_kiosk_tile"
+            android:label="Kiosk"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+    </application>
+
+</manifest>

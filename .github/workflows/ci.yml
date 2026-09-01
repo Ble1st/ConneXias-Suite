@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rust
+        working-directory: warden/rust
     steps:
       - uses: actions/checkout@v4
 
@@ -32,7 +32,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: warden/rust
 
       - name: cargo fmt --check
         run: cargo fmt --all --check
@@ -46,6 +46,9 @@ jobs:
   android:
     name: Android (lint, unit tests, assembleDebug)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: warden
     steps:
       - uses: actions/checkout@v4
 
@@ -71,8 +74,8 @@ jobs:
         with:
           name: android-reports
           path: |
-            app/build/reports/lint-results-*.html
-            app/build/reports/tests/
-            sentinel/build/reports/lint-results-*.html
-            sentinel/build/reports/tests/
+            warden/app/build/reports/lint-results-*.html
+            warden/app/build/reports/tests/
+            warden/sentinel/build/reports/lint-results-*.html
+            warden/sentinel/build/reports/tests/
           retention-days: 14

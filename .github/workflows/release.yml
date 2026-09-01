@@ -85,7 +85,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: warden/rust
 
       - uses: nttld/setup-ndk@v1
         id: ndk
@@ -99,11 +99,11 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: ./build-android.sh
-        working-directory: rust
+        working-directory: warden/rust
 
       - name: Check generated Kotlin bindings for drift
         run: |
-          if ! git diff --quiet -- app/src/main/java/uniffi/connexias_engine/connexias_engine.kt sentinel/src/main/java/uniffi/connexias_engine/connexias_engine.kt; then
+          if ! git diff --quiet -- warden/app/src/main/java/uniffi/connexias_engine/connexias_engine.kt warden/sentinel/src/main/java/uniffi/connexias_engine/connexias_engine.kt; then
             echo "::warning::Frisch generierte UniFFI-Kotlin-Bindings weichen vom committeten Stand ab (app/ und/oder sentinel/) — rust/build-android.sh lokal laufen lassen und Ergebnis committen."
           fi
 
@@ -132,6 +132,7 @@ jobs:
           WARDEN_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           WARDEN_RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           WARDEN_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        working-directory: warden
         run: |
           ./gradlew assembleRelease --stacktrace \
             -PwardenVersionName=${{ steps.version.outputs.name }} \
@@ -145,7 +146,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: warden-${{ steps.version.outputs.name }}
-          path: app/build/outputs/apk/release/*.apk
+          path: warden/app/build/outputs/apk/release/*.apk
           retention-days: 90
 
       # Sentinels rohe APK zusätzlich als eigenständiges Artefakt/Release-Asset — nicht nur
@@ -156,7 +157,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sentinel-${{ steps.version.outputs.name }}
-          path: sentinel/build/outputs/apk/release/*.apk
+          path: warden/sentinel/build/outputs/apk/release/*.apk
           retention-days: 90
 
       # F-4-Folgearbeit (R8 seit 2026-08-25 aktiv): R8s Obfuskierung ist pro Build einzigartig
@@ -169,7 +170,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: warden-${{ steps.version.outputs.name }}-mapping
-          path: app/build/outputs/mapping/release/
+          path: warden/app/build/outputs/mapping/release/
           retention-days: 365
 
       # :sentinel hat R8 seit demselben Milestone ebenfalls aktiv (sentinel/build.gradle.kts) —
@@ -178,7 +179,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sentinel-${{ steps.version.outputs.name }}-mapping
-          path: sentinel/build/outputs/mapping/release/
+          path: warden/sentinel/build/outputs/mapping/release/
           retention-days: 365
 
       - name: Create GitHub release
@@ -188,5 +189,5 @@ jobs:
           name: Warden ${{ steps.version.outputs.name }}
           draft: true
           files: |
-            app/build/outputs/apk/release/*.apk
-            sentinel/build/outputs/apk/release/*.apk
+            warden/app/build/outputs/apk/release/*.apk
+            warden/sentinel/build/outputs/apk/release/*.apk
