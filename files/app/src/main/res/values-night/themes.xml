@@ -1,0 +1,4 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Dunkle Variante desselben reinen Fenster-/Splash-Themes — s. values/themes.xml. -->
+    <style name="Theme.ConneXiasFiles" parent="android:Theme.Material.NoActionBar" />
+</resources>

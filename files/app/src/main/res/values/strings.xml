@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">ConneXias Files</string>
+
+    <string name="action_new">Neu</string>
+    <string name="action_new_folder">Neuer Ordner</string>
+    <string name="action_new_file">Neue Datei</string>
+    <string name="action_import">Importieren</string>
+    <string name="action_confirm">Bestätigen</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="action_rename">Umbenennen</string>
+    <string name="action_compress">Komprimieren</string>
+
+    <string name="browser_empty">Dieser Ordner ist leer.</string>
+
+    <string name="onboarding_title">Zugriff auf den Speicher</string>
+    <string name="onboarding_body">ConneXias Files braucht Zugriff auf den kompletten lokalen Speicher, um Dateien zu durchsuchen, zu kopieren, zu verschieben und zu löschen.</string>
+    <string name="onboarding_action_grant">Zugriff erlauben</string>
+
+    <string name="home_section_storage">Speicher</string>
+    <string name="home_section_quick_access">Schnellzugriff</string>
+
+    <string name="notification_channel_file_operations">Dateivorgänge</string>
+    <string name="notification_title_copy">Kopieren …</string>
+    <string name="notification_title_move">Verschieben …</string>
+    <string name="notification_title_delete">Löschen …</string>
+    <string name="notification_title_compress">Komprimieren …</string>
+    <string name="notification_title_extract">Entpacken …</string>
+</resources>

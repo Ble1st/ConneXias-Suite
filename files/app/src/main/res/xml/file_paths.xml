@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Deckt den gesamten externen Speicher ab (root-path statt einzelner external-path-Einträge je
+     Volume) — die App greift dank MANAGE_EXTERNAL_STORAGE/StoragePermission ohnehin auf beliebige
+     Pfade unterhalb jedes eingehängten Volumes zu, nicht nur auf Environment.getExternalStorageDirectory(). -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <root-path name="root" path="." />
+</paths>

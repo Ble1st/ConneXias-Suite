@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Erlaubt Klartext-HTTP app-weit. Betrifft nur den WebDAV-Client (data/webdav/) — die einzige
+  Stelle in dieser App, die überhaupt Netzwerk-Requests stellt. Selbst gehostete WebDAV-Server
+  (Nextcloud/ownCloud/generischer mod_dav-Server) laufen im Heimnetz sehr häufig ohne TLS, weil
+  ein gültiges Zertifikat für eine private LAN-Adresse nicht ohne Weiteres zu bekommen ist. Da der
+  Server erst zur Laufzeit vom Nutzer eingegeben wird, lässt sich kein fester Domain-Allowlist
+  vorab hinterlegen — ohne diese Freigabe wäre jeder Nicht-HTTPS-Server für die App unbenutzbar.
+  HTTPS-Server funktionieren unverändert; diese Konfiguration erweitert nur die Standard-Ablehnung
+  von Klartext-Traffic ab targetSdk 28+.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
