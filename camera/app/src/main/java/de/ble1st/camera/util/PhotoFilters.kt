@@ -1,5 +1,6 @@
 package de.ble1st.camera.util
 
+import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
@@ -7,12 +8,14 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.core.content.contentValuesOf
 import androidx.core.graphics.createBitmap
+import androidx.exifinterface.media.ExifInterface
 import de.ble1st.camera.data.storage.MediaStoreSaver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -97,6 +100,13 @@ fun applyFilter(source: Bitmap, filter: PhotoFilter): Bitmap {
     return result
 }
 
+// Obergrenze für die längere Kantenlänge der dekodierten Bitmap — verhindert bei hochauflösenden
+// Kameraaufnahmen (z. B. 4000x3000) ein OutOfMemoryError beim vollen Dekodieren + Filtern +
+// erneuten Komprimieren (drei Bitmaps gleichzeitig im Speicher). Dieselbe Begründung/Größe wie
+// ConneXias Galerie (util/PhotoEditor.kt) — ein Filterergebnis muss nicht pixelgenau die
+// Originalauflösung behalten.
+private const val MAX_DECODED_DIMENSION = 4096
+
 /**
  * Speichert eine gefilterte Kopie eines bereits aufgenommenen Fotos als neuen MediaStore-Eintrag
  * im selben `DCIM/ConneXias Kamera`-Ordner wie Originalaufnahmen — kein Überschreiben des
@@ -106,9 +116,10 @@ fun applyFilter(source: Bitmap, filter: PhotoFilter): Bitmap {
 object PhotoFilterSaver {
     suspend fun saveFiltered(context: Context, sourceUri: Uri, filter: PhotoFilter): Uri? =
         withContext(Dispatchers.IO) {
-            val bitmap = context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                BitmapFactory.decodeStream(input)
-            } ?: return@withContext null
+            val resolver = context.contentResolver
+            val rotationDegrees = readExifRotationDegrees(resolver, sourceUri)
+            val decoded = decodeSampledBitmap(resolver, sourceUri, MAX_DECODED_DIMENSION) ?: return@withContext null
+            val bitmap = if (rotationDegrees != 0) rotate(decoded, rotationDegrees) else decoded
             val filtered = applyFilter(bitmap, filter)
 
             val values = contentValuesOf(
@@ -120,7 +131,6 @@ object PhotoFilterSaver {
                     put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
             }
-            val resolver = context.contentResolver
             val outputUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext null
             resolver.openOutputStream(outputUri)?.use { output ->
                 filtered.compress(Bitmap.CompressFormat.JPEG, 92, output)
@@ -131,3 +141,36 @@ object PhotoFilterSaver {
             outputUri
         }
 }
+
+// Zweistufiges Dekodieren (erst nur Abmessungen, dann mit passendem inSampleSize) — content://-
+// Streams sind nicht seekbar/resetbar, deshalb zwei getrennte openInputStream-Aufrufe statt eines
+// mark/reset. Dieselbe Begründung/Umsetzung wie ConneXias Galerie (util/PhotoEditor.kt).
+private fun decodeSampledBitmap(resolver: ContentResolver, uri: Uri, maxDimension: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+    var sampleSize = 1
+    while (bounds.outWidth / (sampleSize * 2) >= maxDimension || bounds.outHeight / (sampleSize * 2) >= maxDimension) {
+        sampleSize *= 2
+    }
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+}
+
+// BitmapFactory ignoriert die EXIF-Orientation selbst — sie muss separat gelesen und als Rotation
+// auf die dekodierte Bitmap angewendet werden, sonst würde ein z. B. hochkant aufgenommenes und
+// mit EXIF-Tag statt gebackener Rotation gespeichertes Foto (z. B. nach einem "Öffnen mit" aus
+// einer anderen App) quer gefiltert und gespeichert.
+private fun readExifRotationDegrees(resolver: ContentResolver, uri: Uri): Int {
+    val orientation = resolver.openInputStream(uri)?.use { input ->
+        ExifInterface(input).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+    } ?: ExifInterface.ORIENTATION_NORMAL
+    return when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> 90
+        ExifInterface.ORIENTATION_ROTATE_180 -> 180
+        ExifInterface.ORIENTATION_ROTATE_270 -> 270
+        else -> 0
+    }
+}
+
+private fun rotate(source: Bitmap, degrees: Int): Bitmap =
+    Bitmap.createBitmap(source, 0, 0, source.width, source.height, Matrix().apply { postRotate(degrees.toFloat()) }, true)

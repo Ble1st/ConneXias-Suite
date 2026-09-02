@@ -1,5 +1,6 @@
 package de.ble1st.camera.ui.review
 
+import android.content.Context
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterVintage
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,11 +57,15 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import de.ble1st.camera.R
+import de.ble1st.camera.nav.CaptureRequestInfo
 import de.ble1st.camera.util.CaptureActions
 import de.ble1st.camera.util.PhotoFilter
 import de.ble1st.camera.util.PhotoFilterSaver
+import de.ble1st.camera.util.SecureScreenEffect
 import de.ble1st.camera.util.composeColorMatrix
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Kurz-Ansicht der letzten Aufnahme — anders als ein vollwertiger Bild-/Videobetrachter (den hat
@@ -68,10 +74,20 @@ import kotlinx.coroutines.launch
  * nicht enthalten").
  */
 @Composable
-fun CaptureReviewScreen(uri: Uri, isVideo: Boolean, onBack: () -> Unit, onDeleted: () -> Unit) {
+fun CaptureReviewScreen(
+    uri: Uri,
+    isVideo: Boolean,
+    onBack: () -> Unit,
+    onDeleted: () -> Unit,
+    captureRequestInfo: CaptureRequestInfo? = null,
+    onUseCapture: (Uri?) -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    SecureScreenEffect()
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var isDelivering by remember { mutableStateOf(false) }
+    val deliverFailedMessage = stringResource(R.string.review_deliver_failed)
     // Nur für Fotos relevant — Videos haben keine Filteranwendung (s. README "Noch nicht
     // enthalten"). Zurückgesetzt auf NONE bei jedem neuen `uri`, damit ein bereits gespeicherter
     // Filter nicht versehentlich auf die nächste Aufnahme "durchrutscht".
@@ -113,6 +129,26 @@ fun CaptureReviewScreen(uri: Uri, isVideo: Boolean, onBack: () -> Unit, onDelete
                             ) {
                                 Icon(Icons.Filled.Check, contentDescription = stringResource(R.string.review_action_save_filtered))
                             }
+                        }
+                    }
+                    // Nur sichtbar, wenn diese Aufnahme über ACTION_IMAGE_CAPTURE/ACTION_VIDEO_CAPTURE
+                    // angefordert wurde (s. CaptureRequestInfo-Klassendoc) — übergibt die Aufnahme an
+                    // den aufrufenden Prozess (EXTRA_OUTPUT-Ziel oder als MediaStore-Uri im
+                    // Ergebnis-Intent) und schließt die App danach.
+                    if (captureRequestInfo != null) {
+                        IconButton(
+                            enabled = !isDelivering,
+                            onClick = {
+                                isDelivering = true
+                                scope.launch {
+                                    val result = deliverCapture(context, uri, captureRequestInfo)
+                                    isDelivering = false
+                                    result.onSuccess { delivered -> onUseCapture(delivered) }
+                                        .onFailure { Toast.makeText(context, deliverFailedMessage, Toast.LENGTH_SHORT).show() }
+                                }
+                            },
+                        ) {
+                            Icon(Icons.Filled.TaskAlt, contentDescription = stringResource(R.string.review_action_use_capture))
                         }
                     }
                     IconButton(onClick = { CaptureActions.share(context, uri) }) {
@@ -224,6 +260,25 @@ private fun filterLabel(filter: PhotoFilter): String = stringResource(
         PhotoFilter.WARM -> R.string.filter_warm
     },
 )
+
+/** Übergibt die Aufnahme an den Aufrufer eines System-Kamera-Contracts (s. `CaptureRequestInfo`):
+ * war `EXTRA_OUTPUT` gesetzt, werden die Bytes dorthin kopiert und `null` zurückgegeben (der
+ * Aufrufer kennt die Ziel-Uri bereits selbst); ohne `EXTRA_OUTPUT` wird stattdessen die eigene
+ * MediaStore-Uri der Aufnahme als Ergebnis geliefert (s. `CaptureRequestInfo`-Klassendoc). */
+private suspend fun deliverCapture(context: Context, uri: Uri, captureRequestInfo: CaptureRequestInfo): Result<Uri?> =
+    withContext(Dispatchers.IO) {
+        val outputUri = captureRequestInfo.outputUri ?: return@withContext Result.success(uri)
+        runCatching {
+            val copied = context.contentResolver.openInputStream(uri)?.use { input ->
+                context.contentResolver.openOutputStream(outputUri)?.use { output ->
+                    input.copyTo(output)
+                    true
+                }
+            } ?: false
+            check(copied) { "Konnte Aufnahme nicht in EXTRA_OUTPUT-Ziel kopieren" }
+            null
+        }
+    }
 
 @Composable
 private fun ReviewVideoPlayer(uri: Uri, modifier: Modifier = Modifier) {

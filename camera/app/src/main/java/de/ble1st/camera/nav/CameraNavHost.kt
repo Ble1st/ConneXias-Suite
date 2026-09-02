@@ -1,5 +1,7 @@
 package de.ble1st.camera.nav
 
+import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -23,8 +25,16 @@ import de.ble1st.camera.ui.capture.CaptureScreen
 import de.ble1st.camera.ui.onboarding.CameraPermissionScreen
 import de.ble1st.camera.ui.review.CaptureReviewScreen
 
+/** `captureRequestInfo` != null, `onCaptureDelivered`/`onCaptureCanceled` != No-Op nur, wenn
+ * [de.ble1st.camera.MainActivity] per `ACTION_IMAGE_CAPTURE`/`ACTION_VIDEO_CAPTURE` gestartet
+ * wurde (s. [CaptureRequestInfo]) — beim normalen App-Start (Launcher-Icon) bleiben alle drei auf
+ * ihren No-Op-Defaults, die Kurz-Ansicht zeigt dann keinen "Verwenden"-Knopf. */
 @Composable
-fun CameraNavHost() {
+fun CameraNavHost(
+    captureRequestInfo: CaptureRequestInfo? = null,
+    onCaptureDelivered: (Uri?) -> Unit = {},
+    onCaptureCanceled: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val context = LocalContext.current
 
@@ -62,7 +72,14 @@ fun CameraNavHost() {
         }
 
         composable(Routes.CAPTURE) {
-            CaptureScreen(onOpenReview = { uri, isVideo -> navController.navigate(Routes.review(uri, isVideo)) })
+            // Zurück verlässt bei einem laufenden Kamera-Contract-Aufruf die App komplett statt
+            // nur den Screen — der Aufrufer (Messenger/Browser/...) erwartet ein `RESULT_CANCELED`,
+            // kein hängendes/leeres Ergebnis.
+            BackHandler(enabled = captureRequestInfo != null) { onCaptureCanceled() }
+            CaptureScreen(
+                captureRequestInfo = captureRequestInfo,
+                onOpenReview = { uri, isVideo -> navController.navigate(Routes.review(uri, isVideo)) },
+            )
         }
 
         composable(
@@ -77,8 +94,10 @@ fun CameraNavHost() {
             CaptureReviewScreen(
                 uri = uri,
                 isVideo = isVideo,
+                captureRequestInfo = captureRequestInfo,
                 onBack = { navController.popBackStack() },
                 onDeleted = { navController.popBackStack() },
+                onUseCapture = onCaptureDelivered,
             )
         }
     }

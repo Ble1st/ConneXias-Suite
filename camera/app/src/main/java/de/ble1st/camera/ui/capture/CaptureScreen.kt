@@ -47,6 +47,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -69,6 +70,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import de.ble1st.camera.R
 import de.ble1st.camera.data.camera.CaptureMode
+import de.ble1st.camera.nav.CaptureRequestInfo
+import de.ble1st.camera.util.SecureScreenEffect
 import kotlinx.coroutines.delay
 
 /**
@@ -77,11 +80,25 @@ import kotlinx.coroutines.delay
  * in einem Scaffold mit eigenem Hintergrund, damit der Sucher wirklich randlos bleibt.
  */
 @Composable
-fun CaptureScreen(onOpenReview: (Uri, Boolean) -> Unit, viewModel: CaptureViewModel = viewModel()) {
+fun CaptureScreen(
+    onOpenReview: (Uri, Boolean) -> Unit,
+    captureRequestInfo: CaptureRequestInfo? = null,
+    viewModel: CaptureViewModel = viewModel(),
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.uiState.collectAsState()
     val previewView = remember { PreviewView(context) }
+
+    SecureScreenEffect()
+
+    // Sperrt den Foto-/Video-Umschalter auf den vom Aufrufer angeforderten Modus (System-Kamera-
+    // Contract, s. CaptureRequestInfo-Klassendoc) — nur einmalig beim Eintritt, nicht bei jedem
+    // Rebind, sonst würde ein späterer manueller Versuch, den Modus zu wechseln, sofort wieder
+    // zurückgesetzt.
+    LaunchedEffect(captureRequestInfo) {
+        captureRequestInfo?.let { viewModel.lockMode(it.forcedMode) }
+    }
 
     LaunchedEffect(state.mode, state.lensFacing, state.hdrEnabled) {
         viewModel.bindPreview(context, lifecycleOwner, previewView)
@@ -96,6 +113,19 @@ fun CaptureScreen(onOpenReview: (Uri, Boolean) -> Unit, viewModel: CaptureViewMo
             else -> Unit
         }
     }
+
+    // Navigation Capture→Review verlässt diesen Composable, ohne dass ON_PAUSE feuert (dieselbe
+    // Activity bleibt RESUMED) — ohne dieses onDispose blieb die Kamera-Hardware während der
+    // gesamten Review-Ansicht gebunden (LED an, Session offen, unnötiger Akkuverbrauch/Privacy-
+    // Eindruck). Der Rebind beim Zurückkommen passiert automatisch, weil LaunchedEffect oben bei
+    // Wiedereintritt in die Komposition erneut feuert.
+    DisposableEffect(Unit) {
+        onDispose { viewModel.releaseCamera() }
+    }
+
+    // Bildschirm bleibt während einer laufenden Videoaufnahme an — vorher konnte der Screen mitten
+    // in der Aufnahme durch den normalen Auto-Lock ausgehen.
+    SideEffect { previewView.keepScreenOn = state.isRecording }
 
     // Die Compose-UI bleibt bewusst im festen Hochformat-Layout (s. AndroidManifest.xml-Kommentar
     // zu `configChanges`) — trotzdem sollen Fotos/Videos unabhängig von der tatsächlichen
@@ -132,7 +162,11 @@ fun CaptureScreen(onOpenReview: (Uri, Boolean) -> Unit, viewModel: CaptureViewMo
                 text = remaining.toString(),
                 style = MaterialTheme.typography.displayLarge,
                 color = Color.White,
-                modifier = Modifier.align(Alignment.Center),
+                // Tippen bricht den Countdown ab, statt ihn abwarten zu müssen — vorher gab es
+                // keine Möglichkeit, einen versehentlich gestarteten Selbstauslöser zu stoppen.
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .clickable { viewModel.cancelCountdown() },
             )
         }
 
@@ -183,6 +217,7 @@ fun CaptureScreen(onOpenReview: (Uri, Boolean) -> Unit, viewModel: CaptureViewMo
 
         BottomControls(
             state = state,
+            modeSwitchVisible = captureRequestInfo == null,
             onZoomChanged = viewModel::onZoomSliderChanged,
             onSelectMode = viewModel::setMode,
             onSwitchLens = viewModel::switchLens,
@@ -414,31 +449,39 @@ private fun BottomControls(
     onShutter: () -> Unit,
     onOpenReview: (Uri, Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    modeSwitchVisible: Boolean = true,
 ) {
     Column(modifier = modifier.padding(bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Slider(
             value = state.zoomRatio,
             onValueChange = onZoomChanged,
-            valueRange = 1f..8f,
+            // Gerätespezifischer Bereich statt vorher fest 1f..8f — s. Kommentar an
+            // CaptureUiState.zoomRatioRange.
+            valueRange = state.zoomRatioRange,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 48.dp),
         )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            ModeLabel(
-                text = stringResource(R.string.capture_mode_photo),
-                selected = state.mode == CaptureMode.PHOTO,
-                enabled = !state.isBusy,
-                onClick = { onSelectMode(CaptureMode.PHOTO) },
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            ModeLabel(
-                text = stringResource(R.string.capture_mode_video),
-                selected = state.mode == CaptureMode.VIDEO,
-                enabled = !state.isBusy,
-                onClick = { onSelectMode(CaptureMode.VIDEO) },
-            )
+        // Ausgeblendet, solange ein Aufrufer per System-Kamera-Contract einen festen Modus
+        // angefordert hat (s. CaptureScreen: viewModel.lockMode) — ein Umschalter, der sofort
+        // wieder auf den angeforderten Modus zurückspringt, wäre nur verwirrend.
+        if (modeSwitchVisible) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                ModeLabel(
+                    text = stringResource(R.string.capture_mode_photo),
+                    selected = state.mode == CaptureMode.PHOTO,
+                    enabled = !state.isBusy,
+                    onClick = { onSelectMode(CaptureMode.PHOTO) },
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                ModeLabel(
+                    text = stringResource(R.string.capture_mode_video),
+                    selected = state.mode == CaptureMode.VIDEO,
+                    enabled = !state.isBusy,
+                    onClick = { onSelectMode(CaptureMode.VIDEO) },
+                )
+            }
         }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 8.dp),

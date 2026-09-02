@@ -24,14 +24,26 @@ object CaptureActions {
         launchOrToast(context, Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
+    /** Zielt zuerst explizit auf ConneXias Galerie (dieselbe Suite, deklariert einen passenden
+     * ACTION_VIEW-Intent-Filter für Bild- und Video-MIME-Typen) statt einer generischen
+     * ACTION_VIEW-Auswahl — vorher landete "In Galerie öffnen" immer in der System-Default-Galerie
+     * des Geräts, nie in der zur Suite gehörenden App (analyse.md Abschnitt 3/5/6). Ist ConneXias
+     * Galerie nicht installiert, fällt der Aufruf auf die generische Variante zurück statt nur
+     * einen "keine App gefunden"-Toast zu zeigen. */
     fun openInGallery(context: Context, uri: Uri) {
         val mimeType = context.contentResolver.getType(uri) ?: "*/*"
-        val intent = Intent(Intent.ACTION_VIEW).apply {
+        val suitePackage = "de.ble1st.gallery"
+        val baseIntent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mimeType)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        launchOrToast(context, intent)
+        val targeted = Intent(baseIntent).setPackage(suitePackage)
+        try {
+            context.startActivity(targeted)
+        } catch (_: ActivityNotFoundException) {
+            launchOrToast(context, baseIntent)
+        }
     }
 
     fun delete(context: Context, uri: Uri): Boolean =

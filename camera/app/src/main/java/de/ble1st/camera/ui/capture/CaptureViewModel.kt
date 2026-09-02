@@ -2,6 +2,7 @@ package de.ble1st.camera.ui.capture
 
 import android.content.Context
 import android.net.Uri
+import androidx.camera.core.Camera
 import androidx.camera.core.ImageCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
@@ -35,6 +36,11 @@ data class CaptureUiState(
     val isRecording: Boolean = false,
     val recordingElapsedSeconds: Int = 0,
     val zoomRatio: Float = 1f,
+    // Vorher fest 1f..8f im UI verdrahtet, unabhängig von der tatsächlichen Hardware — auf
+    // Geräten mit kleinerem/größerem Zoombereich (z. B. reine 1x-Frontkamera oder ein 20x-Tele)
+    // konnte der Regler entweder nie das Maximum erreichen oder einen ungültigen Bereich anbieten.
+    // Wird bei jedem Bind aus `Camera.cameraInfo.zoomState` neu gelesen (s. `bindPreview`).
+    val zoomRatioRange: ClosedFloatingPointRange<Float> = 1f..1f,
     // HDR (Camera2-Extension, s. CameraController-Klassendoc) — nur im Foto-Modus verfügbar,
     // Verfügbarkeit wird erst nach dem Binden vom Gerät gemeldet (Extension-Support ist
     // geräte-/objektivabhängig, nicht vorab bekannt).
@@ -48,9 +54,14 @@ data class CaptureUiState(
     val manualShutterNanos: Long = 0L,
     val lastCaptureUri: Uri? = null,
     val lastCaptureIsVideo: Boolean = false,
+    // Deckt das Fenster zwischen "Auslöser gedrückt" und "Foto fertig geschrieben" ab — ohne
+    // dieses Flag zählte isBusy nur Countdown/Aufnahme, ein zweiter Tap auf den Auslöser während
+    // eines noch laufenden takePhoto()-Aufrufs (I/O kann je nach Gerät spürbar dauern) konnte zwei
+    // sich überlappende Aufnahmen auslösen.
+    val isCapturingPhoto: Boolean = false,
     val errorMessage: String? = null,
 ) {
-    val isBusy: Boolean get() = countdownSecondsLeft != null || isRecording
+    val isBusy: Boolean get() = countdownSecondsLeft != null || isRecording || isCapturingPhoto
 }
 
 /**
@@ -79,11 +90,32 @@ class CaptureViewModel : ViewModel() {
             mode = state.mode,
             hdrRequested = state.hdrEnabled,
             onZoomChanged = { ratio -> _uiState.update { it.copy(zoomRatio = ratio) } },
-            onBound = {
+            onBound = { boundCamera ->
                 cameraController.setFlashMode(state.flashMode)
+                // Torch war vorher nach jedem Rebind (Modus-/Kamerawechsel, ON_RESUME) stillschweigend
+                // aus, obwohl der UI-Schalter noch "an" zeigte — Hardware-Zustand und UI-Zustand
+                // liefen auseinander. Zustand hier explizit erneut auf den Controller angewendet.
+                cameraController.setTorch(state.torchOn)
+                val zoomState = boundCamera.cameraInfo.zoomState.value
+                val zoomRange = if (zoomState != null) {
+                    zoomState.minZoomRatio..zoomState.maxZoomRatio
+                } else {
+                    1f..1f
+                }
                 val evRange = cameraController.exposureCompensationRange()
+                // Vorher wurde die EV-Korrektur bei jedem Rebind stillschweigend auf 0
+                // zurückgesetzt (nur der UI-Wert, nicht einmal auf den Controller angewendet) — ein
+                // z. B. beim Kamerawechsel oder Return-aus-dem-Hintergrund verlorener manueller
+                // EV-Wert war für Nutzende überraschend. Jetzt wird der vorherige Index beibehalten,
+                // sofern er im (ggf. neuen) Bereich des frisch gebundenen Geräts noch gültig ist.
+                val restoredEvIndex = state.exposureCompensationIndex.coerceIn(evRange.lower, evRange.upper)
+                cameraController.setExposureCompensationIndex(restoredEvIndex)
                 _uiState.update {
-                    it.copy(exposureCompensationRange = evRange.lower..evRange.upper, exposureCompensationIndex = 0)
+                    it.copy(
+                        zoomRatioRange = zoomRange,
+                        exposureCompensationRange = evRange.lower..evRange.upper,
+                        exposureCompensationIndex = restoredEvIndex,
+                    )
                 }
                 if (state.manualControlsEnabled) {
                     cameraController.setManualSensorControls(state.manualIso, state.manualShutterNanos)
@@ -109,8 +141,24 @@ class CaptureViewModel : ViewModel() {
                     }
                 }
             },
-            onError = { throwable -> _uiState.update { it.copy(errorMessage = throwable.message) } },
+            onError = { throwable -> _uiState.update { it.copy(errorMessage = describeBindError(context, throwable)) } },
         )
+    }
+
+    /** CameraX' rohe Bind-Fehlermeldung (z. B. "Camera2 CameraDevice.StateCallback onError X") ist
+     * für Nutzende nicht verständlich — insbesondere wenn Warden die Kamera per
+     * `DevicePolicyManager.setCameraDisabled` gesperrt hat, landete bisher genau diese kryptische
+     * Rohmeldung im UI statt eines erklärenden Hinweises. `getCameraDisabled` direkt abgefragt
+     * statt die Exception-Nachricht nach einem Textmuster zu durchsuchen (fragil/lokalisierungs-
+     * abhängig) — der einzige zuverlässige Weg, den Warden-Sperrzustand zu erkennen. */
+    private fun describeBindError(context: Context, throwable: Throwable): String? {
+        val devicePolicyManager = context.getSystemService(android.app.admin.DevicePolicyManager::class.java)
+        val cameraDisabled = runCatching { devicePolicyManager?.getCameraDisabled(null) == true }.getOrDefault(false)
+        return if (cameraDisabled) {
+            context.getString(de.ble1st.camera.R.string.error_camera_disabled_by_policy)
+        } else {
+            throwable.message
+        }
     }
 
     /** Läuft die Kamera-Hardware frei, sobald die App in den Hintergrund geht (ON_PAUSE) — kein
@@ -122,12 +170,31 @@ class CaptureViewModel : ViewModel() {
         controller?.shutdown()
         recordingTimerJob?.cancel()
         countdownJob?.cancel()
-        _uiState.update { it.copy(isRecording = false, recordingElapsedSeconds = 0, countdownSecondsLeft = null) }
+        _uiState.update {
+            it.copy(isRecording = false, recordingElapsedSeconds = 0, countdownSecondsLeft = null, isCapturingPhoto = false)
+        }
+    }
+
+    /** Bricht einen laufenden Selbstauslöser-Countdown ab, ohne die Kamera zu lösen — vorher gab
+     * es keine Möglichkeit, einen versehentlich gestarteten Timer zu stoppen, außer die Aufnahme
+     * abzuwarten oder den Screen zu verlassen. */
+    fun cancelCountdown() {
+        countdownJob?.cancel()
+        _uiState.update { it.copy(countdownSecondsLeft = null) }
     }
 
     fun setMode(mode: CaptureMode) {
         if (_uiState.value.isBusy || _uiState.value.mode == mode) return
         _uiState.update { it.copy(mode = mode) }
+    }
+
+    /** Sperrt den Aufnahmemodus auf `mode`, für den System-Kamera-Contract (ACTION_IMAGE_CAPTURE/
+     * ACTION_VIDEO_CAPTURE, s. [de.ble1st.camera.nav.CaptureRequestInfo]) — anders als [setMode]
+     * ignoriert diese Funktion `isBusy` nicht als Sperre, sondern läuft unbedingt einmalig beim
+     * Bildschirmeintritt, damit ein Messenger, der ein Foto angefragt hat, nicht versehentlich ein
+     * Video zurückbekommt. */
+    fun lockMode(mode: CaptureMode) {
+        if (_uiState.value.mode != mode) _uiState.update { it.copy(mode = mode) }
     }
 
     fun switchLens() {
@@ -252,10 +319,12 @@ class CaptureViewModel : ViewModel() {
     }
 
     private fun takePhoto(context: Context) {
-        controller?.takePhoto(
+        val cameraController = controller ?: return
+        _uiState.update { it.copy(isCapturingPhoto = true) }
+        cameraController.takePhoto(
             outputOptions = MediaStoreSaver.imageOutputOptions(context),
-            onSaved = { uri -> _uiState.update { it.copy(lastCaptureUri = uri, lastCaptureIsVideo = false) } },
-            onError = { exception -> _uiState.update { it.copy(errorMessage = exception.message) } },
+            onSaved = { uri -> _uiState.update { it.copy(lastCaptureUri = uri, lastCaptureIsVideo = false, isCapturingPhoto = false) } },
+            onError = { exception -> _uiState.update { it.copy(errorMessage = exception.message, isCapturingPhoto = false) } },
         )
     }
 

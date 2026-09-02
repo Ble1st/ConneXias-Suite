@@ -52,6 +52,18 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- System-Kamera-Contract (analyse.md Abschnitt 3/6/9): erlaubt anderen Apps (Messenger,
+                 Browser, ConneXias Files' "Foto aufnehmen"-Aktion), diese App als Aufnahmeziel per
+                 startActivityForResult zu nutzen, statt auf die Geräte-Default-Kamera beschränkt zu
+                 sein. Parsing/Ergebnis-Rückgabe s. nav/CaptureRequestInfo.kt + MainActivity.kt. -->
+            <intent-filter>
+                <action android:name="android.media.action.IMAGE_CAPTURE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.media.action.VIDEO_CAPTURE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
     </application>

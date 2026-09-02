@@ -29,6 +29,8 @@
     <string name="review_action_share">Teilen</string>
     <string name="review_action_delete">Löschen</string>
     <string name="review_action_open_gallery">In Galerie öffnen</string>
+    <string name="review_action_use_capture">Verwenden</string>
+    <string name="review_deliver_failed">Übergabe an aufrufende App fehlgeschlagen</string>
     <string name="review_action_filter">Filter</string>
     <string name="review_action_save_filtered">Gefiltertes Foto speichern</string>
     <string name="review_filtered_saved">Gefiltertes Foto gespeichert</string>
@@ -46,4 +48,5 @@
     <string name="action_cancel">Abbrechen</string>
     <string name="content_desc_back">Zurück</string>
     <string name="error_no_app_found">Keine App gefunden, die das öffnen kann</string>
+    <string name="error_camera_disabled_by_policy">Kamera durch Warden gesperrt</string>
 </resources>

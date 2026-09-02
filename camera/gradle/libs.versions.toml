@@ -12,6 +12,7 @@ navigationCompose = "2.10.0"
 coil = "3.6.1"
 media3 = "1.11.0"
 camerax = "1.5.1"
+exifinterface = "1.4.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -52,6 +53,9 @@ androidx-camera-video = { group = "androidx.camera", name = "camera-video", vers
 # FOSS-Vorgabe wie die übrigen camerax-Artefakte. Auf Geräten ohne HDR-Extension bleibt der
 # HDR-Umschalter einfach ausgegraut (Laufzeit-Verfügbarkeitsprüfung, s. CameraController).
 androidx-camera-extensions = { group = "androidx.camera", name = "camera-extensions", version.ref = "camerax" }
+# EXIF-Rotation vor dem Filtern auslesen/anwenden (PhotoFilterSaver) — dieselbe Bibliothek/
+# Begründung wie in ConneXias Galerie (util/PhotoEditor.kt).
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
