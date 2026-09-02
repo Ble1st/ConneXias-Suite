@@ -91,6 +91,12 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         return sortedItems(_allItems.value.filter { it.id in ids }, _sortOrder.value)
     }
 
+    /** Anzahl tatsächlich noch existierender Elemente eines Albums — [CustomAlbum.itemIds] selbst
+     * wird nie automatisch bereinigt, wenn eine referenzierte Aufnahme in MediaStore gelöscht wird
+     * (s. [itemsForCustomAlbum]-Doc). Die AlbumsScreen-Kachel zeigte vorher `itemIds.size` direkt
+     * an — nach dem Löschen referenzierter Fotos lag die angezeigte Anzahl damit dauerhaft zu hoch. */
+    fun liveItemCount(album: CustomAlbum): Int = _allItems.value.count { it.id in album.itemIds }
+
     fun createCustomAlbum(name: String): CustomAlbum = CustomAlbumStore.create(getApplication(), name)
 
     fun renameCustomAlbum(albumId: String, name: String) = CustomAlbumStore.rename(getApplication(), albumId, name)

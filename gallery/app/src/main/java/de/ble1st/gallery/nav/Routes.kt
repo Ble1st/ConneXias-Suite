@@ -17,6 +17,7 @@ object Routes {
     const val CLOUD_SYNC = "cloud_sync"
     private const val GRID_PATTERN = "grid/{bucketId}/{bucketName}"
     private const val IMAGE_VIEWER_PATTERN = "image/{bucketId}/{itemId}"
+    private const val CUSTOM_ALBUM_IMAGE_VIEWER_PATTERN = "customAlbumImage/{albumId}/{itemId}"
     private const val VIDEO_PATTERN = "video/{itemId}"
     private const val CUSTOM_ALBUM_PATTERN = "customAlbum/{albumId}/{albumName}"
     private const val SLIDESHOW_PATTERN = "slideshow/{bucketId}"
@@ -24,6 +25,7 @@ object Routes {
 
     fun gridPattern() = GRID_PATTERN
     fun imageViewerPattern() = IMAGE_VIEWER_PATTERN
+    fun customAlbumImageViewerPattern() = CUSTOM_ALBUM_IMAGE_VIEWER_PATTERN
     fun videoPattern() = VIDEO_PATTERN
     fun customAlbumPattern() = CUSTOM_ALBUM_PATTERN
     fun slideshowPattern() = SLIDESHOW_PATTERN
@@ -31,6 +33,10 @@ object Routes {
 
     fun grid(bucketId: Long, bucketName: String) = "grid/$bucketId/${encode(bucketName)}"
     fun imageViewer(bucketId: Long, itemId: Long) = "image/$bucketId/$itemId"
+
+    /** Bild-Betrachter, dessen Wisch-Geschwister auf ein benutzerdefiniertes Album beschränkt sind
+     * (statt auf ein MediaStore-Bucket) — s. ImageViewerScreen.customAlbumId-Doc. */
+    fun customAlbumImageViewer(albumId: String, itemId: Long) = "customAlbumImage/${encode(albumId)}/$itemId"
     fun video(itemId: Long) = "video/$itemId"
     fun customAlbum(albumId: String, albumName: String) = "customAlbum/${encode(albumId)}/${encode(albumName)}"
     fun slideshow(bucketId: Long) = "slideshow/$bucketId"

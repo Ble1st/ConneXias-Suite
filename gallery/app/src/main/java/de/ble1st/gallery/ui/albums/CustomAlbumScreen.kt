@@ -12,7 +12,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlaylistRemove
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Share
@@ -23,6 +23,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,9 +54,10 @@ import de.ble1st.gallery.util.MediaActions
  * KEINE "Von Gerät löschen"-Aktion, nur "Aus Album entfernen" (entfernt lediglich die Referenz in
  * [de.ble1st.gallery.data.album.CustomAlbumStore], die Aufnahme selbst bleibt unangetastet) —
  * andernfalls würde ein Nutzer, der ein Foto aus einem selbst erstellten Album entfernen will,
- * versehentlich die tatsächliche Aufnahme verlieren. Tippen öffnet den regulären Bild-/
- * Videobetrachter mit `ALL_BUCKET_ID`-Geschwister-Scoping statt eines albumspezifischen Pagers —
- * bewusste v1-Vereinfachung (s. README), ein eigener Album-Pager wäre ein separater Ausbauschritt.
+ * versehentlich die tatsächliche Aufnahme verlieren. Tippen auf ein Bild öffnet den Bildbetrachter
+ * album-skaliert (Wisch-Geschwister sind nur die Elemente dieses Albums, s.
+ * [de.ble1st.gallery.nav.Routes.customAlbumImageViewer]) statt wie zuvor durch die gesamte
+ * Galerie zu wischen; Videos bleiben pagerlos (VideoPlayerScreen).
  */
 @Composable
 fun CustomAlbumScreen(
@@ -75,6 +77,7 @@ fun CustomAlbumScreen(
     var selection by remember { mutableStateOf(emptySet<Long>()) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
     val selectionActive = selection.isNotEmpty()
 
     if (album == null) {
@@ -83,6 +86,10 @@ fun CustomAlbumScreen(
         onNavigateUp()
         return
     }
+    // album.name statt des über die Route mitgegebenen albumName-Parameters: nach einem Umbenennen
+    // (viewModel.renameCustomAlbum) soll der Titel sofort den neuen Namen zeigen, ohne dass der
+    // Screen neu navigiert werden muss — album kommt reaktiv aus customAlbums.
+    val displayName = album.name
 
     Scaffold(
         topBar = {
@@ -92,7 +99,7 @@ fun CustomAlbumScreen(
                         if (selectionActive) {
                             pluralStringResource(R.plurals.selection_count, selection.size, selection.size)
                         } else {
-                            albumName
+                            displayName
                         },
                     )
                 },
@@ -116,9 +123,13 @@ fun CustomAlbumScreen(
                         }
                     } else {
                         IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.album_delete_title))
+                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.content_desc_more))
                         }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.album_rename_title)) },
+                                onClick = { menuExpanded = false; showRenameDialog = true },
+                            )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.album_delete_title)) },
                                 onClick = { menuExpanded = false; showDeleteAlbumConfirm = true },
@@ -189,6 +200,27 @@ fun CustomAlbumScreen(
                 }
             }
         }
+    }
+
+    if (showRenameDialog) {
+        var nameInput by remember(album.id) { mutableStateOf(album.name) }
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text(stringResource(R.string.album_rename_title)) },
+            text = {
+                OutlinedTextField(value = nameInput, onValueChange = { nameInput = it }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = nameInput.isNotBlank(),
+                    onClick = {
+                        showRenameDialog = false
+                        viewModel.renameCustomAlbum(albumId, nameInput.trim())
+                    },
+                ) { Text(stringResource(R.string.action_confirm)) }
+            },
+            dismissButton = { TextButton(onClick = { showRenameDialog = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
     }
 
     if (showDeleteAlbumConfirm) {

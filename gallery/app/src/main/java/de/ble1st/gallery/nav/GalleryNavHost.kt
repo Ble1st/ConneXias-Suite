@@ -1,6 +1,8 @@
 package de.ble1st.gallery.nav
 
+import android.net.Uri
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -22,6 +24,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import de.ble1st.gallery.data.media.ALL_BUCKET_ID
+import de.ble1st.gallery.data.media.MediaItem
 import de.ble1st.gallery.data.media.MediaType
 import de.ble1st.gallery.permission.MediaPermission
 import de.ble1st.gallery.ui.GalleryViewModel
@@ -37,12 +40,41 @@ import de.ble1st.gallery.ui.viewer.SlideshowScreen
 import de.ble1st.gallery.ui.viewer.VideoPlayerScreen
 
 @Composable
-fun GalleryNavHost() {
+fun GalleryNavHost(
+    externalIntent: ExternalIntent? = null,
+    onPicked: (Uri) -> Unit = {},
+) {
     val navController = rememberNavController()
     val context = LocalContext.current
     // Ein einziges ViewModel für die gesamte NavHost-Lebensdauer statt eines pro Route — s.
     // GalleryViewModel-Klassendoc.
     val galleryViewModel: GalleryViewModel = viewModel()
+    val pickFilter = (externalIntent as? ExternalIntent.Pick)?.mimeTypeFilter
+    val isPickMode = externalIntent is ExternalIntent.Pick
+
+    // Gemeinsamer Tap-Handler für Grid/CustomAlbum: im normalen Betrieb wie bisher zum passenden
+    // Betrachter navigieren, im Pick-Modus (ACTION_PICK/ACTION_GET_CONTENT) stattdessen die Uri per
+    // onPicked() an den Aufrufer zurückgeben, ohne den regulären Betrachter je zu öffnen — ein Tap,
+    // der nicht zum angefragten mimeTypeFilter passt, wird abgelehnt statt kommentarlos die falsche
+    // Uri zurückzugeben.
+    fun onItemTapped(item: MediaItem, bucketId: Long, customAlbumId: String? = null) {
+        if (isPickMode) {
+            val matches = pickFilter.isNullOrBlank() || pickFilter == "*/*" ||
+                (pickFilter.startsWith("image/") && item.type == MediaType.IMAGE) ||
+                (pickFilter.startsWith("video/") && item.type == MediaType.VIDEO)
+            if (matches) {
+                onPicked(item.uri)
+            } else {
+                Toast.makeText(context, "Dieser Dateityp wird hier nicht akzeptiert", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        when {
+            item.type == MediaType.VIDEO -> navController.navigate(Routes.video(item.id))
+            customAlbumId != null -> navController.navigate(Routes.customAlbumImageViewer(customAlbumId, item.id))
+            else -> navController.navigate(Routes.imageViewer(bucketId, item.id))
+        }
+    }
 
     NavHost(navController = navController, startDestination = Routes.ONBOARDING) {
         composable(Routes.ONBOARDING) {
@@ -62,7 +94,15 @@ fun GalleryNavHost() {
 
             LaunchedEffect(hasAccess) {
                 if (hasAccess) {
-                    navController.navigate(Routes.ALBUMS) {
+                    // Bei ACTION_VIEW von außen (s. ExternalIntent-Doc) direkt zum betroffenen
+                    // Element springen statt über Albums — der Aufrufer (z. B. ConneXias Kamera)
+                    // erwartet, dass "In Galerie öffnen" auch wirklich diese eine Aufnahme zeigt.
+                    val destination = when (externalIntent) {
+                        is ExternalIntent.ViewItem ->
+                            if (externalIntent.isVideo) Routes.video(externalIntent.itemId) else Routes.imageViewer(ALL_BUCKET_ID, externalIntent.itemId)
+                        else -> Routes.ALBUMS
+                    }
+                    navController.navigate(destination) {
                         popUpTo(Routes.ONBOARDING) { inclusive = true }
                     }
                 }
@@ -97,13 +137,7 @@ fun GalleryNavHost() {
                 bucketName = bucketName,
                 viewModel = galleryViewModel,
                 onNavigateUp = { navController.popBackStack() },
-                onOpenViewer = { item ->
-                    if (item.type == MediaType.VIDEO) {
-                        navController.navigate(Routes.video(item.id))
-                    } else {
-                        navController.navigate(Routes.imageViewer(bucketId, item.id))
-                    }
-                },
+                onOpenViewer = { item -> onItemTapped(item, bucketId) },
                 onStartSlideshow = { navController.navigate(Routes.slideshow(bucketId)) },
             )
         }
@@ -162,14 +196,28 @@ fun GalleryNavHost() {
                 albumName = albumName,
                 viewModel = galleryViewModel,
                 onNavigateUp = { navController.popBackStack() },
-                onOpenViewer = { item ->
-                    if (item.type == MediaType.VIDEO) {
-                        navController.navigate(Routes.video(item.id))
-                    } else {
-                        navController.navigate(Routes.imageViewer(ALL_BUCKET_ID, item.id))
-                    }
-                },
+                onOpenViewer = { item -> onItemTapped(item, ALL_BUCKET_ID, customAlbumId = albumId) },
                 onAlbumDeleted = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = Routes.customAlbumImageViewerPattern(),
+            arguments = listOf(
+                navArgument("albumId") { type = NavType.StringType },
+                navArgument("itemId") { type = NavType.LongType },
+            ),
+        ) { backStackEntry ->
+            val albumId = Routes.decodeName(backStackEntry.arguments?.getString("albumId").orEmpty())
+            val itemId = backStackEntry.arguments?.getLong("itemId") ?: -1L
+            ImageViewerScreen(
+                bucketId = ALL_BUCKET_ID,
+                customAlbumId = albumId,
+                startItemId = itemId,
+                viewModel = galleryViewModel,
+                onBack = { navController.popBackStack() },
+                onDeleted = { navController.popBackStack() },
+                onEdit = { navController.navigate(Routes.editor(itemId)) },
             )
         }
 

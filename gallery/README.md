@@ -39,6 +39,29 @@ Formsprache, s. `ui/theme/Theme.kt`), Jetpack Compose.
 - Cloud-Sicherung (`data/webdav/`, `data/sync/`, `ui/sync/CloudSyncScreen.kt`): Ein-Wege-Backup
   auf einen selbst gehosteten WebDAV-Server (eigener schlanker OkHttp-Client, kein
   Cloud-SDK/proprietärer Dienst) — merkt sich lokal, welche Elemente schon hochgeladen wurden.
+- "Öffnen mit ConneXias Galerie" (`ACTION_VIEW`) und Bild-/Video-Auswahl für fremde Apps
+  (`ACTION_PICK`/`ACTION_GET_CONTENT`) — s. `MainActivity`/`nav/ExternalIntent.kt`. ConneXias
+  Kameras "In Galerie öffnen" landet dadurch jetzt hier statt in der System-Default-Galerie.
+- Album-skalierter Bild-Betrachter-Pager für benutzerdefinierte Alben (Wisch-Geschwister sind nur
+  die Album-Elemente, nicht mehr die gesamte Galerie), Umbenennen-UI für benutzerdefinierte Alben,
+  Kachel-Anzahl zählt nur noch tatsächlich noch vorhandene Elemente (nicht mehr aus MediaStore
+  gelöschte, aber noch referenzierte IDs mit).
+
+**Sicherheits-/Robustheitsfixes (2026-09-02, s. `analyse.md`):** ein `http://`-Server im
+Cloud-Sync-Formular zeigt jetzt eine sichtbare Warnung; Zugangsdaten werden erst nach
+erfolgreichem Verbindungstest persistiert statt sofort beim Tippen auf den Button, ein leeres
+Passwort wird nicht mehr akzeptiert; der Remote-Dateiname beim Hochladen enthält die MediaStore-ID
+als Präfix, damit zwei unabhängige Fotos mit demselben Dateinamen sich nicht mehr gegenseitig
+überschreiben; ein laufender Sync übersteht jetzt Navigation weg vom Cloud-Sync-Screen (eigener
+prozessweiter Coroutine-Scope statt eines an die Compose-Navigation gebundenen) — echte
+Process-Tod-Sicherheit bräuchte weiterhin WorkManager, s. unten; `PhotoEditor` decodiert Fotos
+jetzt herunterskaliert (`inSampleSize`) statt in voller Sensorauflösung (OOM-Risiko bei hochauf-
+lösenden Fotos) und korrigiert die EXIF-Rotation vor dem Speichern, statt sie zu verwerfen (ein im
+Hochformat aufgenommenes, aber mit gedrehtem Sensor gespeichertes Foto landete vorher seitwärts in
+der bearbeiteten Kopie); `MediaStoreRepository`s `ContentObserver` führt die MediaStore-Query bei
+einer Änderung jetzt auf einem Hintergrund-Thread aus statt blockierend auf dem Main-Thread
+(ANR-Risiko bei großen Bibliotheken); "Aufnahmedatum" sortiert/zeigt jetzt `DATE_TAKEN` mit
+`DATE_ADDED`-Fallback statt ausschließlich `DATE_ADDED` (Aufnahme- statt Import-/Sync-Zeitpunkt).
 
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte, mit Begründung):
 - **Gesichtsgruppierung**: würde On-Device-Gesichtserkennung brauchen — die gängige Lösung dafür
@@ -49,11 +72,16 @@ Formsprache, s. `ui/theme/Theme.kt`), Jetpack Compose.
 - **Bidirektionaler Cloud-Sync**: die eingebaute Cloud-Sicherung ist bewusst nur eine
   Ein-Wege-Sicherung (Gerät → Server); echte Zwei-Wege-Synchronisation bräuchte
   Versions-/Konflikterkennung und ein Downloadstadium — eigenständiger Ausbauschritt.
-- **Album-spezifischer Betrachter-Pager**: Tippen in einem benutzerdefinierten Album öffnet
-  aktuell den regulären "Alle"-Bildbetrachter statt eines auf das Album beschränkten Pagers
-  (bewusste v1-Vereinfachung, s. `CustomAlbumScreen.kt`-Klassendoc).
+- **WorkManager für Cloud-Sync**: ein laufender Sync übersteht jetzt Navigation weg vom Screen
+  (s. oben), aber keinen echten Process-Tod (App vom System im Hintergrund gekillt) — dafür bräuchte
+  es einen `WorkManager`-`Worker` mit eigener Fortschritts-Notification, ein für v1 bewusst
+  zurückgestellter, in sich abgeschlossener Ausbauschritt.
 - **Frei ziehbarer Zuschnitt**: der Bildeditor bietet feste Seitenverhältnis-Voreinstellungen statt
   frei ziehbarer Eckgriffe (eigene Ziehgesten-Erkennung wäre ein separater Ausbauschritt).
+- **MediaStore-Paging**: die gesamte Bibliothek liegt weiterhin komplett im Speicher (`allItems`);
+  für sehr große Bibliotheken (mehrere zehntausend Elemente) eigenständiger Ausbauschritt Richtung
+  `Paging3`. Der akute ANR-Auslöser (Query auf dem Main-Thread bei jeder Änderung) ist behoben,
+  s. oben — Paging selbst bleibt offen.
 
 ## Build
 

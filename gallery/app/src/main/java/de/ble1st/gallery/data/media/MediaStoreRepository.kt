@@ -17,6 +17,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 
 /**
  * Liest Bilder + Videos über eine einzige Query gegen `MediaStore.Files` (statt zwei getrennte
@@ -42,7 +43,15 @@ object MediaStoreRepository {
         queryAndSend()
 
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) = queryAndSend()
+            // onChange feuert auf dem Main-Thread (Handler ist an Looper.getMainLooper() gebunden,
+            // von registerContentObserver so verlangt) — die blockierende MediaStore-Query
+            // synchron direkt hier auszuführen würde bei einer großen Bibliothek zum ANR führen.
+            // launch(Dispatchers.IO) verschiebt sie in eine an diesen Flow gebundene Coroutine;
+            // .flowOn(Dispatchers.IO) unten betrifft nur den initialen queryAndSend()-Aufruf oben,
+            // nicht spätere Callback-Aufrufe.
+            override fun onChange(selfChange: Boolean) {
+                launch(Dispatchers.IO) { queryAndSend() }
+            }
         }
         context.contentResolver.registerContentObserver(collection, true, observer)
         awaitClose { context.contentResolver.unregisterContentObserver(observer) }
@@ -60,7 +69,9 @@ object MediaStoreRepository {
         queryAndSend()
 
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) = queryAndSend()
+            override fun onChange(selfChange: Boolean) {
+                launch(Dispatchers.IO) { queryAndSend() }
+            }
         }
         context.contentResolver.registerContentObserver(collection, true, observer)
         awaitClose { context.contentResolver.unregisterContentObserver(observer) }
@@ -75,6 +86,7 @@ object MediaStoreRepository {
             add(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
             add(MediaStore.Files.FileColumns.MEDIA_TYPE)
             add(MediaStore.Files.FileColumns.DATE_ADDED)
+            add(MediaStore.Files.FileColumns.DATE_TAKEN)
             add(MediaStore.Files.FileColumns.SIZE)
             add(MediaStore.Files.FileColumns.WIDTH)
             add(MediaStore.Files.FileColumns.HEIGHT)
@@ -114,7 +126,8 @@ object MediaStoreRepository {
         val bucketIdIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_ID)
         val bucketNameIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
         val typeIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
-        val dateIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+        val dateAddedIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+        val dateTakenIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
         val sizeIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
         val widthIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
         val heightIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
@@ -137,6 +150,8 @@ object MediaStoreRepository {
             val displayName = cursor.getString(nameIdx).orEmpty()
             val rawPath = cursor.getString(pathIdx).orEmpty()
             val path = if (useRelativePath) "$rawPath$displayName" else rawPath.ifEmpty { displayName }
+            val dateTakenMillis = cursor.getLong(dateTakenIdx)
+            val dateSortMillis = if (dateTakenMillis > 0) dateTakenMillis else cursor.getLong(dateAddedIdx) * 1000
 
             items += MediaItem(
                 id = id,
@@ -145,7 +160,7 @@ object MediaStoreRepository {
                 bucketId = cursor.getLong(bucketIdIdx),
                 bucketName = cursor.getString(bucketNameIdx).orEmpty(),
                 type = type,
-                dateAddedSeconds = cursor.getLong(dateIdx),
+                dateSortMillis = dateSortMillis,
                 sizeBytes = cursor.getLong(sizeIdx),
                 width = cursor.getInt(widthIdx),
                 height = cursor.getInt(heightIdx),

@@ -46,6 +46,32 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- "Öffnen mit ConneXias Galerie" für ein einzelnes Bild/Video von außen (z. B.
+                 ConneXias Kameras "In Galerie öffnen", s. MainActivity.viewItemFromUri) — bisher
+                 hatte die App außer MAIN/LAUNCHER keinerlei Intent-Filter, ein Tap darauf landete
+                 immer in der System-Default-Galerie statt hier (analyse.md Abschnitt 3/5). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <!-- Bild-/Video-Auswahl für eine fremde App (z. B. ein Chat-Client, der ein Foto zum
+                 Versenden auswählen lässt) — s. MainActivity.resolveExternalIntent/ExternalIntent.Pick. -->
+            <intent-filter>
+                <action android:name="android.intent.action.PICK" />
+                <action android:name="android.intent.action.GET_CONTENT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.OPENABLE" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
         </activity>
 
     </application>

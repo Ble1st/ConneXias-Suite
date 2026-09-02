@@ -4,9 +4,12 @@ import android.content.Context
 import de.ble1st.gallery.data.media.MediaItem
 import de.ble1st.gallery.data.webdav.WebDavAccount
 import de.ble1st.gallery.data.webdav.WebDavClient
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -34,7 +37,23 @@ object CloudSyncManager {
     private val _progress = MutableStateFlow(SyncProgress())
     val progress: StateFlow<SyncProgress> = _progress
 
-    suspend fun sync(context: Context, account: WebDavAccount, items: List<MediaItem>) {
+    // Eigener, prozessweiter SupervisorJob-Scope statt eines von CloudSyncScreen übergebenen
+    // rememberCoroutineScope() — der wird beim Verlassen des Screens (Zurück-Navigation,
+    // Konfigurationsänderung) gecancelt, ein laufender Sync brach dadurch schon bei einem simplen
+    // "Zurück" ab, nicht erst bei echtem Process-Tod. Volle Process-Tod-Sicherheit bräuchte
+    // WorkManager (eigenständiger, deutlich größerer Ausbauschritt, s. README) — dieser Scope löst
+    // den häufigeren Fall (Navigation weg vom Screen, Rotation), solange der Prozess am Leben
+    // bleibt.
+    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Startet den Sync losgelöst vom aufrufenden Compose-Scope — s. [managerScope]-Doc. Der Aufrufer
+     * beobachtet den Fortschritt über [progress] statt auf eine Coroutine zu warten. */
+    fun startSync(context: Context, account: WebDavAccount, items: List<MediaItem>) {
+        if (_progress.value.running) return
+        managerScope.launch { sync(context, account, items) }
+    }
+
+    private suspend fun sync(context: Context, account: WebDavAccount, items: List<MediaItem>) {
         val alreadySynced = CloudSyncState.syncedIds(context)
         val pending = items.filter { it.id !in alreadySynced }
         _progress.value = SyncProgress(total = pending.size, running = true)
@@ -55,7 +74,12 @@ object CloudSyncManager {
                 temp
             }
             val mimeType = context.contentResolver.getType(item.uri) ?: "application/octet-stream"
-            val result = WebDavClient.upload(account, "$REMOTE_FOLDER/${item.displayName}", tempFile, mimeType)
+            // Der bloße Dateiname als Remote-Pfad kollidiert leicht — zwei unabhängige "IMG_0001.jpg"
+            // (unterschiedliches Album/Datum, selber Name) würden sich auf dem Server sonst
+            // gegenseitig überschreiben. Die MediaStore-ID als Präfix macht den Pfad eindeutig,
+            // ohne den ursprünglichen Namen für den Menschen am anderen Ende unlesbar zu machen.
+            val remotePath = "$REMOTE_FOLDER/${item.id}_${item.displayName}"
+            val result = WebDavClient.upload(account, remotePath, tempFile, mimeType)
             withContext(Dispatchers.IO) { tempFile.delete() }
 
             result.onSuccess {

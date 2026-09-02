@@ -7,12 +7,14 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.core.content.contentValuesOf
 import androidx.core.graphics.createBitmap
+import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -119,11 +121,22 @@ object PhotoEditSaver {
         SimpleDateFormat("yyyyMMdd_HHmmssSSS", Locale.US)
     }
 
+    /** Obergrenze für die längste Kante des dekodierten Bitmaps — ohne sie wurde jedes Foto in
+     * voller Sensorauflösung decodiert (bei z. B. 50 MP als ARGB_8888 weit über 100 MB allein für
+     * dieses eine Bitmap, plus Kopie fürs Croppen, plus Kopie fürs Filtern), reines OOM-Risiko auf
+     * schwächeren Geräten. 4096px liegt weit über jeder sinnvollen Anzeige-/Social-Media-Auflösung. */
+    private const val MAX_DECODED_DIMENSION = 4096
+
     suspend fun saveEdited(context: Context, sourceUri: Uri, filter: PhotoFilter, aspect: CropAspect): Uri? =
         withContext(Dispatchers.IO) {
-            val original = context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                BitmapFactory.decodeStream(input)
-            } ?: return@withContext null
+            val resolver = context.contentResolver
+            val rotationDegrees = readExifRotationDegrees(resolver, sourceUri)
+            val decoded = decodeSampledBitmap(resolver, sourceUri, MAX_DECODED_DIMENSION) ?: return@withContext null
+            // BitmapFactory decodiert die rohen Pixel unabhängig von der EXIF-Orientation — ohne
+            // diese Korrektur landete ein im Hochformat aufgenommenes, aber mit gedrehtem
+            // Sensor-Bild gespeichertes Foto (der übliche Fall auf den meisten Telefonkameras)
+            // seitwärts in der bearbeiteten Kopie.
+            val original = if (rotationDegrees != 0) rotate(decoded, rotationDegrees) else decoded
             val cropped = centerCrop(original, aspect)
             val edited = applyFilter(cropped, filter)
 
@@ -137,7 +150,6 @@ object PhotoEditSaver {
                     put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
             }
-            val resolver = context.contentResolver
             val outputUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext null
             resolver.openOutputStream(outputUri)?.use { output -> edited.compress(Bitmap.CompressFormat.JPEG, 92, output) }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -145,4 +157,37 @@ object PhotoEditSaver {
             }
             outputUri
         }
+
+    /** Zwei-Pass-Decodierung (erst nur die Maße lesen, dann mit passendem `inSampleSize`
+     * herunterskaliert decodieren) statt `BitmapFactory.decodeStream(input)` direkt — Standard-
+     * Android-Muster gegen OOM bei großen Fotos, s. [MAX_DECODED_DIMENSION]-Doc. Zwei separate
+     * `openInputStream`-Aufrufe statt eines wiederverwendeten Streams, weil ein MediaStore-
+     * `content://`-Stream nicht zurückgespult werden kann (kein `reset()`). */
+    private fun decodeSampledBitmap(resolver: android.content.ContentResolver, uri: Uri, maxDimension: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+        var sampleSize = 1
+        while (bounds.outWidth / (sampleSize * 2) >= maxDimension || bounds.outHeight / (sampleSize * 2) >= maxDimension) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+    }
+
+    private fun readExifRotationDegrees(resolver: android.content.ContentResolver, uri: Uri): Int {
+        val orientation = runCatching {
+            resolver.openInputStream(uri)?.use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
+        }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+        return when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270
+            else -> 0
+        }
+    }
+
+    private fun rotate(source: Bitmap, degrees: Int): Bitmap {
+        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
+        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+    }
 }

@@ -57,6 +57,10 @@ fun CloudSyncScreen(viewModel: GalleryViewModel, onBack: () -> Unit) {
     var password by remember { mutableStateOf(storedAccount?.password.orEmpty()) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var testing by remember { mutableStateOf(false) }
+    // Leeres Passwort war zuvor akzeptiert (isValid prüfte es nicht) — ein WebDAV-Server, der
+    // wirklich anonymen Zugriff erlaubt, ist der seltene Rand-Fall, ein versehentlich leer
+    // gelassenes Feld der häufige.
+    val isValid = baseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
 
     val connectionOkMessage = stringResource(R.string.cloud_sync_test_ok)
     val connectionFailedMessage = stringResource(R.string.cloud_sync_test_failed)
@@ -99,17 +103,32 @@ fun CloudSyncScreen(viewModel: GalleryViewModel, onBack: () -> Unit) {
                 label = { Text(stringResource(R.string.cloud_sync_password)) },
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
+            // Cleartext bleibt app-weit erlaubt (s. network_security_config.xml-Kommentar — viele
+            // selbst gehostete Server im Heimnetz haben kein gültiges TLS-Zertifikat), aber ein
+            // "http://"-Server wird nicht mehr stillschweigend akzeptiert.
+            if (baseUrl.isNotBlank() && !baseUrl.startsWith("https://", ignoreCase = true)) {
+                Text(
+                    "Achtung: kein HTTPS — Zugangsdaten werden unverschlüsselt übertragen.",
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
 
             Column(modifier = Modifier.padding(top = 16.dp)) {
                 OutlinedButton(
-                    enabled = baseUrl.isNotBlank() && username.isNotBlank() && !testing,
+                    enabled = isValid && !testing,
                     onClick = {
-                        WebDavAccountStore.save(context, WebDavAccount(baseUrl.trim(), username.trim(), password))
                         testing = true
                         statusMessage = null
+                        val account = WebDavAccount(baseUrl.trim(), username.trim(), password)
                         scope.launch {
-                            val result = WebDavClient.testConnection(WebDavAccount(baseUrl.trim(), username.trim(), password))
+                            val result = WebDavClient.testConnection(account)
                             testing = false
+                            // Erst nach erfolgreichem Test persistieren (vorher wurden die
+                            // Zugangsdaten sofort beim Tippen auf den Button gespeichert, unabhängig
+                            // vom Testergebnis — ein Tippfehler im Passwort landete so unbemerkt
+                            // dauerhaft im verschlüsselten Storage).
+                            if (result.isSuccess) WebDavAccountStore.save(context, account)
                             statusMessage = if (result.isSuccess) connectionOkMessage else connectionFailedMessage
                         }
                     },
@@ -121,11 +140,11 @@ fun CloudSyncScreen(viewModel: GalleryViewModel, onBack: () -> Unit) {
                 statusMessage?.let { Text(it, modifier = Modifier.padding(top = 8.dp)) }
 
                 Button(
-                    enabled = baseUrl.isNotBlank() && username.isNotBlank() && !progress.running,
+                    enabled = isValid && !progress.running,
                     onClick = {
                         val account = WebDavAccount(baseUrl.trim(), username.trim(), password)
                         WebDavAccountStore.save(context, account)
-                        scope.launch { CloudSyncManager.sync(context, account, allItems) }
+                        CloudSyncManager.startSync(context, account, allItems)
                     },
                     modifier = Modifier.padding(top = 16.dp),
                 ) { Text(stringResource(R.string.cloud_sync_start)) }

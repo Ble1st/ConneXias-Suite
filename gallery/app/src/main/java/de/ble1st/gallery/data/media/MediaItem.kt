@@ -11,10 +11,12 @@ data class MediaItem(
     val bucketId: Long,
     val bucketName: String,
     val type: MediaType,
-    /** Sekunden seit Epoch (`MediaStore.MediaColumns.DATE_ADDED`) — dieselbe Einheit, in der
-     * MediaStore die Spalte liefert, absichtlich nicht in Millisekunden umgerechnet, um keine
-     * Präzision vorzutäuschen, die die Quelle nicht hat. */
-    val dateAddedSeconds: Long,
+    /** Millisekunden seit Epoch — `DATE_TAKEN` (Aufnahmezeitpunkt, von der Kamera/EXIF geliefert),
+     * mit `DATE_ADDED * 1000` als Fallback, wenn `DATE_TAKEN` fehlt (0 oder NULL, z. B. bei per SAF
+     * importierten Dateien ohne EXIF). Vorher wurde ausschließlich `DATE_ADDED` genutzt — für Fotos,
+     * die z. B. per WebDAV-Sync/Import erst später auf dieses Gerät gelangten, zeigte "Datum" damit
+     * den Import- statt den Aufnahmezeitpunkt und sortierte die Galerie entsprechend falsch ein. */
+    val dateSortMillis: Long,
     val sizeBytes: Long,
     val width: Int,
     val height: Int,

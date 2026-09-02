@@ -17,7 +17,7 @@ class BucketGroupingTest {
         bucketId = bucketId,
         bucketName = bucketName,
         type = MediaType.IMAGE,
-        dateAddedSeconds = dateAdded,
+        dateSortMillis = dateAdded,
         sizeBytes = 0,
         width = 0,
         height = 0,

@@ -26,7 +26,7 @@ fun MediaInfoDialog(item: MediaItem, onDismiss: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 InfoRow(stringResource(R.string.info_dimensions), "${item.width} × ${item.height}")
                 InfoRow(stringResource(R.string.info_size), MediaFormatters.formatSize(item.sizeBytes))
-                InfoRow(stringResource(R.string.info_date), MediaFormatters.formatDate(item.dateAddedSeconds))
+                InfoRow(stringResource(R.string.info_date), MediaFormatters.formatDate(item.dateSortMillis))
                 InfoRow(stringResource(R.string.info_path), item.path)
             }
         },

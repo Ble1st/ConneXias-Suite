@@ -55,7 +55,9 @@
     <string name="album_empty">Dieses Album enthält noch keine Elemente.</string>
     <string name="album_add_to">Zu Album hinzufügen</string>
     <string name="album_remove_item">Aus Album entfernen</string>
+    <string name="album_rename_title">Album umbenennen</string>
     <string name="album_delete_title">Album löschen</string>
+    <string name="content_desc_more">Mehr</string>
     <string name="album_delete_body">Das Album wird gelöscht, die enthaltenen Aufnahmen bleiben erhalten.</string>
 
     <string name="slideshow_start">Diashow</string>

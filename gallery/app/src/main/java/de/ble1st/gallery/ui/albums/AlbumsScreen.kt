@@ -112,6 +112,7 @@ fun AlbumsScreen(
                 CustomAlbumTile(
                     album = album,
                     coverUri = allItems.find { it.id in album.itemIds }?.uri,
+                    itemCount = viewModel.liveItemCount(album),
                     onClick = { onOpenCustomAlbum(album.id, album.name) },
                 )
             }
@@ -189,7 +190,7 @@ private fun AlbumTile(name: String, coverUri: Uri, itemCount: Int, onClick: () -
 }
 
 @Composable
-private fun CustomAlbumTile(album: CustomAlbum, coverUri: Uri?, onClick: () -> Unit) {
+private fun CustomAlbumTile(album: CustomAlbum, coverUri: Uri?, itemCount: Int, onClick: () -> Unit) {
     Column(modifier = Modifier.padding(8.dp).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
@@ -218,7 +219,7 @@ private fun CustomAlbumTile(album: CustomAlbum, coverUri: Uri?, onClick: () -> U
             modifier = Modifier.padding(top = 4.dp),
         )
         Text(
-            text = pluralStringResource(R.plurals.album_item_count, album.itemIds.size, album.itemIds.size),
+            text = pluralStringResource(R.plurals.album_item_count, itemCount, itemCount),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

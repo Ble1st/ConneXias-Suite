@@ -72,12 +72,23 @@ fun ImageViewerScreen(
     onBack: () -> Unit,
     onDeleted: () -> Unit,
     onEdit: (Uri) -> Unit,
+    /** Wenn gesetzt, sind die Wisch-Geschwister auf dieses benutzerdefinierte Album beschränkt
+     * statt auf [bucketId] — [de.ble1st.gallery.ui.albums.CustomAlbumScreen] öffnete diesen
+     * Betrachter zuvor immer mit `ALL_BUCKET_ID`, ein Wischen führte dadurch durch die gesamte
+     * Galerie statt durch das Album, in dem der Nutzer eigentlich war (bewusste v1-Vereinfachung,
+     * s. dortiger Klassendoc — jetzt nachgezogen). [bucketId] bleibt in diesem Fall unbenutzt. */
+    customAlbumId: String? = null,
 ) {
     val context = LocalContext.current
     val allItems by viewModel.allItems.collectAsState()
-    val siblings = remember(allItems, bucketId) {
-        val scoped = if (bucketId == ALL_BUCKET_ID) allItems else allItems.filter { it.bucketId == bucketId }
-        scoped.filter { it.type == MediaType.IMAGE }.sortedByDescending { it.dateAddedSeconds }
+    val customAlbums by viewModel.customAlbums.collectAsState()
+    val siblings = remember(allItems, bucketId, customAlbumId, customAlbums) {
+        val scoped = when {
+            customAlbumId != null -> viewModel.itemsForCustomAlbum(customAlbumId)
+            bucketId == ALL_BUCKET_ID -> allItems
+            else -> allItems.filter { it.bucketId == bucketId }
+        }
+        scoped.filter { it.type == MediaType.IMAGE }.sortedByDescending { it.dateSortMillis }
     }
 
     if (siblings.isEmpty()) {

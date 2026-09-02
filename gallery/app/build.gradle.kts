@@ -70,6 +70,8 @@ dependencies {
     // Cloud-Sync — s. data/webdav/.
     implementation(libs.okhttp)
     implementation(libs.androidx.security.crypto)
+    // PhotoEditor — s. gradle/libs.versions.toml-Kommentar.
+    implementation(libs.androidx.exifinterface)
 
     testImplementation(libs.junit)
     // Bucket-/Sortier-Unit-Tests brauchen ein android.net.Uri-Objekt (MediaItem.uri) rein als

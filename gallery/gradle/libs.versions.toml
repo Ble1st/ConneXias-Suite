@@ -14,6 +14,7 @@ media3 = "1.11.0"
 mockito = "5.23.0"
 okhttp = "5.5.0"
 securityCrypto = "1.1.0"
+exifinterface = "1.4.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -51,6 +52,10 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 # Wahl wie ConneXias Files, weil hier (anders als beim Rest der App) tatsächlich ein Passwort
 # abgelegt wird.
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+# PhotoEditor: liest die EXIF-Rotation des Originals, damit ein bearbeitetes Foto nicht seitwärts
+# gespeichert wird (BitmapFactory ignoriert EXIF-Orientation beim Decodieren selbst) — AndroidX/FOSS,
+# kein Play-Services-Bezug.
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -15,7 +15,7 @@ class MediaSortingTest {
         bucketId = 1,
         bucketName = "Camera",
         type = MediaType.IMAGE,
-        dateAddedSeconds = date,
+        dateSortMillis = date,
         sizeBytes = size,
         width = 0,
         height = 0,
@@ -31,7 +31,7 @@ class MediaSortingTest {
     @Test
     fun `sort by date is descending (newest first)`() {
         val sorted = sortedItems(items, SortOrder.DATE)
-        assertEquals(listOf(300L, 200L, 100L), sorted.map { it.dateAddedSeconds })
+        assertEquals(listOf(300L, 200L, 100L), sorted.map { it.dateSortMillis })
     }
 
     @Test

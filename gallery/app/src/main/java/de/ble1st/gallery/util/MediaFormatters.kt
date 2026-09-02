@@ -19,8 +19,8 @@ object MediaFormatters {
         return String.format(Locale.US, "%.1f %s", value, units[exponent - 1])
     }
 
-    /** `dateAddedSeconds` kommt aus `MediaStore.MediaColumns.DATE_ADDED` (Sekunden seit Epoch,
-     * nicht Millisekunden — s. [de.ble1st.gallery.data.media.MediaItem]-Klassendoc). */
-    fun formatDate(dateAddedSeconds: Long): String =
-        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(dateAddedSeconds * 1000))
+    /** [dateSortMillis] ist bereits in Millisekunden — s. [de.ble1st.gallery.data.media.MediaItem]
+     * `dateSortMillis`-Klassendoc (DATE_TAKEN mit DATE_ADDED-Fallback). */
+    fun formatDate(dateSortMillis: Long): String =
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(dateSortMillis))
 }
