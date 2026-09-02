@@ -6,9 +6,8 @@ import android.net.Uri
 import android.provider.Settings
 import android.util.Log
 import de.ble1st.warden.domain.netlock.NetLockdownReconcileDecision
-import de.ble1st.warden.logging.HashChainLogStore
-import de.ble1st.warden.logging.LogStorage
 import de.ble1st.warden.vpn.WardenVpnService
+import de.ble1st.warden.wardenAuditLog
 
 /**
  * "Netz-Sperre" (2026-08-27): Warden-seitige Source of Truth für "Net-Lockdown scharf?" —
@@ -29,7 +28,12 @@ class NetLockdownController(context: Context) {
     private val appContext = context.applicationContext
     private val authorizer = NetLockdownAuthorizer(appContext)
     private val store = NetLockdownStore(NetLockdownStore.buildEnvelopeFile(appContext))
-    private val logStore = HashChainLogStore(LogStorage.buildEnvelopeFile(appContext))
+    // analyse.md (2026-09-02, Mittel): baute vorher über HashChainLogStore(LogStorage
+    // .buildEnvelopeFile(...)) eine eigene, zweite Instanz auf derselben Log-Datei auf —
+    // gleichzeitige Appends aus dieser und der App-weiten Instanz ([wardenAuditLog]) auf dieselbe
+    // Datei können sich überschreiben (verlorene Einträge, ohne dass die Hash-Kette selbst
+    // bricht). Jetzt dieselbe geteilte Instanz wie jeder andere Aufrufer.
+    private val logStore = wardenAuditLog(appContext)
 
     fun isActive(): Boolean = authorizer.isActive()
 

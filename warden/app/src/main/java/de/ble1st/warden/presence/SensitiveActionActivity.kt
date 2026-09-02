@@ -394,6 +394,20 @@ private fun SensitiveActionScreen(
                 }
             }
 
+            // analyse.md (2026-09-02, Hoch): "WIPE_DATA-UI nicht als ausführbar darstellen,
+            // solange es ein Stub ist" — `action.displayName`/`describeAction` sagen das bereits
+            // klein neben dem Radio-Button, dieser zusätzliche, fehlerfarbene Absatz macht es
+            // unübersehbar genau an der Stelle, wo als Nächstes der Bestätigungstext eingetippt
+            // würde — bevor der Nutzer den Rest des ohnehin identischen Presence-Ablaufs
+            // durchläuft und ihn mit einer der fünf echten Aktionen verwechseln könnte.
+            if (selectedAction == SensitiveAction.WIPE_DATA) {
+                Text(
+                    text = stringResource(R.string.sensitive_action_wipe_data_stub_banner),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
             OutlinedTextField(
                 value = confirmationText,
                 onValueChange = { confirmationText = it },

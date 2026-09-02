@@ -11,9 +11,24 @@ class WardenProfileSpecTest {
         val ids = WardenProfileSpec.idsOn(WardenProfile.ALLTAG)
         assertTrue(ids.contains("factory_reset_disabled"))
         assertTrue(ids.contains("safe_boot_disabled"))
-        assertTrue(ids.contains("factory_reset_protection"))
         assertTrue(ids.contains("modify_accounts_disabled"))
         assertTrue(ids.contains("lock_screen_privacy"))
+    }
+
+    /**
+     * analyse.md (2026-09-02, Kritisch): Factory Reset Protection ist auf echter Hardware
+     * empirisch widerlegt (s. `FactoryResetProtectionSafeguard`-Klassendoc) — kein Profil darf sie
+     * mehr automatisch einschalten, sonst täuscht der Alltag-Schalter einen Diebstahlschutz vor,
+     * den es nicht zuverlässig gibt. Bleibt manuell in `SafeguardsScreen` schaltbar.
+     */
+    @Test
+    fun noProfileEnablesFactoryResetProtectionAutomatically() {
+        for (profile in WardenProfile.entries) {
+            assertTrue(
+                "$profile darf factory_reset_protection nicht automatisch einschalten",
+                "factory_reset_protection" !in WardenProfileSpec.idsOn(profile),
+            )
+        }
     }
 
     @Test
@@ -49,7 +64,9 @@ class WardenProfileSpecTest {
         val catalog = setOf(
             "factory_reset_disabled",
             "safe_boot_disabled",
-            "factory_reset_protection",
+            // "factory_reset_protection" bewusst NICHT hier — kein Profil schaltet es mehr
+            // automatisch, s. noProfileEnablesFactoryResetProtectionAutomatically() oben. Bleibt
+            // ein echtes SafeguardCatalog-Mitglied, nur außerhalb jedes Profils.
             "modify_accounts_disabled",
             "lock_screen_privacy",
             "password_complexity_high",

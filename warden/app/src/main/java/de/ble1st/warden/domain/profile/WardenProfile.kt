@@ -4,11 +4,19 @@ package de.ble1st.warden.domain.profile
  * Named hardening sets so the owner does not have to flip ~20 switches by hand.
  * Lockdown-bundle / USB-debug kill stay presence-gated and are **not** part of a profile.
  *
- * Alltag is the general-operation baseline: factory-reset from Settings, safe-boot,
- * lock-screen quick access, and Factory Reset Protection (unlock accounts after an
- * untrusted Recovery wipe). OEM-unlock cannot be set independently via public Device-Owner
+ * Alltag is the general-operation baseline: factory-reset from Settings, safe-boot, and
+ * lock-screen quick access. OEM-unlock cannot be set independently via public Device-Owner
  * APIs (`no_oem_unlock` is hidden and immutable); Lockdown turns off debugging features,
  * which also hides the OEM-unlock toggle.
+ *
+ * **Factory Reset Protection deliberately excluded from every profile (analyse.md, 2026-09-02,
+ * Kritisch):** empirically disproven on real hardware
+ * ([de.ble1st.warden.registry.FactoryResetProtectionSafeguard]'s classdoc — a Samsung SM-A156B
+ * Recovery-Wipe came through without any account challenge despite a correctly written policy). A
+ * profile that switched it on automatically would look and feel like a working theft deterrent
+ * while empirically not being one — the toggle stays reachable manually in `SafeguardsScreen`
+ * (with the same reliability warning shown there), but no `WardenProfile.apply()` call turns it
+ * on/off as a side effect any more.
  */
 enum class WardenProfile {
     ALLTAG,
@@ -56,9 +64,10 @@ object WardenProfileSpec {
 
     fun description(profile: WardenProfile): String = when (profile) {
         WardenProfile.ALLTAG ->
-            "Alltagsbetrieb: Zurücksetzen in den Einstellungen, Abgesicherter Modus, " +
-                "Kontosperre nach Recovery-Wipe und Schnellzugriff auf dem Sperrbildschirm aus. " +
-                "Kamera und USB bleiben nutzbar."
+            "Alltagsbetrieb: Zurücksetzen in den Einstellungen, Abgesicherter Modus und " +
+                "Schnellzugriff auf dem Sperrbildschirm aus. Kamera und USB bleiben nutzbar. " +
+                "Kontosperre nach Recovery-Wipe ist nicht enthalten (Zuverlässigkeit auf echter " +
+                "Hardware nicht bestätigt) — bei Bedarf manuell in den Safeguards aktivieren."
         WardenProfile.REISE ->
             "Alltag plus Sensoren, unbekannte Medien, dauerhaftes USB-Daten-aus sowie " +
                 "USB-Dateiübertragung und Bluetooth-Dateifreigabe aus."
@@ -71,7 +80,8 @@ object WardenProfileSpec {
     private val ALLTAG = setOf(
         "factory_reset_disabled",
         "safe_boot_disabled",
-        "factory_reset_protection",
+        // "factory_reset_protection" bewusst NICHT hier (analyse.md 2026-09-02, Kritisch) — s.
+        // Klassendoc oben. Bleibt manuell in SafeguardsScreen schaltbar.
         "modify_accounts_disabled",
         "lock_screen_privacy",
         "password_complexity_high",

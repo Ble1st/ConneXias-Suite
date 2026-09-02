@@ -60,13 +60,7 @@ import kotlinx.coroutines.launch
  * App-weite `Application`-Klasse. Gegenüber dem ConneXias-Framework-Quellprojekt fehlen weiterhin
  * mehrere dort vorhandene Cross-APK-Komponenten — `SuiteMembershipReconciliationWorker`
  * (Mitgliedschafts-Abgleich zwischen mehreren Geschwister-APKs, entfällt: nur noch zwei APKs,
- * Warden+Sentinel, kein Mehrparteien-Abgleich nötig). **`NetLockdownController`/
- * `FirewallPolicyController` (VPN/Barbican, "Netz-Sperre") sind seit 2026-08-27 kurzzeitig wieder
- * dagewesen, aber seit demselben Tag erneut pausiert** — ein im Live-Test gefundener, ungeklärter
- * Kernfehler (DNS-Blockliste/NAT-Relay verarbeitet auf einem frisch aufgebauten Tunnel keinen
- * Traffic mehr) machte die Feature-Verkabelung wieder rückgängig; der komplette Code liegt jetzt
- * unkompiliert geparkt unter `app/netlock-disabled/` (s. dortige README für Status/Reaktivierung).
- * `TrustedCallerAllowlist`
+ * Warden+Sentinel, kein Mehrparteien-Abgleich nötig), `TrustedCallerAllowlist`
  * (Cross-APK-Zertifikatsprüfung via Userspace-Bus, entfällt: die neue Warden↔Sentinel-Kopplung
  * nutzt stattdessen von Android selbst durchgesetzte `signature`-Permissions, s.
  * [de.ble1st.warden.sentinelbridge.SentinelLockdownEngager]-Klassendoc "Warum kein AIDL-Bus").
@@ -74,6 +68,16 @@ import kotlinx.coroutines.launch
  * (2026-08-26) wieder da — [de.ble1st.warden.registry.SentinelUninstallProtectionSafeguard],
  * automatisch scharf geschaltet direkt bei Sentinels Silent-Install
  * ([de.ble1st.warden.appmanagement.SentinelInstallResultReceiver]).
+ *
+ * **`NetLockdownController`/`NetworkFirewallPolicyController` (VPN/Barbican, "Netz-Sperre") sind
+ * reaktiviert (seit 2026-08-29) und stehen unten als reguläre `by lazy`-Instanzen** — nicht mehr
+ * pausiert/geparkt. Der ursprüngliche Kernfehler (RX-Freeze: ein SmolTCP-Panic bei der ersten
+ * abgeschlossenen UDP-Flow ließ den Engine-Thread lautlos sterben) sowie zwei weitere,
+ * unabhängige Folgefehler (ein Mutex-Deadlock über Disarm→Rearm-Zyklen, eine fehlende
+ * `[Interface] Address`-Übernahme aus der ChildVPN-Konfiguration) sind gefunden und behoben — s.
+ * `CLAUDE.md`s "Netz-Sperre"-Abschnitt für die volle Historie. ChildVPN ist Ende-zu-Ende gegen
+ * eine echte VPS live bestätigt (2026-09-01, Handshake + bidirektionales Relay via `ping`-Test);
+ * Direct-Modes eigener `dig`/`curl`-Traffic-Test steht noch aus.
  *
  * **`SentinelWatchdogController` ist seit "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26)
  * wieder da** — anders als in einer früheren Zwischenphase dieses Ports (Presence/PIN-Logik lief

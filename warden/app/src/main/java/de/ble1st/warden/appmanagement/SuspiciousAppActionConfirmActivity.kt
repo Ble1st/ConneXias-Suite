@@ -38,14 +38,21 @@ import de.ble1st.warden.ui.theme.WardenThemePrefs
  * gerade tippt. `clearApplicationUserData()` ist nicht rückholbar, eine Deinstallation nur über
  * eine erneute Installation.
  *
- * **"Einfrieren" bleibt bewusst ein direkter Broadcast** ([SuspiciousAppActionReceiver],
- * unverändert) — reversibel über "Entfrieren" in der App-Verwaltung, dieselbe Einstufung wie ein
- * gewöhnlicher Safeguard-Schalter.
+ * **"Einfrieren" seit analyse.md (2026-09-02, Hoch) ebenfalls hier statt als direkter Broadcast**
+ * ([SuspiciousAppActionReceiver] hat `ACTION_FREEZE` seither nicht mehr) — die alte Begründung
+ * ("reversibel, dieselbe Einstufung wie ein gewöhnlicher Safeguard-Schalter") übersah, dass ein
+ * gewöhnlicher Safeguard-Schalter seit [de.ble1st.warden.presence.WardenLockActivity]
+ * (Finalisierungsphase 2026-08-24) selbst nur noch über `WardenStatusActivity` erreichbar ist,
+ * also längst hinter demselben Nachweis steht. Ein 1-Tap-Freeze direkt aus der
+ * Benachrichtigungsschublade auf ein entsperrtes, aber ansonsten fremdes Gerät war die einzige
+ * verbliebene Ausnahme davon — reversibel macht das Fehlen des Nachweises nicht harmlos, nur
+ * rückgängig machbar, nachdem der Schaden (App-Störung) schon eingetreten ist.
  *
- * Diese Activity ersetzt für die beiden zerstörenden Aktionen den direkten Receiver-Aufruf: die
+ * Diese Activity ersetzt für alle drei Aktionen den direkten Receiver-Aufruf: die
  * Benachrichtigung führt jetzt per `PendingIntent.getActivity()` hierher, mit Paketname und
  * Aktion als Extra, und diese Activity zeigt einen expliziten Bestätigungsschritt — erst danach
- * ruft sie [SuspiciousAppScanController.handleUninstallAction]/`handleClearDataAction` auf.
+ * ruft sie [SuspiciousAppScanController.handleFreezeAction]/`handleUninstallAction`/
+ * `handleClearDataAction` auf.
  *
  * **Kein zweiter Presence-Mechanismus**, sondern derselbe App-Eintritts-Nachweis wie überall
  * sonst: anders als [de.ble1st.warden.presence.SensitiveActionActivity]/[de.ble1st.warden
@@ -108,6 +115,7 @@ class SuspiciousAppActionConfirmActivity : ComponentActivity() {
                         onConfirm = {
                             val controller = (application as WardenApplication).suspiciousAppScanController
                             when (action) {
+                                ACTION_FREEZE -> controller.handleFreezeAction(packageName)
                                 ACTION_UNINSTALL -> controller.handleUninstallAction(packageName)
                                 ACTION_CLEAR_DATA -> controller.handleClearDataAction(packageName)
                             }
@@ -139,6 +147,7 @@ class SuspiciousAppActionConfirmActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_ACTION = "de.ble1st.warden.extra.SUSPICIOUS_APP_CONFIRM_ACTION"
+        const val ACTION_FREEZE = "freeze"
         const val ACTION_UNINSTALL = "uninstall"
         const val ACTION_CLEAR_DATA = "clear_data"
     }
@@ -153,6 +162,9 @@ private fun ConfirmScreen(
     onCancel: () -> Unit,
 ) {
     val (title, warning) = when (action) {
+        SuspiciousAppActionConfirmActivity.ACTION_FREEZE ->
+            stringResource(R.string.suspicious_app_confirm_freeze_title) to
+                String.format(stringResource(R.string.suspicious_app_confirm_freeze_warning), label, packageName)
         SuspiciousAppActionConfirmActivity.ACTION_UNINSTALL ->
             stringResource(R.string.suspicious_app_confirm_uninstall_title) to
                 String.format(stringResource(R.string.suspicious_app_confirm_uninstall_warning), label, packageName)

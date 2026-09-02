@@ -24,6 +24,15 @@ import de.ble1st.warden.wardenAuditLog
  * .SentinelUninstallProtectionSafeguard] (`DevicePolicyManager.setUninstallBlocked`, wirkt auch
  * gegen Einstellungen/`pm uninstall`, nicht nur gegen Wardens eigene UI-Pfade hier) blockiert —
  * zwei unabhängige Schichten für zwei unabhängige Angriffsflächen.
+ *
+ * **Um die drei restlichen Suite-Apps erweitert (analyse.md, 2026-09-02, Mittel):** vorher deckte
+ * [SUITE_PACKAGE_NAMES] nur Wardens eigenes Sentinel-Modul ab — Warden konnte ConneXias
+ * Kamera/Files/Galerie über genau diesen Bildschirm ohne jede Rückfrage einfrieren, obwohl die
+ * Suite sie als zusammengehörig bewirbt. Anders als bei Sentinel gibt es hier keinen zweiten,
+ * unabhängigen Deinstallationsschutz (kein `setUninstallBlocked` für Fremd-Apps, die Warden nicht
+ * selbst installiert hat) — dieser Freeze-Schutz ist für die drei der einzige. Bewusst weiterhin
+ * String-Literale statt eines Imports (die drei Module sind für `:app` nicht einmal als Asset
+ * gebündelt, ganz unabhängige APKs — noch weniger Kopplung als beim gebündelten Sentinel).
  */
 class AppManagementController(
     private val context: Context,
@@ -72,11 +81,17 @@ class AppManagementController(
     companion object {
         private const val TAG = "AppManagement"
 
-        /** Sentinels Paketname als String-Literal statt per Import — bewusst kein Compile-Zeit-
-         * Bezug von `:app`s `appmanagement`-Paket auf `:sentinel` (das Modul existiert für `:app`
-         * ohnehin nur als gebündeltes Asset, s. `SentinelSilentInstaller`-Klassendoc). Dieselbe
+        /** Paketnamen als String-Literale statt per Import — bewusst kein Compile-Zeit-Bezug von
+         * `:app`s `appmanagement`-Paket auf `:sentinel` (das Modul existiert für `:app` ohnehin
+         * nur als gebündeltes Asset, s. `SentinelSilentInstaller`-Klassendoc) oder auf die drei
+         * völlig eigenständigen Suite-APKs (nicht einmal im selben Repo-Build-Graphen). Dieselbe
          * "String-Literal statt Import"-Begründung wie in [de.ble1st.warden.registry
          * .WardenLockTaskAuthorizer]. */
-        val SUITE_PACKAGE_NAMES: Set<String> = setOf("de.ble1st.warden.sentinel")
+        val SUITE_PACKAGE_NAMES: Set<String> = setOf(
+            "de.ble1st.warden.sentinel",
+            "de.ble1st.camera",
+            "de.ble1st.files",
+            "de.ble1st.gallery",
+        )
     }
 }

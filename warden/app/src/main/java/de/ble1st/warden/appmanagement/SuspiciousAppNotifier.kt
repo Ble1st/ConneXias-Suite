@@ -101,7 +101,7 @@ class SuspiciousAppNotifier(private val context: Context) {
             .setPublicVersion(publicVersion)
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
-            .addAction(0, context.getString(R.string.notification_suspicious_app_action_freeze), freezeActionPendingIntent(finding.packageName))
+            .addAction(0, context.getString(R.string.notification_suspicious_app_action_freeze), confirmActionPendingIntent(SuspiciousAppActionConfirmActivity.ACTION_FREEZE, finding.packageName))
             .addAction(0, context.getString(R.string.notification_suspicious_app_action_clear_data), confirmActionPendingIntent(SuspiciousAppActionConfirmActivity.ACTION_CLEAR_DATA, finding.packageName))
             .addAction(0, context.getString(R.string.notification_suspicious_app_action_uninstall), confirmActionPendingIntent(SuspiciousAppActionConfirmActivity.ACTION_UNINSTALL, finding.packageName))
         post(finding.packageName, builder)
@@ -147,28 +147,13 @@ class SuspiciousAppNotifier(private val context: Context) {
         }
     }
 
-    /** "Einfrieren" bleibt ein direkter Broadcast — reversibel, keine Bestätigung nötig (s.
-     * [SuspiciousAppActionConfirmActivity]-Klassendoc für die Abgrenzung). */
-    private fun freezeActionPendingIntent(packageName: String): PendingIntent {
-        val intent = Intent(context, SuspiciousAppActionReceiver::class.java).apply {
-            action = SuspiciousAppActionReceiver.ACTION_FREEZE
-            putExtra(SuspiciousAppActionReceiver.EXTRA_PACKAGE_NAME, packageName)
-        }
-        return PendingIntent.getBroadcast(
-            context,
-            (SuspiciousAppActionReceiver.ACTION_FREEZE + packageName).hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
     /**
-     * "Deinstallieren"/"Daten löschen" (2026-08-28, Befund S-5): `getActivity()` statt
-     * `getBroadcast()` — die beiden zerstörenden Aktionen führen jetzt zuerst auf
-     * [SuspiciousAppActionConfirmActivity]s WardenLock-Nachweis + Bestätigungsdialog, nicht mehr
-     * direkt auf den ausführenden Receiver. `FLAG_ACTIVITY_NEW_TASK` ist Pflicht: der Start
-     * kommt aus einem Notification-Kontext, keine bestehende Activity, von der aus gestartet
-     * werden könnte.
+     * "Einfrieren"/"Deinstallieren"/"Daten löschen" (2026-08-28, Befund S-5; "Einfrieren" seit
+     * analyse.md 2026-09-02, Befund Hoch dazugekommen): `getActivity()` statt `getBroadcast()` —
+     * alle drei Aktionen führen jetzt zuerst auf [SuspiciousAppActionConfirmActivity]s
+     * WardenLock-Nachweis + Bestätigungsdialog, nicht mehr direkt auf einen ausführenden Receiver.
+     * `FLAG_ACTIVITY_NEW_TASK` ist Pflicht: der Start kommt aus einem Notification-Kontext, keine
+     * bestehende Activity, von der aus gestartet werden könnte.
      */
     private fun confirmActionPendingIntent(action: String, packageName: String): PendingIntent {
         val intent = Intent(context, SuspiciousAppActionConfirmActivity::class.java).apply {

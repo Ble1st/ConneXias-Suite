@@ -194,6 +194,7 @@
     <string name="sensitive_action_biometric_cancelled">Abgebrochen.</string>
     <string name="sensitive_action_screen_title">Sensible Aktion</string>
     <string name="sensitive_action_debug_build_warning">⚠ Debug-Build — destruktive Kommandos sind hart abgeschaltet (Konzept F.4).</string>
+    <string name="sensitive_action_wipe_data_stub_banner">⚠ Werksreset ist bewusst NICHT verkabelt. Der Bestätigen-Knopf unten löst keinen echten Wipe aus — es wird nur protokolliert, dass er ausgelöst worden wäre. Es gibt keinen Fern-Wipe-Kanal in dieser App.</string>
     <string name="sensitive_action_lockdown_status_prefix">Lockdown-Modus: %1$s</string>
     <string name="sensitive_action_lockdown_status_active">AKTIV</string>
     <string name="sensitive_action_lockdown_status_inactive">inaktiv</string>
@@ -465,6 +466,8 @@
     <string name="suspicious_app_confirm_uninstall_warning">„%1$s“ (%2$s) wird deinstalliert.</string>
     <string name="suspicious_app_confirm_clear_data_title">Daten löschen bestätigen</string>
     <string name="suspicious_app_confirm_clear_data_warning">Alle Daten von „%1$s“ (%2$s) werden gelöscht — das lässt sich nicht rückgängig machen.</string>
+    <string name="suspicious_app_confirm_freeze_title">Einfrieren bestätigen</string>
+    <string name="suspicious_app_confirm_freeze_warning">„%1$s“ (%2$s) wird eingefroren (jederzeit über die App-Verwaltung rückgängig zu machen).</string>
     <string name="suspicious_app_confirm_generic_title">Aktion bestätigen</string>
 
     <!-- de/ble1st/warden/sim/SimChangeNotifier.kt -->

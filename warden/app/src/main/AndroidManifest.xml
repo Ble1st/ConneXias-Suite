@@ -228,24 +228,23 @@
             android:exported="false"
             android:theme="@style/Theme.Warden" />
 
-        <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": "Einfrieren" (reversibel) sowie
-             der asynchrone PackageInstaller-Deinstallations-Ergebnis-Callback aus
-             SuspiciousAppNotifiers Benachrichtigung. exported="false" — nur Wardens eigene
-             PendingIntents und Androids an dieselbe App gerichteter Ergebnis-Callback lösen
-             diesen Receiver aus. "Deinstallieren"/"Daten löschen" laufen seit der
-             Code-/Sicherheitsanalyse (2026-08-28, Befund S-5) nicht mehr über diesen Receiver,
-             sondern über SuspiciousAppActionConfirmActivity darunter. -->
+        <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": nur noch der asynchrone
+             PackageInstaller-Deinstallations-Ergebnis-Callback läuft hierüber. exported="false" —
+             nur Androids an dieselbe App gerichteter Ergebnis-Callback löst diesen Receiver aus.
+             "Einfrieren"/"Deinstallieren"/"Daten löschen" laufen seit der Code-/Sicherheitsanalyse
+             (2026-08-28 Befund S-5, "Einfrieren" seit analyse.md 2026-09-02) nicht mehr über
+             diesen Receiver, sondern über SuspiciousAppActionConfirmActivity darunter. -->
         <receiver
             android:name=".appmanagement.SuspiciousAppActionReceiver"
             android:exported="false" />
 
-        <!-- Befund S-5 (2026-08-28, aus der Code-/Sicherheitsanalyse): die beiden nicht (oder
-             kaum) rückholbaren Benachrichtigungsaktionen ("Deinstallieren", "Daten löschen")
-             liefen bisher direkt auf SuspiciousAppActionReceiver — ein Tap am entsperrten Gerät,
-             kein Presence-Nachweis, an WardenLockActivity vorbei. Diese Activity erzwingt
-             denselben App-Eintritts-Nachweis wie WardenStatusActivity, bevor sie den Tap
-             überhaupt entgegennimmt — s. Klassendoc. exported="false", nur aus Wardens eigenen
-             PendingIntents erreichbar. -->
+        <!-- Befund S-5 (2026-08-28, aus der Code-/Sicherheitsanalyse), "Einfrieren" seit
+             analyse.md (2026-09-02) dazugekommen: alle drei nicht (oder kaum) rückholbaren bzw.
+             nicht ohne Nachweis auslösbaren Benachrichtigungsaktionen liefen zuvor direkt auf
+             SuspiciousAppActionReceiver — ein Tap am entsperrten Gerät, kein Presence-Nachweis, an
+             WardenLockActivity vorbei. Diese Activity erzwingt denselben App-Eintritts-Nachweis
+             wie WardenStatusActivity, bevor sie den Tap überhaupt entgegennimmt — s. Klassendoc.
+             exported="false", nur aus Wardens eigenen PendingIntents erreichbar. -->
         <activity
             android:name=".appmanagement.SuspiciousAppActionConfirmActivity"
             android:exported="false"

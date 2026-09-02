@@ -7,10 +7,9 @@ import org.junit.Test
 class AppFreezeGuardTest {
 
     private val ownPackage = "de.ble1st.warden"
-    // Warden hat keine Geschwister-Suite-APKs mehr (SUITE_PACKAGE_NAMES ist leer, s.
-    // AppManagementController-Klassendoc) — dieses Set testet die generische
-    // protectedPackageNames-Logik trotzdem mit ein paar willkürlichen Beispielpaketen, unabhängig
-    // vom (jetzt leeren) Produktivwert.
+    // Testet die generische protectedPackageNames-Logik mit willkürlichen Beispielpaketen,
+    // unabhängig vom tatsächlichen Produktivwert (AppManagementController.SUITE_PACKAGE_NAMES —
+    // Sentinel + die drei Suite-Apps de.ble1st.camera/files/gallery, s. dessen Klassendoc).
     private val suitePackages = setOf(
         "com.example.protected1",
         "com.example.protected2",
