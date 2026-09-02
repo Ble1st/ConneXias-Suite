@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Deckt den gesamten externen Speicher ab (root-path statt einzelner external-path-Einträge je
-     Volume) — die App greift dank MANAGE_EXTERNAL_STORAGE/StoragePermission ohnehin auf beliebige
-     Pfade unterhalb jedes eingehängten Volumes zu, nicht nur auf Environment.getExternalStorageDirectory(). -->
+<!-- root-path zeigt auf /storage statt den echten Filesystem-Root "." — deckt weiterhin jedes
+     eingehängte Volume ab (primärer Speicher, SD-Karte, USB-OTG landen unter Android alle unter
+     /storage), die App greift dank MANAGE_EXTERNAL_STORAGE/StoragePermission ja auf beliebige
+     Pfade unterhalb jedes Volumes zu, nicht nur Environment.getExternalStorageDirectory(). Anders
+     als der echte Root schließt "/storage" aber /data, /proc, /system usw. aus — Pfade, die
+     FileActions.share/openWith (der einzige getUriForFile-Aufrufer) ohnehin nie erreicht (der
+     Browser startet immer bei einem Storage-Volume-Root), aber die laut Android-Doku prinzipiell
+     nie über einen root-path="." freigegeben werden sollten. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <root-path name="root" path="." />
+    <root-path name="storage_root" path="/storage/" />
 </paths>

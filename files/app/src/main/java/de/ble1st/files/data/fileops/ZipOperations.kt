@@ -8,6 +8,12 @@ import java.util.zip.ZipOutputStream
 
 object ZipOperations {
 
+    /** Harte Obergrenze für die entpackte Gesamtgröße eines Archivs — eine winzige Zip-Datei mit
+     * absurd hoher Kompressionsrate ("Zip-Bombe") könnte sonst den gesamten Speicher füllen, bevor
+     * jemand eingreifen kann. 10 GiB liegt weit über jeder realistischen legitimen Nutzung dieser
+     * App (Fotos/Dokumente/Backups), aber weit unter dem, was eine Bombe typischerweise anrichtet. */
+    private const val MAX_EXTRACTED_BYTES = 10L * 1024 * 1024 * 1024
+
     fun compress(
         sources: List<File>,
         destinationZip: File,
@@ -91,6 +97,7 @@ object ZipOperations {
     ): List<OperationOutcome> {
         val total = countZipEntries(zipFile)
         var processed = 0
+        var totalExtractedBytes = 0L
         val outcomes = mutableListOf<OperationOutcome>()
         val destinationCanonical = destinationDir.canonicalFile
         ZipInputStream(zipFile.inputStream().buffered()).use { zipIn ->
@@ -110,7 +117,13 @@ object ZipOperations {
                         targetCanonical.mkdirs()
                     } else {
                         targetCanonical.parentFile?.mkdirs()
-                        targetCanonical.outputStream().use { output -> zipIn.copyTo(output) }
+                        targetCanonical.outputStream().use { output ->
+                            // Laufender Budget-Abzug statt eines simplen zipIn.copyTo(output): eine
+                            // Zip-Bombe kann aus einem einzigen riesigen Eintrag bestehen — ein
+                            // Größencheck erst *nach* dem vollständigen Kopieren dieses einen
+                            // Eintrags käme dann zu spät (Speicher wäre schon voll gelaufen).
+                            totalExtractedBytes = copyLimited(zipIn, output, MAX_EXTRACTED_BYTES - totalExtractedBytes) + totalExtractedBytes
+                        }
                     }
                 }
                 processed++
@@ -125,6 +138,24 @@ object ZipOperations {
             }
         }
         return outcomes
+    }
+
+    /** Kopiert wie [java.io.InputStream.copyTo], bricht aber mit [IOException] ab, sobald
+     * [remainingBudget] überschritten würde — Grundlage für die [MAX_EXTRACTED_BYTES]-Prüfung in
+     * [extract], die so auch innerhalb eines einzelnen großen Eintrags greift statt erst danach. */
+    private fun copyLimited(input: java.io.InputStream, output: java.io.OutputStream, remainingBudget: Long): Long {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var copied = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            copied += read
+            if (copied > remainingBudget) {
+                throw IOException("Archiv überschreitet die maximale Entpackgröße — möglicherweise eine Zip-Bombe")
+            }
+            output.write(buffer, 0, read)
+        }
+        return copied
     }
 
     private fun countZipEntries(zipFile: File): Int {

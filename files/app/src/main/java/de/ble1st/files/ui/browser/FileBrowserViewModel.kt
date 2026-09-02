@@ -196,7 +196,12 @@ class FileBrowserViewModel(application: Application, private val directory: File
             val resolver = getApplication<Application>().contentResolver
             for (uri in uris) {
                 val displayName = queryDisplayName(uri) ?: continue
-                val target = File(directory, FileOperations.uniqueName(directory, displayName))
+                // displayName kommt aus einer fremden ContentProvider-DISPLAY_NAME-Spalte — nicht
+                // vertrauenswürdig, ein präparierter Wert mit "../" könnte sonst außerhalb von
+                // [directory] schreiben (s. FileOperations.sanitizeName-Doc). Ungültige Namen
+                // werden übersprungen statt den ganzen Import abzubrechen.
+                val safeName = runCatching { FileOperations.sanitizeName(displayName) }.getOrNull() ?: continue
+                val target = File(directory, FileOperations.uniqueName(directory, safeName))
                 runCatching {
                     resolver.openInputStream(uri)?.use { input ->
                         target.outputStream().use { output -> input.copyTo(output) }

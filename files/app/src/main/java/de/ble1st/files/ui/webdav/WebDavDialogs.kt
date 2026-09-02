@@ -72,6 +72,17 @@ fun WebDavAccountDialog(
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
+                // Cleartext bleibt erlaubt (s. network_security_config.xml-Kommentar — viele
+                // selbst gehostete Server im Heimnetz haben kein gültiges TLS-Zertifikat), aber
+                // ein "http://"-Server wird nicht mehr stillschweigend akzeptiert: Benutzername
+                // und Passwort gehen bei jedem Request im Klartext übers Netz.
+                if (baseUrl.isNotBlank() && !baseUrl.startsWith("https://", ignoreCase = true)) {
+                    Text(
+                        "Achtung: kein HTTPS — Zugangsdaten werden unverschlüsselt übertragen.",
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
                 TextButton(
                     enabled = isValid && testState != TestState.Running,
                     onClick = {

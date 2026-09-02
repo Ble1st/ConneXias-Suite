@@ -44,11 +44,19 @@ jobs:
         run: cargo test --locked
 
   android:
-    name: Android (lint, unit tests, assembleDebug)
+    name: Android (lint, unit tests, assembleDebug) — ${{ matrix.module }}
     runs-on: ubuntu-latest
+    # Matrix statt vier separater Jobs: alle vier Apps sind unabhängige Gradle-Root-Projekte mit
+    # identischem Check-Ablauf (lint/testDebugUnitTest/assembleDebug) — bis 2026-09-02 lief das
+    # hier nur für warden, Camera/Files/Gallery konnten auf main kaputtgehen, ohne dass CI es
+    # gemerkt hätte (s. analyse.md Abschnitt 5/6).
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [warden, files, camera, gallery]
     defaults:
       run:
-        working-directory: warden
+        working-directory: ${{ matrix.module }}
     steps:
       - uses: actions/checkout@v4
 
@@ -72,10 +80,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: android-reports
+          name: android-reports-${{ matrix.module }}
           path: |
-            warden/app/build/reports/lint-results-*.html
-            warden/app/build/reports/tests/
-            warden/sentinel/build/reports/lint-results-*.html
-            warden/sentinel/build/reports/tests/
+            ${{ matrix.module }}/app/build/reports/lint-results-*.html
+            ${{ matrix.module }}/app/build/reports/tests/
+            ${{ matrix.module }}/sentinel/build/reports/lint-results-*.html
+            ${{ matrix.module }}/sentinel/build/reports/tests/
           retention-days: 14

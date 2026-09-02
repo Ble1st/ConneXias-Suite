@@ -83,10 +83,10 @@ class WebDavBrowserViewModel(
 
     fun createFolder(name: String) {
         showDialog(null)
-        if (name.isBlank()) return
+        val safeName = runCatching { FileOperations.sanitizeName(name) }.getOrNull() ?: return
         val state = _uiState.value
         viewModelScope.launch {
-            WebDavClient.mkdir(state.account, childPath(state.path, name)).fold(
+            WebDavClient.mkdir(state.account, childPath(state.path, safeName)).fold(
                 onSuccess = { refresh() },
                 onFailure = { error -> setError(error) },
             )
@@ -95,9 +95,10 @@ class WebDavBrowserViewModel(
 
     fun rename(entry: WebDavEntry, newName: String) {
         showDialog(null)
-        if (newName.isBlank() || newName == entry.name) return
+        val safeName = runCatching { FileOperations.sanitizeName(newName) }.getOrNull() ?: return
+        if (safeName == entry.name) return
         val state = _uiState.value
-        val destination = childPath(parentOf(entry.path), newName)
+        val destination = childPath(parentOf(entry.path), safeName)
         viewModelScope.launch {
             WebDavClient.move(state.account, entry.path, destination).fold(
                 onSuccess = { refresh() },
@@ -125,6 +126,9 @@ class WebDavBrowserViewModel(
         val application = getApplication<Application>()
         viewModelScope.launch {
             val displayName = withContext(Dispatchers.IO) { queryDisplayName(sourceUri) } ?: return@launch
+            // displayName kommt aus einer fremden ContentProvider-DISPLAY_NAME-Spalte — nicht
+            // vertrauenswürdig, s. FileOperations.sanitizeName-Doc.
+            val safeName = runCatching { FileOperations.sanitizeName(displayName) }.getOrNull() ?: return@launch
             val tempFile = withContext(Dispatchers.IO) {
                 val temp = File(application.cacheDir, "webdav_upload_${UUID.randomUUID()}")
                 application.contentResolver.openInputStream(sourceUri)?.use { input ->
@@ -132,7 +136,7 @@ class WebDavBrowserViewModel(
                 }
                 temp
             }
-            val result = WebDavClient.upload(state.account, childPath(state.path, displayName), tempFile)
+            val result = WebDavClient.upload(state.account, childPath(state.path, safeName), tempFile)
             withContext(Dispatchers.IO) { tempFile.delete() }
             result.fold(
                 onSuccess = { refresh() },

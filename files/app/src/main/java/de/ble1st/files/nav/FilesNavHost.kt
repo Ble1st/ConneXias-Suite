@@ -1,8 +1,11 @@
 package de.ble1st.files.nav
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -83,6 +86,22 @@ fun FilesNavHost() {
         }
 
         composable(Routes.HOME) {
+            // POST_NOTIFICATIONS ist im Manifest deklariert (für FileOperationService' Foreground-
+            // Notification), wurde aber nie zur Laufzeit angefragt — ab API 33 blieb die
+            // Fortschritts-/Abbrechen-Notification eines Kopier-/Zip-Jobs dadurch unsichtbar, ohne
+            // dass die App das je bemerkt hätte (der Service läuft auch ohne die Berechtigung
+            // weiter, nur ohne sichtbare Notification). Einmaliger, nicht-blockierender Request
+            // beim ersten Erreichen von Home — ein Ablehnen verhindert keine Dateioperation.
+            val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) {}
+            LaunchedEffect(Unit) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
             HomeScreen(
                 onOpenFolder = { file -> navController.navigate(Routes.browser(file.path)) },
                 onOpenWebDavAccount = { account -> navController.navigate(Routes.webdav(account.id, "/")) },

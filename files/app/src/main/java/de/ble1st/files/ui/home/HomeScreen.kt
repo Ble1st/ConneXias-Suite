@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import de.ble1st.files.R
 import de.ble1st.files.data.fs.StorageRoot
 import de.ble1st.files.data.fs.StorageRoots
+import de.ble1st.files.data.share.IncomingShare
 import de.ble1st.files.data.webdav.WebDavAccount
 import de.ble1st.files.data.webdav.WebDavAccountStore
 import de.ble1st.files.ui.webdav.WebDavAccountDialog
@@ -74,11 +75,26 @@ fun HomeScreen(onOpenFolder: (File) -> Unit, onOpenWebDavAccount: (WebDavAccount
     LaunchedEffect(Unit) { WebDavAccountStore.list(context) }
     val webDavAccounts by WebDavAccountStore.accounts.collectAsState()
     var dialog by remember { mutableStateOf<HomeWebDavDialog?>(null) }
+    val pendingShare by IncomingShare.pending.collectAsState()
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(stringResource(id = R.string.app_name)) }) },
     ) { padding ->
         LazyColumn(contentPadding = padding) {
+            pendingShare?.let { uris ->
+                item {
+                    // Konsumiert wird die Liste erst in FileBrowserScreen (sobald der Nutzer
+                    // tatsächlich einen Zielordner öffnet) — hier nur ein Hinweis, damit das
+                    // "Teilen"-Ergebnis nicht spurlos verschwindet, ohne dass klar ist, wo es
+                    // gelandet ist.
+                    ListItem(
+                        headlineContent = { Text("${uris.size} geteilte Datei(en) empfangen") },
+                        supportingContent = { Text("Ordner öffnen, um sie dort zu speichern") },
+                        leadingContent = { Icon(Icons.Filled.Download, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
             item {
                 Text(
                     text = stringResource(id = R.string.home_section_storage),

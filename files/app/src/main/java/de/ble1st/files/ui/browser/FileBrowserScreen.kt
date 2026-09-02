@@ -63,6 +63,7 @@ import de.ble1st.files.data.fileops.ClipboardMode
 import de.ble1st.files.data.fileops.FileOperationQueue
 import de.ble1st.files.data.fileops.OperationState
 import de.ble1st.files.data.fs.FileEntry
+import de.ble1st.files.data.share.IncomingShare
 import de.ble1st.files.data.fs.SortKey
 import de.ble1st.files.data.fs.SortOrder
 import de.ble1st.files.data.fs.StorageRoots
@@ -87,6 +88,13 @@ fun FileBrowserScreen(
     val state by viewModel.uiState.collectAsState()
     val clipboard by viewModel.clipboard.collectAsState()
     val operationState by FileOperationQueue.state.collectAsState()
+    // FileOperationService nimmt nur genau einen Job gleichzeitig entgegen — ein zweiter Start
+    // wird dort still verworfen (s. Service-Klassendoc). Ohne diese Sperre in der UI konnte man
+    // während eines laufenden Kopier-/Verschiebe-/Lösch-/Zip-Jobs einen weiteren anstoßen, der dann
+    // kommentarlos nichts tat. Betrifft nur Aktionen, die tatsächlich über den Service laufen
+    // (Einfügen/Löschen/Komprimieren/Entpacken) — Auswahl, Umbenennen, Neu anlegen, Import laufen
+    // direkt und unabhängig vom Service.
+    val jobRunning = operationState is OperationState.Running
     var searchActive by remember { mutableStateOf(false) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var addMenuExpanded by remember { mutableStateOf(false) }
@@ -101,6 +109,19 @@ fun FileBrowserScreen(
         StorageRoots.list(context).firstOrNull { it.path == directory }?.label
     }
     val screenTitle = storageRootLabel ?: directory.name.ifEmpty { directory.path }
+
+    val pendingShare by IncomingShare.pending.collectAsState()
+    // Sobald der Nutzer nach einem "Teilen mit ConneXias Files" (s. IncomingShare-Klassendoc)
+    // irgendeinen Ordner öffnet, gilt das als Zielordner-Wahl — dieselbe Kopierlogik wie beim
+    // SAF-Import (importUris), nur mit den vom System gelieferten Uris statt einem Picker-Ergebnis.
+    LaunchedEffect(pendingShare) {
+        if (pendingShare == null) return@LaunchedEffect
+        val uris = IncomingShare.consume()
+        if (uris.isNotEmpty()) {
+            viewModel.importUris(uris)
+            snackbarHostState.showSnackbar("Import gestartet")
+        }
+    }
 
     // Sobald ein Kopier-/Verschiebe-/Lösch-/Zip-Job im Hintergrund fertig ist, muss die Liste neu
     // geladen werden — der Service läuft außerhalb des ViewModels und kennt die aktuell sichtbaren
@@ -139,6 +160,7 @@ fun FileBrowserScreen(
                         onDelete = { viewModel.showDialog(BrowserDialog.ConfirmDelete(viewModel.selectedEntries())) },
                         onShare = { FileActions.share(context, viewModel.selectedEntries().map { it.file }) },
                         onCompress = { viewModel.showDialog(BrowserDialog.Compress(viewModel.selectedEntries())) },
+                        jobRunning = jobRunning,
                     )
                 } else if (searchActive) {
                     SearchTopBar(
@@ -256,6 +278,7 @@ fun FileBrowserScreen(
                                             onShare = { FileActions.share(context, listOf(entry.file)) },
                                             onProperties = { viewModel.showDialog(BrowserDialog.Properties(entry)) },
                                             onExtract = { viewModel.extractHere(entry) },
+                                            jobRunning = jobRunning,
                                         )
                                     }
                                 },
@@ -268,6 +291,7 @@ fun FileBrowserScreen(
                 PasteBar(
                     isCut = clipboard?.mode == ClipboardMode.CUT,
                     count = clipboard?.paths?.size ?: 0,
+                    jobRunning = jobRunning,
                     onPaste = viewModel::pasteFromClipboard,
                     onCancel = { ClipboardHolder.clear() },
                 )
@@ -329,6 +353,7 @@ private fun SelectionTopBar(
     onDelete: () -> Unit,
     onShare: () -> Unit,
     onCompress: () -> Unit,
+    jobRunning: Boolean,
 ) {
     // Sechs Action-Icons + Schließen-Icon lassen auf einem schmalen Telefon (~360dp) keinen Platz
     // mehr für den Titeltext ("1 ausgewählt" bricht sonst Zeichen für Zeichen um, live am Gerät
@@ -350,7 +375,9 @@ private fun SelectionTopBar(
             IconButton(onClick = onCopy) { Icon(Icons.Filled.ContentCopy, contentDescription = "Kopieren") }
             IconButton(onClick = onCut) { Icon(Icons.Filled.ContentCut, contentDescription = "Ausschneiden") }
             IconButton(onClick = onShare) { Icon(Icons.Filled.Share, contentDescription = "Teilen") }
-            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Löschen") }
+            // Löschen/Komprimieren laufen über FileOperationService — gesperrt, solange bereits ein
+            // Job läuft (s. jobRunning-Kommentar in FileBrowserScreen).
+            IconButton(onClick = onDelete, enabled = !jobRunning) { Icon(Icons.Filled.Delete, contentDescription = "Löschen") }
             Box {
                 IconButton(onClick = { overflowExpanded = true }) {
                     Icon(Icons.Filled.MoreVert, contentDescription = "Mehr")
@@ -362,6 +389,7 @@ private fun SelectionTopBar(
                     )
                     DropdownMenuItem(
                         text = { Text("Komprimieren") },
+                        enabled = !jobRunning,
                         onClick = { overflowExpanded = false; onCompress() },
                     )
                 }
@@ -421,24 +449,25 @@ private fun RowActionsMenu(
     onShare: () -> Unit,
     onProperties: () -> Unit,
     onExtract: () -> Unit,
+    jobRunning: Boolean,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(text = { Text("Umbenennen") }, onClick = { onDismiss(); onRename() })
         DropdownMenuItem(text = { Text("Kopieren") }, onClick = { onDismiss(); onCopy() })
         DropdownMenuItem(text = { Text("Ausschneiden") }, onClick = { onDismiss(); onCut() })
-        if (entry.category == FileCategory.ARCHIVE) {
-            DropdownMenuItem(text = { Text("Entpacken") }, onClick = { onDismiss(); onExtract() })
+        if (de.ble1st.files.util.isExtractable(entry.file.name)) {
+            DropdownMenuItem(text = { Text("Entpacken") }, enabled = !jobRunning, onClick = { onDismiss(); onExtract() })
         }
         if (!entry.isDirectory) {
             DropdownMenuItem(text = { Text("Teilen") }, onClick = { onDismiss(); onShare() })
         }
         DropdownMenuItem(text = { Text("Eigenschaften") }, onClick = { onDismiss(); onProperties() })
-        DropdownMenuItem(text = { Text("Löschen") }, onClick = { onDismiss(); onDelete() })
+        DropdownMenuItem(text = { Text("Löschen") }, enabled = !jobRunning, onClick = { onDismiss(); onDelete() })
     }
 }
 
 @Composable
-private fun PasteBar(isCut: Boolean, count: Int, onPaste: () -> Unit, onCancel: () -> Unit) {
+private fun PasteBar(isCut: Boolean, count: Int, jobRunning: Boolean, onPaste: () -> Unit, onCancel: () -> Unit) {
     Surface(tonalElevation = 3.dp) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -447,7 +476,7 @@ private fun PasteBar(isCut: Boolean, count: Int, onPaste: () -> Unit, onCancel: 
             Text(if (isCut) "$count zum Verschieben" else "$count zum Kopieren")
             Row {
                 Button(onClick = onCancel) { Text("Verwerfen") }
-                Button(onClick = onPaste) {
+                Button(onClick = onPaste, enabled = !jobRunning) {
                     Icon(Icons.Filled.ContentPaste, contentDescription = null)
                     Text(" Einfügen")
                 }

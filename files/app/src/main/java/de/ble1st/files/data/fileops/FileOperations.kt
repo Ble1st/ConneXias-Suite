@@ -32,20 +32,36 @@ object FileOperations {
         return candidate
     }
 
+    /**
+     * Reduziert [name] auf einen reinen Dateinamen ohne Pfadanteile — sonst könnte ein
+     * präparierter Name (getippt, oder von einer fremden ContentProvider-DISPLAY_NAME-Spalte /
+     * einem WebDAV-Href geliefert) über ein enthaltenes "/" bzw. "\" oder "../"-Segmente außerhalb
+     * des beabsichtigten Zielordners landen ("Path Traversal"). Wirft statt stillschweigend zu
+     * kürzen, wenn danach nichts Sinnvolles übrig bleibt (leer, nur "." oder "..").
+     */
+    fun sanitizeName(name: String): String {
+        val base = name.substringAfterLast('/').substringAfterLast('\\').trim()
+        if (base.isEmpty() || base == "." || base == "..") {
+            throw IOException("Ungültiger Name: „$name“")
+        }
+        return base
+    }
+
     fun createFolder(parent: File, name: String): Result<File> = runCatching {
-        val target = File(parent, uniqueName(parent, name))
+        val target = File(parent, uniqueName(parent, sanitizeName(name)))
         if (!target.mkdirs()) throw IOException("Ordner konnte nicht angelegt werden: ${target.path}")
         target
     }
 
     fun createFile(parent: File, name: String): Result<File> = runCatching {
-        val target = File(parent, uniqueName(parent, name))
+        val target = File(parent, uniqueName(parent, sanitizeName(name)))
         if (!target.createNewFile()) throw IOException("Datei konnte nicht angelegt werden: ${target.path}")
         target
     }
 
     fun rename(target: File, newName: String): Result<File> = runCatching {
-        val destination = File(target.parentFile ?: throw IOException("Kein übergeordneter Ordner"), newName)
+        val parent = target.parentFile ?: throw IOException("Kein übergeordneter Ordner")
+        val destination = File(parent, sanitizeName(newName))
         if (destination.exists()) throw IOException("„$newName“ existiert bereits")
         if (!target.renameTo(destination)) throw IOException("Umbenennen fehlgeschlagen: ${target.path}")
         destination
@@ -78,18 +94,26 @@ object FileOperations {
         val outcomes = mutableListOf<OperationOutcome>()
         for (source in sources) {
             if (isCancelled()) break
+            if (isSameOrDescendant(destinationDir, source)) {
+                // Ordner in sich selbst (oder einen eigenen Unterordner) kopieren würde ohne diese
+                // Prüfung endlos wachsen (der neu kopierte Inhalt wäre selbst wieder Teil der
+                // rekursiven Quelle). Statt das zu erkennen und irgendwo abzubrechen: gar nicht
+                // erst starten, klar als Fehler markieren.
+                outcomes += OperationOutcome(source.path, IOException("Ziel liegt innerhalb der Quelle: ${source.path}"))
+                processed += countEntries(source)
+                onProgress(source.name, processed, total)
+                continue
+            }
             val existing = File(destinationDir, source.name)
-            if (existing.exists()) {
-                when (conflictPolicy) {
-                    ConflictPolicy.SKIP -> {
-                        processed += countEntries(source)
-                        outcomes += OperationOutcome(source.path, skipped = true)
-                        onProgress(source.name, processed, total)
-                        continue
-                    }
-                    ConflictPolicy.OVERWRITE -> deleteRecursive(existing, isCancelled)
-                    ConflictPolicy.KEEP_BOTH -> Unit
-                }
+            if (existing.exists() && conflictPolicy == ConflictPolicy.SKIP) {
+                processed += countEntries(source)
+                outcomes += OperationOutcome(source.path, skipped = true)
+                onProgress(source.name, processed, total)
+                continue
+            }
+            if (existing.exists() && conflictPolicy == ConflictPolicy.OVERWRITE) {
+                processed = copyWithOverwrite(source, existing, destinationDir, processed, total, isCancelled, onProgress, outcomes)
+                continue
             }
             val targetName = if (conflictPolicy == ConflictPolicy.KEEP_BOTH) {
                 uniqueName(destinationDir, source.name)
@@ -107,6 +131,54 @@ object FileOperations {
             )
         }
         return outcomes
+    }
+
+    /** Prüft, ob [candidate] gleich [ancestor] ist oder darunter liegt (kanonische Pfade, damit
+     * `..`/Symlinks nicht an der Prüfung vorbeiführen). Grundlage für die Selbstkopie-/
+     * Selbstverschiebe-Erkennung in [copy]/[move]. */
+    private fun isSameOrDescendant(candidate: File, ancestor: File): Boolean {
+        val candidateCanonical = runCatching { candidate.canonicalFile }.getOrDefault(candidate.absoluteFile)
+        val ancestorCanonical = runCatching { ancestor.canonicalFile }.getOrDefault(ancestor.absoluteFile)
+        var current: File? = candidateCanonical
+        while (current != null) {
+            if (current == ancestorCanonical) return true
+            current = current.parentFile
+        }
+        return false
+    }
+
+    /** OVERWRITE-Konfliktauflösung: kopiert [source] zuerst unter einem temporären Namen neben
+     * [existing], löscht die vorhandene Zieldatei/den Zielordner erst *nach* einer vollständig
+     * erfolgreichen Kopie und benennt dann um. Vorher wurde [existing] sofort gelöscht und erst
+     * danach kopiert — schlug der Kopiervorgang fehl (Speicher voll, Abbruch, IO-Fehler), war die
+     * ursprüngliche Datei bereits weg, ohne dass eine funktionierende Kopie an ihrer Stelle stand. */
+    private fun copyWithOverwrite(
+        source: File,
+        existing: File,
+        destinationDir: File,
+        processed: Int,
+        total: Int,
+        isCancelled: () -> Boolean,
+        onProgress: (String, Int, Int) -> Unit,
+        outcomes: MutableList<OperationOutcome>,
+    ): Int {
+        val tempTarget = File(destinationDir, uniqueName(destinationDir, ".crx-overwrite-${source.name}"))
+        val tempOutcomes = mutableListOf<OperationOutcome>()
+        val nextProcessed = copyRecursive(source, tempTarget, processed, total, isCancelled, onProgress, tempOutcomes)
+        if (tempOutcomes.all { it.succeeded }) {
+            deleteRecursive(existing, isCancelled)
+            val finalTarget = File(destinationDir, source.name)
+            if (tempTarget.renameTo(finalTarget)) {
+                outcomes += tempOutcomes
+            } else {
+                deleteRecursive(tempTarget, isCancelled)
+                outcomes += OperationOutcome(source.path, IOException("Ersetzen fehlgeschlagen: ${source.path}"))
+            }
+        } else {
+            deleteRecursive(tempTarget, isCancelled)
+            outcomes += tempOutcomes
+        }
+        return nextProcessed
     }
 
     private fun copyRecursive(
@@ -168,21 +240,42 @@ object FileOperations {
         val outcomes = mutableListOf<OperationOutcome>()
         for (source in sources) {
             if (isCancelled()) break
+            if (isSameOrDescendant(destinationDir, source)) {
+                outcomes += OperationOutcome(source.path, IOException("Ziel liegt innerhalb der Quelle: ${source.path}"))
+                processed += countEntries(source)
+                onProgress(source.name, processed, total)
+                continue
+            }
             val existing = File(destinationDir, source.name)
-            if (existing.exists()) {
-                when (conflictPolicy) {
-                    ConflictPolicy.SKIP -> {
-                        // Quelle bleibt unangetastet liegen — anders als bei Kopieren gibt es hier
-                        // sonst das Risiko, Daten zu verlieren, wenn die Quelle trotz übersprungenem
-                        // Ziel gelöscht würde.
-                        processed += countEntries(source)
-                        outcomes += OperationOutcome(source.path, skipped = true)
-                        onProgress(source.name, processed, total)
-                        continue
-                    }
-                    ConflictPolicy.OVERWRITE -> deleteRecursive(existing, isCancelled)
-                    ConflictPolicy.KEEP_BOTH -> Unit
+            if (existing.exists() && conflictPolicy == ConflictPolicy.SKIP) {
+                // Quelle bleibt unangetastet liegen — anders als bei Kopieren gibt es hier
+                // sonst das Risiko, Daten zu verlieren, wenn die Quelle trotz übersprungenem
+                // Ziel gelöscht würde.
+                processed += countEntries(source)
+                outcomes += OperationOutcome(source.path, skipped = true)
+                onProgress(source.name, processed, total)
+                continue
+            }
+            if (existing.exists() && conflictPolicy == ConflictPolicy.OVERWRITE) {
+                // Erst versuchen, direkt über die vorhandene Zieldatei zu renamen (POSIX rename(2)
+                // ersetzt eine bestehende reguläre Datei atomar) — nur wenn das nicht klappt
+                // (unterschiedliche Mountpoints, Ziel ist ein Ordner) auf den sicheren
+                // Kopier-dann-Ersetzen-Pfad ausweichen, der [existing] erst nach vollständigem
+                // Erfolg löscht statt vorab (s. copyWithOverwrite-Doc für dasselbe Problem beim
+                // reinen Kopieren).
+                val renamedOverExisting = if (!existing.isDirectory) {
+                    runCatching { source.renameTo(existing) }.getOrDefault(false)
+                } else {
+                    false
                 }
+                if (renamedOverExisting) {
+                    processed += countEntries(existing)
+                    outcomes += OperationOutcome(source.path)
+                    onProgress(source.name, processed, total)
+                    continue
+                }
+                processed = moveWithOverwrite(source, existing, destinationDir, processed, total, isCancelled, onProgress, outcomes)
+                continue
             }
             val targetName = if (conflictPolicy == ConflictPolicy.KEEP_BOTH) {
                 uniqueName(destinationDir, source.name)
@@ -206,6 +299,40 @@ object FileOperations {
             }
         }
         return outcomes
+    }
+
+    /** OVERWRITE-Konfliktauflösung für [move], wenn ein direktes `renameTo` über [existing] nicht
+     * möglich war (Ordner-Ziel oder unterschiedliche Mountpoints): kopiert [source] zuerst unter
+     * einem temporären Namen, löscht [existing] erst nach vollständigem Kopiererfolg und löscht die
+     * Quelle erst, nachdem das Ersetzen tatsächlich geklappt hat. */
+    private fun moveWithOverwrite(
+        source: File,
+        existing: File,
+        destinationDir: File,
+        processed: Int,
+        total: Int,
+        isCancelled: () -> Boolean,
+        onProgress: (String, Int, Int) -> Unit,
+        outcomes: MutableList<OperationOutcome>,
+    ): Int {
+        val tempTarget = File(destinationDir, uniqueName(destinationDir, ".crx-overwrite-${source.name}"))
+        val tempOutcomes = mutableListOf<OperationOutcome>()
+        val nextProcessed = copyRecursive(source, tempTarget, processed, total, isCancelled, onProgress, tempOutcomes)
+        if (tempOutcomes.all { it.succeeded }) {
+            deleteRecursive(existing, isCancelled)
+            val finalTarget = File(destinationDir, source.name)
+            if (tempTarget.renameTo(finalTarget)) {
+                deleteRecursive(source, isCancelled)
+                outcomes += tempOutcomes
+            } else {
+                deleteRecursive(tempTarget, isCancelled)
+                outcomes += OperationOutcome(source.path, IOException("Ersetzen fehlgeschlagen: ${source.path}"))
+            }
+        } else {
+            deleteRecursive(tempTarget, isCancelled)
+            outcomes += tempOutcomes
+        }
+        return nextProcessed
     }
 
     fun delete(

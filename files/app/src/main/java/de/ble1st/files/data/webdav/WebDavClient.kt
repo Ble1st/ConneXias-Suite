@@ -110,16 +110,23 @@ object WebDavClient {
     }
 
     /** Umbenennen/Verschieben — WebDAV kennt keinen eigenen "Rename", MOVE mit dem gewünschten
-     * Zielpfad im Destination-Header erledigt beides. */
+     * Zielpfad im Destination-Header erledigt beides. `Overwrite: F` explizit gesetzt: RFC 4918s
+     * Default für MOVE ist "T" (stilles Überschreiben eines bereits vorhandenen Ziels) — ohne
+     * diesen Header würde ein Umbenennen auf einen bestehenden Namen die dortige Datei kommentarlos
+     * ersetzen statt (wie die UI das erwartet) mit 412 Precondition Failed abzulehnen. */
     suspend fun move(account: WebDavAccount, fromPath: String, toPath: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {
                 val request = authorizedRequest(account, urlFor(account, fromPath))
                     .header("Destination", urlFor(account, toPath).toString())
+                    .header("Overwrite", "F")
                     .method("MOVE", null)
                     .build()
                 client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                    if (!response.isSuccessful) {
+                        val message = if (response.code == 412) "Ziel existiert bereits" else "HTTP ${response.code}"
+                        throw IOException(message)
+                    }
                 }
             }
         }
@@ -204,7 +211,7 @@ object WebDavClient {
         sizeBytes: Long,
         lastModifiedMillis: Long,
     ): WebDavEntry? {
-        val decoded = Uri.decode(rawHref.substringBefore('?')).trimEnd('/')
+        val decoded = Uri.decode(hrefToEncodedPath(rawHref).substringBefore('?')).trimEnd('/')
         // PROPFIND Depth:1 liefert den angefragten Ordner selbst als erste <response> mit — das
         // ist kein Kind-Eintrag und muss herausgefiltert werden, sonst erschiene der Ordner als
         // Eintrag in seiner eigenen Auflistung.
@@ -219,6 +226,18 @@ object WebDavClient {
             sizeBytes = sizeBytes,
             lastModifiedMillis = lastModifiedMillis,
         )
+    }
+
+    /** Server liefern `href` mal als reinen Pfad, mal als vollständige absolute URL (z. B.
+     * Nextcloud gibt `https://host/remote.php/dav/files/...` zurück). Nur der Pfadanteil ist mit
+     * [basePathPrefix]/[requestedPath] vergleichbar — ohne diese Normalisierung bliebe nach dem
+     * `removePrefix()` in [toEntry] die komplette URL als (falscher) "relativer" Pfad übrig, und
+     * jeder Folgerequest auf diesen Eintrag (Download/Löschen/Umbenennen über [urlFor]) würde
+     * kaputte Pfadsegmente erzeugen. */
+    private fun hrefToEncodedPath(rawHref: String): String {
+        val trimmed = rawHref.trim()
+        val isAbsoluteUrl = trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)
+        return if (isAbsoluteUrl) Uri.parse(trimmed).encodedPath.orEmpty() else trimmed
     }
 
     private fun parseHttpDate(text: String): Long =

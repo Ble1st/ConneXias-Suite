@@ -49,10 +49,26 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.ConneXiasFiles">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Empfangsseite von "Teilen" aus einer fremden App (Kamera, Galerie, Browser, ...) —
+                 s. data/share/IncomingShare.kt. Bisher war die App nur Absender (FileActions.share),
+                 nie Empfänger; die Suite verhielt sich dadurch wie vier Inseln (analyse.md
+                 Abschnitt 5). Ein Wildcard-mimeType statt einzelner Typen, weil ein Dateimanager
+                 grundsätzlich jeden Dateityp entgegennehmen soll. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 

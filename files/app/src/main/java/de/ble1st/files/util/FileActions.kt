@@ -1,6 +1,7 @@
 package de.ble1st.files.util
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -41,6 +42,15 @@ object FileActions {
                 type = "*/*"
             }
         }
+        // ClipData zusätzlich zu EXTRA_STREAM setzen: FLAG_GRANT_READ_URI_PERMISSION gewährt
+        // Berechtigungen für content://-Uris nur über die ClipData-Items eines Intents, nicht über
+        // den EXTRA_STREAM-Parcelable-Extra selbst — ohne das sah der Empfänger bei mehreren
+        // geteilten Dateien (ACTION_SEND_MULTIPLE) oft nur die erste Datei, weil die übrigen Uris
+        // keine gültige Leseberechtigung hatten (bekanntes Android-Verhalten, z. B. bei Gmail).
+        val clipData = ClipData.newUri(context.contentResolver, "Geteilte Dateien", uris.first()).apply {
+            for (uri in uris.drop(1)) addItem(ClipData.Item(uri))
+        }
+        intent.clipData = clipData
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         launchOrToast(context, Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

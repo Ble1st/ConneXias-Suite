@@ -32,6 +32,16 @@ private val PLAIN_TEXT_EXTENSIONS = setOf(
 
 private val ARCHIVE_EXTENSIONS = setOf("zip", "jar", "tar", "gz", "bz2", "7z", "rar", "xz")
 
+/** Teilmenge von [ARCHIVE_EXTENSIONS], die [de.ble1st.files.data.fileops.ZipOperations.extract]
+ * tatsächlich lesen kann (java.util.zip.ZipInputStream versteht nur das ZIP-Format, ein .jar ist
+ * strukturell dasselbe Format). Die "Entpacken"-Menüaktion filtert danach statt nach der breiteren
+ * ARCHIVE_EXTENSIONS-Kategorie — sonst bot das Menü "Entpacken" auch für .rar/.7z/.tar/.gz an, was
+ * dort nur mit einem kryptischen IO-Fehler fehlgeschlagen wäre. */
+val EXTRACTABLE_EXTENSIONS = setOf("zip", "jar")
+
+fun isExtractable(name: String): Boolean =
+    name.substringAfterLast('.', "").lowercase(Locale.ROOT) in EXTRACTABLE_EXTENSIONS
+
 fun resolveMimeType(file: File): String? = resolveMimeTypeForName(file.name)
 
 fun resolveMimeTypeForName(name: String): String? {
