@@ -131,7 +131,7 @@ fun GalleryNavHost(
             ),
         ) { backStackEntry ->
             val bucketId = backStackEntry.arguments?.getLong("bucketId") ?: -1L
-            val bucketName = Routes.decodeName(backStackEntry.arguments?.getString("bucketName").orEmpty())
+            val bucketName = backStackEntry.arguments?.getString("bucketName").orEmpty()
             MediaGridScreen(
                 bucketId = bucketId,
                 bucketName = bucketName,
@@ -189,8 +189,8 @@ fun GalleryNavHost(
                 navArgument("albumName") { type = NavType.StringType },
             ),
         ) { backStackEntry ->
-            val albumId = Routes.decodeName(backStackEntry.arguments?.getString("albumId").orEmpty())
-            val albumName = Routes.decodeName(backStackEntry.arguments?.getString("albumName").orEmpty())
+            val albumId = backStackEntry.arguments?.getString("albumId").orEmpty()
+            val albumName = backStackEntry.arguments?.getString("albumName").orEmpty()
             CustomAlbumScreen(
                 albumId = albumId,
                 albumName = albumName,
@@ -208,7 +208,7 @@ fun GalleryNavHost(
                 navArgument("itemId") { type = NavType.LongType },
             ),
         ) { backStackEntry ->
-            val albumId = Routes.decodeName(backStackEntry.arguments?.getString("albumId").orEmpty())
+            val albumId = backStackEntry.arguments?.getString("albumId").orEmpty()
             val itemId = backStackEntry.arguments?.getLong("itemId") ?: -1L
             ImageViewerScreen(
                 bucketId = ALL_BUCKET_ID,

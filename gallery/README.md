@@ -84,7 +84,12 @@ Aufrufer scheiterte dadurch); der Bildeditor transkodierte auch dann verlustbeha
 dabei alle EXIF-Metadaten), wenn weder Filter noch Zuschnitt das Bild überhaupt verändert hätten
 (Filter NONE + Crop ORIGINAL kopiert jetzt die Originalbytes unverändert); derselbe
 Pending-Leiche-Fehler wie bei ConneXias Kameras Filter-Speichern (s. dort) betraf auch
-`PhotoEditSaver.saveEdited` — behoben.
+`PhotoEditSaver.saveEdited` — behoben; Compose Navigation dekodierte Album-/Bucket-Namen aus der
+Route bereits selbst (`Uri.decode()` intern), ein zusätzliches `URLDecoder.decode()` in
+`Routes.decodeName` dekodierte ein zweites Mal, zusammen mit einem latenten Encoding-Mismatch
+(`URLEncoder`s "+" für Leerzeichen vs. `Uri.decode()`, das nur Prozent-Escapes versteht) — ein
+Albumname mit Leerzeichen kam als "Name+mit+Leerzeichen" an. Jetzt kodiert `Routes.encode` mit
+`Uri.encode` und die App decodiert selbst gar nicht mehr.
 
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte, mit Begründung):
 - **Gesichtsgruppierung**: würde On-Device-Gesichtserkennung brauchen — die gängige Lösung dafür

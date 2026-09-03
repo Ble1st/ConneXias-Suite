@@ -1,14 +1,22 @@
 package de.ble1st.gallery.nav
 
-import java.net.URLDecoder
-import java.net.URLEncoder
-import kotlin.text.Charsets.UTF_8
+import android.net.Uri
 
-/** Album-/Uri-Namen landen als Navigations-Argumente in der Route — URL-Encoding, damit Compose
- * Navigation enthaltene Schrägstriche nicht selbst aufsplittet (dasselbe Muster wie ConneXias
- * Files' und ConneXias Kameras Routes.kt). */
-private fun encode(value: String) = URLEncoder.encode(value, UTF_8.name())
-private fun decode(value: String) = URLDecoder.decode(value, UTF_8.name())
+/** Album-/Bucket-Namen landen als Navigations-Argumente in der Route — URL-Encoding, damit
+ * Compose Navigation enthaltene Schrägstriche nicht selbst aufsplittet (dasselbe Muster wie
+ * ConneXias Files' und ConneXias Kameras Routes.kt).
+ *
+ * analyse.md (2. Durchgang, "Danach" #11 — "Composition-Navigation"): Compose Navigation
+ * dekodiert Pfad-Argumente beim Uri-Template-Matching bereits selbst (`NavDeepLink` ruft intern
+ * `Uri.decode()` auf jedes Segment, auch für normales `navigate("route")` ohne echten Deep
+ * Link) — ein zusätzlicher `URLDecoder.decode()`-Aufruf hier dekodierte ein zweites Mal. Zuvor
+ * kam dazu noch ein Encoding-Mismatch: `URLEncoder` kodiert Leerzeichen als "+", `Uri.decode()`
+ * versteht aber nur Prozent-Escapes und lässt ein "+" unverändert stehen — ein Album- oder
+ * Bucket-Name mit Leerzeichen (z. B. "Urlaub 2024") kam nach dem (einfachen) Decodieren durch
+ * Navigation als "Urlaub+2024" an. Jetzt kodiert [encode] mit `Uri.encode` (demselben Verfahren,
+ * das Navigation intern zum Decodieren nutzt) und die App decodiert selbst gar nicht mehr —
+ * `backStackEntry.arguments` liefert bereits den fertig decodierten Wert. */
+private fun encode(value: String) = Uri.encode(value)
 
 object Routes {
     const val ONBOARDING = "onboarding"
@@ -41,6 +49,4 @@ object Routes {
     fun customAlbum(albumId: String, albumName: String) = "customAlbum/${encode(albumId)}/${encode(albumName)}"
     fun slideshow(bucketId: Long) = "slideshow/$bucketId"
     fun editor(itemId: Long) = "editor/$itemId"
-
-    fun decodeName(encoded: String): String = decode(encoded)
 }
