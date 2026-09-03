@@ -1,6 +1,7 @@
 package de.ble1st.warden.registry
 
 import android.content.Context
+import de.ble1st.warden.domain.profile.SafeguardIds
 
 /**
  * "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26), Live-Drill-Folgearbeit — bringt genau das
@@ -50,6 +51,9 @@ class SentinelUninstallProtectionSafeguard(context: Context) : DpmSafeguard(cont
         devicePolicyManager().isUninstallBlocked(admin, WardenLockTaskAuthorizer.SENTINEL_PACKAGE_NAME)
 
     companion object {
-        const val ID = "sentinel_uninstall_protection"
+        // analyse.md (2. Durchgang, Hoch): geteilte Konstante mit WardenProfileApplyDecision.
+        // NEVER_TOUCHED statt eines eigenen Literals hier — s. dortiges Klassendoc für die
+        // Begründung, warum kein Profil-Apply diesen Safeguard je anfassen darf.
+        const val ID = SafeguardIds.SENTINEL_UNINSTALL_PROTECTION
     }
 }

@@ -1,5 +1,8 @@
 package de.ble1st.warden.registry
 
+import de.ble1st.warden.domain.registry.RegistryReconcileAction
+import de.ble1st.warden.domain.registry.RegistryReconcileDecision
+
 /**
  * Meilenstein C.4 (Konzept Abschnitt 4/19): "Reconciliation bei `ACTION_LOCKED_BOOT_COMPLETED`:
  * Ist vs. Soll, re-applizieren, loggen." Vergleicht für jeden registrierten Safeguard den
@@ -25,9 +28,14 @@ package de.ble1st.warden.registry
  * exakt diese übriggebliebenen Divergenzen wieder (bereits korrigierte Einträge sind dann schon
  * im Soll-Zustand und werden übersprungen) und korrigiert sie. Kein zusätzliches
  * Fortschritts-Tracking über den Registry-eigenen Soll-/Ist-Vergleich hinaus nötig.
+ *
+ * [neverWeaken] (analyse.md, 2. Durchgang, Mittel — "USB-Daten am gesperrten Gerät nach Boot
+ * wieder an"): ids, für die diese Reconciliation eine Divergenz nur in die verstärkende Richtung
+ * auflöst, s. [RegistryReconcileDecision]-Klassendoc für die volle Begründung.
  */
 class RegistryReconciler(
     private val registry: PersistentSafeguardRegistry,
+    private val neverWeaken: Set<String> = emptySet(),
     private val onCorrection: (RegistryCorrection) -> Unit = {},
 ) {
 
@@ -58,8 +66,11 @@ class RegistryReconciler(
         }
         if (actual == desired) return null
 
+        val action = RegistryReconcileDecision.actionFor(id, desired, actual, neverWeaken)
+        if (action == RegistryReconcileAction.LEAVE_UNTOUCHED) return null
+
         return try {
-            if (desired) registry.apply(id) else registry.revert(id)
+            if (action == RegistryReconcileAction.APPLY) registry.apply(id) else registry.revert(id)
             RegistryCorrection.Applied(id, desired)
         } catch (e: Exception) {
             RegistryCorrection.Failed(id, desired, e)

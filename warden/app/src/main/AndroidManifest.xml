@@ -134,11 +134,23 @@
         </activity>
 
         <!-- Einziger Device-Owner-fähiger Empfänger der App (Konzept Abschnitt 1). Systemgeschützt
-             über BIND_DEVICE_ADMIN. -->
+             über BIND_DEVICE_ADMIN.
+
+             analyse.md (2. Durchgang, Hoch — "Failed-Attempts-Reboot greift genau im BFU-Fenster
+             nicht"): FailedAttemptsRebootStorage ist bewusst Device-Protected, weil
+             onPasswordFailed() am System-Sperrbildschirm gerade im BFU-Fenster nach einem Reboot
+             (Diebstahl, Duress, Auto-Reboot) feuern soll — exakt das Szenario, für das der Zähler
+             gebaut ist. Ohne directBootAware="true" wird dieser Receiver im Direct Boot aber gar
+             nicht erst instanziert, die Storage-Entscheidung lief also bislang komplett ins Leere;
+             der Zähler funktionierte nur nach dem ersten Entsperren. Sicher nachgezogen, weil auch
+             onSecurityLogsAvailable/onNetworkLogsAvailable ausschließlich in wardenAuditLog/
+             wardenSecurityEvents schreiben — beide (LogStorage/SecurityEventStorage) sind bereits
+             ihrerseits Device-Protected, s. deren eigene Klassendocs. -->
         <receiver
             android:name=".admin.WardenDeviceAdminReceiver"
             android:exported="true"
-            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:directBootAware="true">
             <meta-data
                 android:name="android.app.device_admin"
                 android:resource="@xml/device_admin_receiver" />

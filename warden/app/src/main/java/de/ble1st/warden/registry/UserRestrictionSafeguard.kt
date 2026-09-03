@@ -2,6 +2,7 @@ package de.ble1st.warden.registry
 
 import android.content.Context
 import android.os.UserManager
+import de.ble1st.warden.domain.profile.SafeguardIds
 
 /**
  * Generischer [de.ble1st.warden.domain.registry.Safeguard] für einen einzelnen
@@ -116,9 +117,11 @@ class UserRestrictionSafeguard(
                 id = DEBUGGING_FEATURES_DISABLED_ID,
             )
 
-        /** Stabile Registry-`id` von [debuggingFeaturesDisabled] — als Konstante exponiert,
-         * dasselbe Muster wie [CONFIG_DATE_TIME_DISABLED_ID]. */
-        const val DEBUGGING_FEATURES_DISABLED_ID = "debugging_features_disabled"
+        /** Stabile Registry-`id` von [debuggingFeaturesDisabled] — geteilte Konstante mit
+         * `WardenProfileApplyDecision.LOCKDOWN_SHARED_IDS` (analyse.md, 2. Durchgang, Hoch): diese
+         * Restriction ist zugleich reversibler Katalogeintrag und [DeviceLockdownBundle]-Mitglied,
+         * s. dortiges Klassendoc. */
+        const val DEBUGGING_FEATURES_DISABLED_ID = SafeguardIds.DEBUGGING_FEATURES_DISABLED
 
         /**
          * Tier 1 ("Anti-Tamper", 2026-08-22): schützt die Anti-Hammering-Backoff-Zeitfenster
@@ -203,8 +206,10 @@ class UserRestrictionSafeguard(
         const val MICROPHONE_MUTED_ID = "microphone_muted"
         const val CREDENTIAL_CONFIG_DISABLED_ID = "credential_config_disabled"
         const val PHYSICAL_MEDIA_MOUNT_DISABLED_ID = "physical_media_mount_disabled"
-        const val FACTORY_RESET_DISABLED_ID = "factory_reset_disabled"
-        const val SAFE_BOOT_DISABLED_ID = "safe_boot_disabled"
+        // Geteilte Konstanten mit WardenProfileApplyDecision.LOCKDOWN_SHARED_IDS — s.
+        // DEBUGGING_FEATURES_DISABLED_ID-Kommentar oben für die Begründung.
+        const val FACTORY_RESET_DISABLED_ID = SafeguardIds.FACTORY_RESET_DISABLED
+        const val SAFE_BOOT_DISABLED_ID = SafeguardIds.SAFE_BOOT_DISABLED
         const val MODIFY_ACCOUNTS_DISABLED_ID = "modify_accounts_disabled"
 
         /** Stabile Registry-`id` von [configDateTimeDisabled] — als Konstante exponiert, damit

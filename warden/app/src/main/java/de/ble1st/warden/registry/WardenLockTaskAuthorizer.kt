@@ -48,8 +48,18 @@ class WardenLockTaskAuthorizer(private val ctx: Context) : DpmSafeguard(ctx) {
         dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE)
     }
 
-    override fun isActive(): Boolean =
-        SENTINEL_PACKAGE_NAME in devicePolicyManager().getLockTaskPackages(admin)
+    /** analyse.md (2. Durchgang, Mittel — "isActive() prüft nicht, was apply() setzt"): vorher nur
+     * die Paket-Whitelist geprüft, nicht die Feature-Bitmaske, die [apply] als zweiten,
+     * gleichberechtigten Teil setzt. Ein Zustand, in dem Sentinel zwar whitelisted ist, die
+     * Feature-Maske aber (noch/wieder) offen steht — z. B. nach einem fehlgeschlagenen [apply], das
+     * `setLockTaskPackages` erfolgreich, `setLockTaskFeatures` aber nicht durchbrachte — hätte
+     * bisher trotzdem "aktiv/autorisiert" gemeldet, obwohl Home/Overview im Kiosk-Modus wieder
+     * erreichbar wären. Jetzt werden beide DPM-Bits geprüft, exakt wie [apply] sie setzt. */
+    override fun isActive(): Boolean {
+        val dpm = devicePolicyManager()
+        return SENTINEL_PACKAGE_NAME in dpm.getLockTaskPackages(admin) &&
+            dpm.getLockTaskFeatures(admin) == EMERGENCY_PRESERVING_FEATURES
+    }
 
     companion object {
         const val ID = "warden_lock_task_authorized"

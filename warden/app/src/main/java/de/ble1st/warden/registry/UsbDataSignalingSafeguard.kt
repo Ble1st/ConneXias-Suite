@@ -1,6 +1,7 @@
 package de.ble1st.warden.registry
 
 import android.content.Context
+import de.ble1st.warden.domain.profile.SafeguardIds
 
 /**
  * Schaltet USB-Data-Signaling geräteweit ab (Meilenstein C.5, Konzept Abschnitt 4:
@@ -39,6 +40,9 @@ class UsbDataSignalingSafeguard(context: Context) : DpmSafeguard(context) {
     override fun isActive(): Boolean = !devicePolicyManager().isUsbDataSignalingEnabled
 
     companion object {
-        const val ID = "usb_data_signaling_disabled"
+        // analyse.md (2. Durchgang, Hoch): geteilte Konstante mit WardenProfileApplyDecision
+        // .LOCKDOWN_SHARED_IDS — dieselbe DPM-Restriction ist gleichzeitig reversibler
+        // Katalogeintrag und DeviceLockdownBundle-Mitglied, s. dortiges Klassendoc.
+        const val ID = SafeguardIds.USB_DATA_SIGNALING_DISABLED
     }
 }

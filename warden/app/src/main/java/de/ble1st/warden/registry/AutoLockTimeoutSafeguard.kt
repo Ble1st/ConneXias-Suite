@@ -24,10 +24,16 @@ class AutoLockTimeoutSafeguard(context: Context) : DpmSafeguard(context) {
         devicePolicyManager().setMaximumTimeToLock(admin, 0L)
     }
 
-    override fun isActive(): Boolean {
-        val current = devicePolicyManager().getMaximumTimeToLock(admin)
-        return current in 1..MAX_TIME_TO_LOCK_MILLIS
-    }
+    /** analyse.md (2. Durchgang, Niedrig — "isActive() akzeptiert jeden Wert 1–30000 ms"): vorher
+     * jeder Wert im gesamten Bereich als "aktiv" gewertet, nicht nur exakt [MAX_TIME_TO_LOCK_MILLIS]
+     * selbst, das [apply] setzt — ein z. B. OEM-seitig auf 15 Sekunden voreingestellter Wert (auch
+     * strenger als Wardens eigene 30-Sekunden-Vorgabe) galt damit als "aktiv", ohne dass
+     * [RegistryReconciler] je nachgefasst hätte, sollte sich dieser Fremd-Wert später wieder
+     * lockern. Exakter Vergleich statt Bereichsprüfung — derselbe "isActive() prüft, was apply()
+     * tatsächlich setzt"-Grundsatz wie bei [de.ble1st.warden.netlock.NetLockdownAuthorizer]/
+     * [WardenLockTaskAuthorizer]. */
+    override fun isActive(): Boolean =
+        devicePolicyManager().getMaximumTimeToLock(admin) == MAX_TIME_TO_LOCK_MILLIS
 
     companion object {
         const val ID = "auto_lock_timeout"

@@ -17,6 +17,7 @@ import de.ble1st.warden.registry.RegistryStorage
 import de.ble1st.warden.registry.SafeguardCatalog
 import de.ble1st.warden.registry.SafeguardRegistryStore
 import de.ble1st.warden.registry.SupportMessageManager
+import de.ble1st.warden.registry.UsbDataSignalingSafeguard
 import de.ble1st.warden.registry.WardenOrganizationNameStorage
 import de.ble1st.warden.registry.WardenSupportMessageStorage
 import de.ble1st.warden.wardenAuditLog
@@ -48,7 +49,11 @@ class RegistryReconciliationReceiver : BroadcastReceiver() {
         val logStore = wardenAuditLog(context)
 
         registry.load()
-        RegistryReconciler(registry) { correction -> log(logStore, correction) }.reconcile()
+        // analyse.md (2. Durchgang, Mittel — "USB-Daten am gesperrten Gerät nach Boot wieder an"):
+        // usb_data_signaling_disabled darf diese Reconciliation nie abschwächen (wieder anschalten)
+        // — s. RegistryReconcileDecision-Klassendoc für die volle Begründung.
+        val neverWeaken = setOf(UsbDataSignalingSafeguard.ID)
+        RegistryReconciler(registry, neverWeaken) { correction -> log(logStore, correction) }.reconcile()
         reconcileLockScreenInfo(context, logStore)
         reconcileOrganizationName(context, logStore)
         reconcileSupportMessage(context, logStore)

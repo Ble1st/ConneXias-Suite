@@ -50,6 +50,7 @@
     <string name="status_profile">Profil: %1$s</string>
     <string name="status_profile_none">keins angewandt</string>
     <string name="status_debuggable_os_warning">⚠ Debuggable OS (Build.TYPE=%1$s) — Vertrauensmodell setzt user-Build voraus</string>
+    <string name="status_pin_not_configured_warning">⚠ Keine Warden-PIN eingerichtet — Dashboard ohne Nachweis erreichbar. Antippen zum Einrichten.</string>
     <string name="menu_security_scanner_highest_severity">Höchster Schweregrad: %1$s</string>
     <string name="kiosk_outcome_execution_blocked">⚠ Debug-Build — destruktive Kommandos hart abgeschaltet (F.4).</string>
     <string name="kiosk_outcome_rate_limited">⚠ Zu viele Versuche — bitte kurz warten.</string>

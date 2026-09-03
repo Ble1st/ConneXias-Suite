@@ -51,6 +51,19 @@
 //!   sonst fragmentieren größere Pakete beim äußeren UDP-Versand. Dieses Modul selbst erzwingt das
 //!   nicht, es kann nur an einem zu großen `dst`-Puffer nicht scheitern (deren Größe ist hier
 //!   bewusst großzügig gewählt, s. [WG_MAX_PACKET]).
+//!
+//! **Poisoned-Mutex-Absicherung (analyse.md, 2. Durchgang, Niedrig — "`Mutex::unwrap()` bei
+//! Poison kann den Engine-Thread erneut lautlos töten"):** `state.tunn`/`state.transport_fd`
+//! (anders als `CHILD_VPN`/`PENDING_TRANSPORT_FD`, die schon vorher über `if let Ok(...) =
+//! ...lock()` liefen) griffen bislang über ein rohes `.lock().unwrap()` zu. Ein Panic *innerhalb*
+//! eines gehaltenen Locks (z. B. ein bislang unbekannter Bug tief in `boringtun` selbst) hätte den
+//! Mutex vergiftet — jeder folgende `.lock().unwrap()`-Aufruf auf demselben Mutex hätte dann bei
+//! jedem weiteren Tick erneut gepanict, exakt dieselbe Klasse "Engine-Thread stirbt lautlos" wie
+//! der historische RX-Freeze-Bug (`engine.rs`-Moduldoc), nur ohne dass ein erneuter Boot/Rearm
+//! helfen würde. `.lock().unwrap_or_else(|poisoned| poisoned.into_inner())` gibt stattdessen den
+//! Zugriff auf die (potenziell inkonsistente) innere Struktur trotzdem frei — ein einzelnes
+//! möglicherweise beschädigtes `Tunn`/`transport_fd` ist ungleich besser als ein dauerhaft totes
+//! Modul, dieselbe "Best-Effort statt Totalausfall"-Haltung wie überall sonst in diesem Crate.
 
 use crate::callback::ProtectedSocketFactory;
 use boringtun::noise::{Tunn, TunnResult};
@@ -225,7 +238,10 @@ fn current_state() -> Option<Arc<ChildVpnState>> {
 }
 
 fn adopt_pending_transport_fd(state: &ChildVpnState) {
-    let mut current = state.transport_fd.lock().unwrap();
+    let mut current = state
+        .transport_fd
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if current.is_some() {
         return;
     }
@@ -237,7 +253,11 @@ fn adopt_pending_transport_fd(state: &ChildVpnState) {
 }
 
 fn send_to_transport(state: &ChildVpnState, packet: &[u8]) {
-    let Some(fd) = *state.transport_fd.lock().unwrap() else {
+    let Some(fd) = *state
+        .transport_fd
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    else {
         return; // Transportsocket noch nicht bereit — Paket verworfen, s. Moduldoc Fail-safe.
     };
     // ManuallyDrop: derselbe Zweite-Ansicht-auf-fremden-fd-ohne-close()-Griff wie überall in
@@ -251,7 +271,10 @@ fn send_to_transport(state: &ChildVpnState, packet: &[u8]) {
 fn encapsulate_and_send(state: &ChildVpnState, raw_packet: &[u8]) {
     let mut dst = vec![0u8; (raw_packet.len() + 32).max(NOISE_CONTROL_BUFFER)];
     let outcome = {
-        let mut tunn = state.tunn.lock().unwrap();
+        let mut tunn = state
+            .tunn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         match tunn.encapsulate(raw_packet, &mut dst) {
             TunnResult::WriteToNetwork(packet) => Some(packet.to_vec()),
             // `Done`/`Err`: Paket verworfen (kein Fallback, s. Moduldoc). `WriteToTunnelV4/V6` kann
@@ -279,7 +302,10 @@ fn encapsulate_and_send(state: &ChildVpnState, raw_packet: &[u8]) {
 fn tick_timers(state: &ChildVpnState) {
     let mut dst = vec![0u8; NOISE_CONTROL_BUFFER];
     let outcome = {
-        let mut tunn = state.tunn.lock().unwrap();
+        let mut tunn = state
+            .tunn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         match tunn.update_timers(&mut dst) {
             TunnResult::WriteToNetwork(packet) => Some(packet.to_vec()),
             _ => None,
@@ -299,7 +325,10 @@ fn flush_network_queue(state: &ChildVpnState) {
     loop {
         let mut dst = vec![0u8; NOISE_CONTROL_BUFFER];
         let packet = {
-            let mut tunn = state.tunn.lock().unwrap();
+            let mut tunn = state
+                .tunn
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             match tunn.decapsulate(None, &[], &mut dst) {
                 TunnResult::WriteToNetwork(packet) => Some(packet.to_vec()),
                 _ => None,
@@ -328,7 +357,10 @@ fn decapsulate_and_forward(
         Reply(Vec<u8>),
     }
     let outcome = {
-        let mut tunn = state.tunn.lock().unwrap();
+        let mut tunn = state
+            .tunn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         match tunn.decapsulate(None, datagram, &mut dst) {
             TunnResult::Done | TunnResult::Err(_) => Outcome::None,
             TunnResult::WriteToNetwork(packet) => Outcome::Reply(packet.to_vec()),
@@ -352,7 +384,11 @@ fn decapsulate_and_forward(
 /// Liest nicht-blockierend alles, was aktuell auf dem Transportsocket von der VPS eingetroffen ist,
 /// und entschlüsselt/leitet jedes Datagramm weiter.
 fn drain_transport_socket(state: &ChildVpnState, tun_writer: &mut ManuallyDrop<File>) {
-    let Some(fd) = *state.transport_fd.lock().unwrap() else {
+    let Some(fd) = *state
+        .transport_fd
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    else {
         return;
     };
     let socket = ManuallyDrop::new(unsafe { UdpSocket::from_raw_fd(fd as RawFd) });

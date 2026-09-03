@@ -63,7 +63,11 @@ class NetLockdownController(context: Context) {
         // muss WardenVpnService nicht selbst starten (dasselbe Prinzip wie im Quellprojekt, dort
         // wegen exported=false zwingend, hier zusätzlich einfach unnötig).
         requestBatteryOptimizationExemptionOnce()
-        store.saveDesiredArmed(true)
+        // Soll-Zustand wird seit analyse.md (2. Durchgang, Hoch — "Zwei Soll-Zustände für
+        // Always-On-VPN") von authorizer.apply() selbst persistiert, nicht mehr hier — s.
+        // NetLockdownAuthorizer-Klassendoc. Damit bleibt der Soll-Zustand auch dann korrekt, wenn
+        // DeviceLockdownBundle denselben Authorizer direkt anspricht, ohne über diese Klasse zu
+        // gehen.
         logStore.append(Log.WARN, TAG, "Net-Lockdown scharf (Always-On-VPN + Lockdown)")
         ArmResult.Success
     } catch (e: Exception) {
@@ -80,9 +84,9 @@ class NetLockdownController(context: Context) {
         }
         appContext.startService(stopIntent)
         
-        // Jetzt den Always-On VPN Lockdown entfernen
+        // Jetzt den Always-On VPN Lockdown entfernen — authorizer.revert() persistiert den
+        // Soll-Zustand selbst mit (s. arm()-Kommentar oben).
         authorizer.revert()
-        store.saveDesiredArmed(false)
         logStore.append(Log.WARN, TAG, "Net-Lockdown entschärft (Always-On-VPN entfernt)")
     }
 

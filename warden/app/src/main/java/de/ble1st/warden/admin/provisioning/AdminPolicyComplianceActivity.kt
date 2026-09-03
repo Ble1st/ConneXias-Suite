@@ -39,9 +39,14 @@ class AdminPolicyComplianceActivity : Activity() {
         )
         SafeguardCatalog.registerReversible(registry, this)
         registry.load()
-        val result = WardenProfileApplier(this, registry) { enabled ->
-            UsbAutoLockStorage.setEnabled(this, enabled)
-        }.apply(WardenProfile.ALLTAG)
+        // isLockdownActive bleibt auf ihrem Default (immer false) — ein frisch per QR
+        // provisioniertes Gerät kann das presence-gated Lockdown-Bündel noch gar nicht scharf
+        // haben.
+        val result = WardenProfileApplier(
+            context = this,
+            registry = registry,
+            setUsbAutoLock = { enabled -> UsbAutoLockStorage.setEnabled(this, enabled) },
+        ).apply(WardenProfile.ALLTAG)
         UsbLockStateReceiver.syncRegistration(this)
         when {
             result.failed.isNotEmpty() ->

@@ -11,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,8 +103,10 @@ import de.ble1st.warden.registry.FactoryResetProtectionSafeguard
 import de.ble1st.warden.failsafe.FailsafeActivity
 import de.ble1st.warden.integrity.DebuggableOsStatusReader
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
+import de.ble1st.warden.domain.pin.WardenPinStateDecision
 import de.ble1st.warden.pin.LockdownTriggerProfileStore
 import de.ble1st.warden.pin.WardenLockScreenTextStorage
+import de.ble1st.warden.pin.WardenPinStorage
 import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
 import de.ble1st.warden.pin.WardenLockTaskDrillFreshnessGate
 import de.ble1st.warden.pin.WardenLockTaskDrillStorage
@@ -699,6 +702,14 @@ private fun WardenRoot(
             // kein DPM-Aufruf — deshalb ohne LaunchedEffect/IO-Dispatcher, anders als
             // findingsResult darüber.
             val activeProfile = remember { AutoProfileStorage.loadLastEffective(statusContext) }
+            // analyse.md (2. Durchgang, Mittel — "WardenLock ist dauerhaft ein No-Op ohne PIN"):
+            // Nag-Hinweis auf der Statuskarte, s. loadPinConfiguredSafely-Klassendoc. Startwert
+            // `true` statt `null` — bis zum ersten Ladeergebnis lieber gar keinen (potenziell
+            // falschen) Hinweis zeigen als kurz fälschlich zu warnen.
+            var pinConfigured by remember { mutableStateOf(true) }
+            LaunchedEffect(Unit) {
+                loadPinConfiguredSafely(statusContext)?.let { pinConfigured = it }
+            }
             val lockdownTriggerProfile = remember { LockdownTriggerProfileStore.load(statusContext) }
             val kioskQuickTriggerVisible = remember(lockdownTriggerProfile) {
                 LockdownTriggerProfilePolicy.quickTriggerEntryPointsEnabled(lockdownTriggerProfile) &&
@@ -717,6 +728,7 @@ private fun WardenRoot(
                 // harmlose Infos oder ein kritischer Signaturwechsel standen.
                 highestFindingSeverity = findingsResult?.maxByOrNull { it.severity.ordinal }?.severity,
                 activeProfile = activeProfile,
+                pinConfigured = pinConfigured,
                 onOpenFailsafe = onOpenFailsafe,
                 onOpenSensitiveAction = onOpenSensitiveAction,
                 onOpenPinManagement = onOpenPinManagement,
@@ -1504,6 +1516,20 @@ private fun loadSentinelLockTaskAuthorizedSafely(context: Context): Boolean? =
         .onFailure { Log.e("WardenStatus", "Sentinel-Lock-Task-Autorisierung nicht ladbar", it) }
         .getOrNull()
 
+/** analyse.md (2. Durchgang, Mittel — "WardenLock ist dauerhaft ein No-Op ohne PIN"):
+ * [WardenLockActivity]s Bootstrap-Ausnahme lässt ohne PIN dauerhaft ohne jeden Nachweis durch —
+ * bewusst so für die Erstprovisionierung, aber bisher ohne jede sichtbare Erinnerung danach, das
+ * eigentlich nachzuholen. Dieselbe Definition wie dort (`!= NotYetConfigured`): ein
+ * [WardenPinStateDecision.LoadResult.Corrupted]-Zustand zählt bewusst als "konfiguriert" — dafür
+ * existiert bereits der Offline-Failsafe-Ausstieg über [de.ble1st.warden.presence.WardenPinActivity],
+ * kein zweiter Mechanismus hier. `null` bei einem Lesefehler, nicht `false` — ein defekter Lesevorgang
+ * ist kein Beleg für "keine PIN", s. Fail-Safe-Konvention. */
+private fun loadPinConfiguredSafely(context: Context): Boolean? = runCatching {
+    val store = WardenPinStorage.openStore(context)
+    WardenPinStateDecision.load(store.exists()) { store.load() } != WardenPinStateDecision.LoadResult.NotYetConfigured
+}.onFailure { Log.e("WardenStatus", "Warden-PIN-Status nicht ladbar", it) }
+    .getOrNull()
+
 /** "Lockdown-Auslöse-Profil" (2026-08-27) — Statuszeile für den Dashboard-Button "Kiosk jetzt",
  * spiegelt `de.ble1st.warden.presence.SensitiveActionActivity`s private `describeOutcome` (nur für
  * `LOCKDOWN_TASK_ENGAGE` aufgerufen, deshalb ohne dessen `WIPE_DATA`-Sonderfall).
@@ -1566,6 +1592,8 @@ private fun WardenStatusScreen(
     highestFindingSeverity: ThreatSeverity?,
     /** Zuletzt angewandtes Profil; `null` = noch nie eines angewandt (Vorschlag V-1). */
     activeProfile: WardenProfile?,
+    /** analyse.md (2. Durchgang, Mittel — "WardenLock ist dauerhaft ein No-Op ohne PIN"). */
+    pinConfigured: Boolean,
     onOpenFailsafe: () -> Unit,
     onOpenSensitiveAction: () -> Unit,
     onOpenPinManagement: () -> Unit,
@@ -1612,6 +1640,8 @@ private fun WardenStatusScreen(
                 isDebuggableOs = isDebuggableOs,
                 buildType = buildType,
                 activeProfile = activeProfile,
+                pinConfigured = pinConfigured,
+                onOpenPinManagement = onOpenPinManagement,
             )
 
             SectionLabel(stringResource(R.string.section_device_protection))
@@ -1766,6 +1796,8 @@ private fun StatusCard(
     isDebuggableOs: Boolean,
     buildType: String,
     activeProfile: WardenProfile?,
+    pinConfigured: Boolean,
+    onOpenPinManagement: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
@@ -1802,6 +1834,20 @@ private fun StatusCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            // analyse.md (2. Durchgang, Mittel — "WardenLock ist dauerhaft ein No-Op ohne PIN"):
+            // die Bootstrap-Ausnahme in WardenLockActivity lässt ohne PIN dauerhaft ungefragt
+            // durch (Absicht für die Erstprovisionierung) — dieser Hinweis ist die geforderte
+            // Erinnerung, die es davor nicht gab. Tippbar statt reiner Text: führt direkt zum
+            // PIN-Einrichten-Menüpunkt, den WardenLockActivitys Klassendoc als "den dafür nötigen
+            // Menüpunkt" beschreibt.
+            if (!pinConfigured) {
+                Text(
+                    text = stringResource(R.string.status_pin_not_configured_warning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp).clickable(onClick = onOpenPinManagement),
                 )
             }
         }

@@ -275,9 +275,15 @@ class ConcordBus(
      */
     fun applyProfile(profile: WardenProfile): WardenProfileApplyResult =
         authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "applyProfile") {
-            val result = WardenProfileApplier(context, registry) { enabled ->
-                UsbAutoLockStorage.setEnabled(context, enabled)
-            }.apply(profile)
+            val result = WardenProfileApplier(
+                context = context,
+                registry = registry,
+                setUsbAutoLock = { enabled -> UsbAutoLockStorage.setEnabled(context, enabled) },
+                // analyse.md (2. Durchgang, Hoch): reale Bündel-Instanz statt der `registry` oben
+                // (die registriert nur den reversiblen Katalog, s. deren eigener Kommentar) — nur
+                // so kann der Applier erkennen, ob das Lockdown-Bündel gerade presence-armed ist.
+                isLockdownActive = { deviceLockdownBundle.isActive() },
+            ).apply(profile)
             // Wirkendes Profil hier festhalten, nicht bei den Aufrufern (2026-08-28, Befund Q-1):
             // sowohl der manuelle Tap als auch AutoProfileController laufen zwingend durch diese
             // Methode, also ist das die einzige Stelle, an der der Stand nicht auseinanderlaufen
