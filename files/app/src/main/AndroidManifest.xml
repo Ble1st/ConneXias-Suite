@@ -29,8 +29,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- WebDAV-Netzwerkspeicher-Anbindung (data/webdav/) — die einzige Stelle in dieser App, die
-         tatsächlich das Netzwerk statt nur lokalen Speicher anspricht. -->
+    <!-- WebDAV-Netzwerkspeicher-Anbindung (data/webdav/) als Client sowie der eigene, lokale
+         HTTP-Server für die WLAN/Hotspot-Ordnerfreigabe (data/localshare/) als Server-Gegenstück —
+         die einzigen Stellen in dieser App, die tatsächlich das Netzwerk statt nur lokalen
+         Speicher ansprechen. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
@@ -105,6 +107,14 @@
              (FileOperationService-Klassendoc). -->
         <service
             android:name=".data.fileops.FileOperationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- WLAN/Hotspot-Ordnerfreigabe (data/localshare/) — nutzer-getriggert per Umschalter,
+             kein Always-On-Dienst (s. LocalShareService-Klassendoc, warum die dataSync-Kontingent-
+             Problematik aus Wardens VPN-Historie hier nicht greift). -->
+        <service
+            android:name=".data.localshare.LocalShareService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

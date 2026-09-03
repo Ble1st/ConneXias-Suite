@@ -49,6 +49,13 @@ expressive-nahen Formsprache, s. `ui/theme/Theme.kt`), Jetpack Compose.
   zuletzt tatsächlich geöffneten Dateien (nicht Ordnern), protokolliert am zentralen Tap-Dispatch
   in `FilesNavHost.kt`. Tap öffnet über denselben Betrachter-Pfad wie im Browser; eine
   zwischenzeitlich gelöschte oder verschobene Datei fällt beim nächsten Laden still aus der Liste.
+- WLAN/Hotspot-Freigabe (2026-09-03, `data/localshare/`, `ui/localshare/LocalShareScreen.kt`): der
+  aktuell geöffnete Ordner lässt sich über einen selbstgeschriebenen, minimalen HTTP-Server
+  (`LocalHttpServer`, kein `nanohttpd` — seit 2016 unmaintained, s. dortiges Klassendoc) für jeden im
+  selben WLAN/Hotspot per Link freigeben; erreichbar über das neue Netzwerk-Symbol im Datei-Browser.
+  Token-Pflicht in der URL (kein offener Server), Pfad-Traversal-Schutz gegen Anfragen von außen.
+  MVP-Fassung: nur Herunterladen (kein Upload-Empfang), nur Text-Link zum Kopieren/Teilen statt eines
+  QR-Codes, kein HTTPS (reines Heimnetz-Szenario, kein öffentliches Internet).
 
 **Sicherheits-/Robustheitsfixes (2026-09-02, s. `analyse.md`):** `file_paths.xml` deckt nur noch
 `/storage` statt des echten Filesystem-Roots ab; Namen bei Neu-Anlegen/Umbenennen/SAF-Import/
@@ -102,7 +109,7 @@ in einen Auswahlmodus (`data/share/PickRequest.kt`) — ein Tap auf eine Datei g
 weitere Archivformate (RAR/7z/TAR) — echte
 Entpack-Implementierungen dafür, nicht nur das UI-Ausblenden von oben —, weitere
 Netzwerkprotokolle (SMB/FTP), Digest-Auth für WebDAV, Video-Thumbnails in der Grid-Ansicht,
-Settings-Screen,
+Upload-Empfang und HTTPS für die WLAN/Hotspot-Freigabe, Settings-Screen,
 `GET_CONTENT` mit angefragtem Mime-Typ-Filter (jeder Dateityp wird aktuell zurückgegeben,
 unabhängig davon, wonach der Aufrufer fragt) und Mehrfachauswahl (`EXTRA_ALLOW_MULTIPLE`), eine
 echte `DocumentsProvider`-Rolle (deutlich größere API-Fläche als der einfache Intent-Vertrag oben —

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -80,6 +81,7 @@ fun FileBrowserScreen(
     onNavigateUp: () -> Unit,
     onOpenFolder: (File) -> Unit,
     onOpenFile: (FileEntry) -> Unit,
+    onOpenLocalShare: (File) -> Unit,
     // analyse.md Abschnitt 5 ("Files ist kein Datei-Picker für andere Apps"): true, während diese
     // Activity-Instanz eine ACTION_GET_CONTENT-Anfrage einer Fremd-App bedient (s.
     // data/share/PickRequest.kt). Ändert nur den Titel — der eigentliche Tap-Dispatch (Betrachter
@@ -187,6 +189,14 @@ fun FileBrowserScreen(
                             }
                         },
                         actions = {
+                            // Im Auswahlmodus (ACTION_GET_CONTENT, s. pickMode-Doc oben) macht eine
+                            // Netzwerkfreigabe keinen Sinn — die Fremd-App wartet auf eine
+                            // zurückgegebene Datei, nicht auf einen geteilten Ordner.
+                            if (!pickMode) {
+                                IconButton(onClick = { onOpenLocalShare(directory) }) {
+                                    Icon(Icons.Filled.WifiTethering, contentDescription = stringResource(id = R.string.local_share_title))
+                                }
+                            }
                             IconButton(onClick = { searchActive = true }) {
                                 Icon(Icons.Filled.Search, contentDescription = "Suchen")
                             }

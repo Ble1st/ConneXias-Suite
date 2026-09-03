@@ -31,14 +31,17 @@ object Routes {
     private const val BROWSER_PATTERN = "browser/{path}"
     private const val VIEWER_PATTERN = "viewer/{category}/{path}"
     private const val WEBDAV_PATTERN = "webdav/{accountId}/{path}"
+    private const val LOCAL_SHARE_PATTERN = "localshare/{path}"
 
     fun browserPattern() = BROWSER_PATTERN
     fun viewerPattern() = VIEWER_PATTERN
     fun webdavPattern() = WEBDAV_PATTERN
+    fun localSharePattern() = LOCAL_SHARE_PATTERN
 
     fun browser(path: String) = "browser/${encode(path)}"
     fun viewer(category: String, path: String) = "viewer/$category/${encode(path)}"
     fun webdav(accountId: String, path: String) = "webdav/$accountId/${encode(path)}"
+    fun localShare(path: String) = "localshare/${encode(path)}"
 
     /** Kein eigener Decode-Aufruf mehr nötig — s. Moduldoc oben. Der Name bleibt (statt die drei
      * Aufrufstellen in `FilesNavHost.kt` auf den rohen `backStackEntry.arguments`-Wert umzustellen),

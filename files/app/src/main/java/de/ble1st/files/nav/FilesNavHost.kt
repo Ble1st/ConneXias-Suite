@@ -38,6 +38,7 @@ import de.ble1st.files.data.webdav.WebDavAccountStore
 import de.ble1st.files.permission.StoragePermission
 import de.ble1st.files.ui.browser.FileBrowserScreen
 import de.ble1st.files.ui.home.HomeScreen
+import de.ble1st.files.ui.localshare.LocalShareScreen
 import de.ble1st.files.ui.onboarding.StoragePermissionScreen
 import de.ble1st.files.ui.trash.TrashScreen
 import de.ble1st.files.ui.viewer.ImageViewerScreen
@@ -177,7 +178,17 @@ fun FilesNavHost(onPicked: (Uri) -> Unit = {}) {
                         handleFileOpen(navController, context, entry)
                     }
                 },
+                onOpenLocalShare = { dir -> navController.navigate(Routes.localShare(dir.path)) },
             )
+        }
+
+        composable(
+            route = Routes.localSharePattern(),
+            arguments = listOf(navArgument("path") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val encodedPath = backStackEntry.arguments?.getString("path").orEmpty()
+            val directory = File(Routes.decodePathArg(encodedPath))
+            LocalShareScreen(directory = directory, onNavigateUp = { navController.popBackStack() })
         }
 
         composable(

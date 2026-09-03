@@ -38,4 +38,15 @@
     <string name="trash_confirm_delete_forever_message">„%1$s“ kann danach nicht mehr wiederhergestellt werden.</string>
     <string name="trash_confirm_empty_title">Papierkorb leeren?</string>
     <string name="trash_confirm_empty_message">Alle %1$d Einträge werden endgültig gelöscht und können danach nicht mehr wiederhergestellt werden.</string>
+
+    <string name="notification_channel_local_share">Netzwerkfreigabe</string>
+    <string name="notification_title_local_share">Ordner wird im Netzwerk freigegeben</string>
+    <string name="local_share_title">Netzwerkfreigabe</string>
+    <string name="local_share_action_start">Freigabe starten</string>
+    <string name="local_share_action_stop">Freigabe beenden</string>
+    <string name="local_share_action_copy">Link kopieren</string>
+    <string name="local_share_action_share">Link teilen</string>
+    <string name="local_share_hint">Gibt „%1$s“ zum Herunterladen für jeden im selben WLAN/Hotspot frei, der den Link kennt. Nur Lesezugriff — es können keine Dateien hochgeladen werden.</string>
+    <string name="local_share_error_no_network">Keine WLAN-/Hotspot-Adresse gefunden. Erst verbinden oder Hotspot einschalten.</string>
+    <string name="local_share_copied">Link kopiert</string>
 </resources>
