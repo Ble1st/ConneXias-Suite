@@ -31,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import de.ble1st.files.data.fs.FileEntry
+import de.ble1st.files.data.recent.RecentFilesStore
 import de.ble1st.files.data.share.IncomingView
 import de.ble1st.files.data.share.PickRequest
 import de.ble1st.files.data.webdav.WebDavAccountStore
@@ -144,6 +145,7 @@ fun FilesNavHost(onPicked: (Uri) -> Unit = {}) {
                     onOpenFolder = { file -> navController.navigate(Routes.browser(file.path)) },
                     onOpenWebDavAccount = { account -> navController.navigate(Routes.webdav(account.id, "/")) },
                     onOpenTrash = { navController.navigate(Routes.TRASH) },
+                    onOpenRecentFile = { entry -> handleFileOpen(navController, context, entry) },
                 )
             }
         }
@@ -232,6 +234,11 @@ private fun handleFileOpen(
         FileCategory.TEXT -> ViewerCategory.TEXT
         else -> null
     }
+    // "Zuletzt verwendet" auf Home (s. RecentFilesStore-Klassendoc) protokolliert an genau dieser
+    // einen Stelle, durch die jeder tatsächliche Datei-Öffnen-Tap aus dem Browser läuft — nicht in
+    // FileBrowserScreen selbst, sonst müsste dieselbe Logik zusätzlich für den Home-Eintragspunkt
+    // unten dupliziert werden.
+    RecentFilesStore.recordOpened(context, entry.file)
     if (category != null) {
         navController.navigate(Routes.viewer(category.name, entry.file.path))
     } else {

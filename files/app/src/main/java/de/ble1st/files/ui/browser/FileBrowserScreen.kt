@@ -20,7 +20,9 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
@@ -188,6 +190,13 @@ fun FileBrowserScreen(
                             IconButton(onClick = { searchActive = true }) {
                                 Icon(Icons.Filled.Search, contentDescription = "Suchen")
                             }
+                            val nextMode = if (state.viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
+                            IconButton(onClick = { viewModel.setViewMode(nextMode) }) {
+                                Icon(
+                                    imageVector = if (state.viewMode == ViewMode.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
+                                    contentDescription = "Ansicht wechseln",
+                                )
+                            }
                             Box {
                                 IconButton(onClick = { sortMenuExpanded = true }) {
                                     Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sortieren")
@@ -252,6 +261,19 @@ fun FileBrowserScreen(
                     state.visibleEntries.isEmpty() -> Text(
                         text = stringResource(id = R.string.browser_empty),
                         modifier = Modifier.padding(16.dp),
+                    )
+                    state.viewMode == ViewMode.GRID -> FileEntryGrid(
+                        entries = state.visibleEntries,
+                        selectedPaths = state.selectedPaths,
+                        isSelectionMode = state.isSelectionMode,
+                        onClick = { entry ->
+                            when {
+                                state.isSelectionMode -> viewModel.toggleSelection(entry)
+                                entry.isDirectory -> onOpenFolder(entry.file)
+                                else -> onOpenFile(entry)
+                            }
+                        },
+                        onLongClick = { entry -> viewModel.toggleSelection(entry) },
                     )
                     else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(state.visibleEntries, key = { it.file.path }) { entry ->

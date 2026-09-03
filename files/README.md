@@ -41,6 +41,14 @@ expressive-nahen Formsprache, s. `ui/theme/Theme.kt`), Jetpack Compose.
   "Endgültig löschen"/"Papierkorb leeren" nutzen denselben rekursiven Lösch-Pfad wie überall sonst.
   Automatische endgültige Löschung nach 30 Tagen, opportunistisch beim Öffnen des Bildschirms statt
   über einen eigenen periodischen Worker (`TrashStore.purgeExpired`).
+- Grid-Ansicht (2026-09-03, `ui/browser/FileEntryGrid.kt`): Umschalter im Datei-Browser, global
+  persistiert (`ViewModePreference`). Miniaturbilder über Coil nur für Bilder; MVP-Fassung ohne
+  Video-Thumbnails (bräuchten `coil-video`) und ohne eigenes Pro-Kachel-Menü — Öffnen/Auswählen wie
+  in der Listenansicht, Aktionen laufen über die vorhandene Auswahl-Toolbar.
+- Zuletzt verwendet (2026-09-03, `data/recent/RecentFilesStore.kt`): neuer Home-Bereich mit den
+  zuletzt tatsächlich geöffneten Dateien (nicht Ordnern), protokolliert am zentralen Tap-Dispatch
+  in `FilesNavHost.kt`. Tap öffnet über denselben Betrachter-Pfad wie im Browser; eine
+  zwischenzeitlich gelöschte oder verschobene Datei fällt beim nächsten Laden still aus der Liste.
 
 **Sicherheits-/Robustheitsfixes (2026-09-02, s. `analyse.md`):** `file_paths.xml` deckt nur noch
 `/storage` statt des echten Filesystem-Roots ab; Namen bei Neu-Anlegen/Umbenennen/SAF-Import/
@@ -93,7 +101,8 @@ in einen Auswahlmodus (`data/share/PickRequest.kt`) — ein Tap auf eine Datei g
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte): rekursive/globale Suche,
 weitere Archivformate (RAR/7z/TAR) — echte
 Entpack-Implementierungen dafür, nicht nur das UI-Ausblenden von oben —, weitere
-Netzwerkprotokolle (SMB/FTP), Digest-Auth für WebDAV, Grid-/Thumbnail-Ansicht, Settings-Screen,
+Netzwerkprotokolle (SMB/FTP), Digest-Auth für WebDAV, Video-Thumbnails in der Grid-Ansicht,
+Settings-Screen,
 `GET_CONTENT` mit angefragtem Mime-Typ-Filter (jeder Dateityp wird aktuell zurückgegeben,
 unabhängig davon, wonach der Aufrufer fragt) und Mehrfachauswahl (`EXTRA_ALLOW_MULTIPLE`), eine
 echte `DocumentsProvider`-Rolle (deutlich größere API-Fläche als der einfache Intent-Vertrag oben —

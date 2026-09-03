@@ -35,6 +35,7 @@ data class FileBrowserUiState(
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
     val pendingDialog: BrowserDialog? = null,
+    val viewMode: ViewMode = ViewMode.LIST,
 ) {
     val isSelectionMode: Boolean get() = selectedPaths.isNotEmpty()
     val visibleEntries: List<FileEntry> by lazy {
@@ -64,12 +65,22 @@ sealed interface BrowserDialog {
 class FileBrowserViewModel(application: Application, private val directory: File) :
     AndroidViewModel(application) {
 
-    private val _uiState = MutableStateFlow(FileBrowserUiState(directory = directory))
+    private val _uiState = MutableStateFlow(
+        FileBrowserUiState(directory = directory, viewMode = ViewModePreference.get(application)),
+    )
     val uiState: StateFlow<FileBrowserUiState> = _uiState
     val clipboard: StateFlow<ClipboardContent?> = ClipboardHolder.content
 
     init {
         refresh()
+    }
+
+    /** Global statt pro Ordner persistiert (s. [ViewModePreference]-Klassendoc) — jede offene
+     * Ordner-Instanz übernimmt den neuen Modus erst beim nächsten eigenen Aufruf, das ist für eine
+     * reine Anzeige-Präferenz ohne spürbare Verzögerung unproblematisch. */
+    fun setViewMode(mode: ViewMode) {
+        ViewModePreference.set(getApplication(), mode)
+        _uiState.update { it.copy(viewMode = mode) }
     }
 
     fun refresh() {

@@ -42,11 +42,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import de.ble1st.files.R
+import de.ble1st.files.data.fs.FileEntry
 import de.ble1st.files.data.fs.StorageRoot
 import de.ble1st.files.data.fs.StorageRoots
+import de.ble1st.files.data.recent.RecentFilesStore
 import de.ble1st.files.data.share.IncomingShare
 import de.ble1st.files.data.webdav.WebDavAccount
 import de.ble1st.files.data.webdav.WebDavAccountStore
+import de.ble1st.files.util.formatFileSize
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import de.ble1st.files.ui.webdav.WebDavAccountDialog
 import de.ble1st.files.ui.webdav.WebDavConfirmRemoveAccountDialog
 import java.io.File
@@ -68,6 +73,7 @@ fun HomeScreen(
     onOpenFolder: (File) -> Unit,
     onOpenWebDavAccount: (WebDavAccount) -> Unit,
     onOpenTrash: () -> Unit,
+    onOpenRecentFile: (FileEntry) -> Unit,
 ) {
     val context = LocalContext.current
     val storageRoots = remember { StorageRoots.list(context) }
@@ -81,6 +87,22 @@ fun HomeScreen(
     val webDavAccounts by WebDavAccountStore.accounts.collectAsState()
     var dialog by remember { mutableStateOf<HomeWebDavDialog?>(null) }
     val pendingShare by IncomingShare.pending.collectAsState()
+
+    // RecentFilesStore hält nur Pfad+Zeitpunkt (s. dortiges Klassendoc) — die eigentlichen
+    // FileEntry-Objekte (Größe, Icon-Kategorie) werden hier auf Dispatchers.IO frisch aufgelöst,
+    // damit eine zwischenzeitlich gelöschte/verschobene Datei still aus der Liste fällt statt mit
+    // veralteten Metadaten oder einem Absturz aufzutauchen.
+    LaunchedEffect(Unit) { RecentFilesStore.list(context) }
+    val rawRecent by RecentFilesStore.entries.collectAsState()
+    var recentFileEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
+    LaunchedEffect(rawRecent) {
+        recentFileEntries = withContext(Dispatchers.IO) {
+            rawRecent.mapNotNull { recent ->
+                val file = File(recent.path)
+                if (file.isFile) FileEntry.from(file) else null
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -106,6 +128,25 @@ fun HomeScreen(
                         supportingContent = { Text("Ordner öffnen, um sie dort zu speichern") },
                         leadingContent = { Icon(Icons.Filled.Download, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            if (recentFileEntries.isNotEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(id = R.string.home_section_recent),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                items(recentFileEntries, key = { "recent_" + it.file.path }) { entry ->
+                    ListItem(
+                        headlineContent = { Text(entry.name) },
+                        supportingContent = { Text(formatFileSize(entry.sizeBytes)) },
+                        leadingContent = { Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = null) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenRecentFile(entry) },
                     )
                 }
             }

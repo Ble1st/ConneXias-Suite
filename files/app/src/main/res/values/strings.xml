@@ -16,6 +16,7 @@
     <string name="onboarding_body">ConneXias Files braucht Zugriff auf den kompletten lokalen Speicher, um Dateien zu durchsuchen, zu kopieren, zu verschieben und zu löschen.</string>
     <string name="onboarding_action_grant">Zugriff erlauben</string>
 
+    <string name="home_section_recent">Zuletzt verwendet</string>
     <string name="home_section_storage">Speicher</string>
     <string name="home_section_quick_access">Schnellzugriff</string>
 
