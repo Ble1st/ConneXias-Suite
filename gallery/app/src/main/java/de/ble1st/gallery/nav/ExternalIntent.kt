@@ -1,5 +1,7 @@
 package de.ble1st.gallery.nav
 
+import android.net.Uri
+
 /**
  * Erkannter Startgrund, wenn die App nicht regulär über den Launcher, sondern von einer fremden
  * App aufgerufen wurde (s. MainActivity.resolveExternalIntent) — vorher hatte die App überhaupt
@@ -18,4 +20,11 @@ sealed interface ExternalIntent {
      * [mimeTypeFilter] ist der vom Aufrufer gewünschte Typ (z. B. "image/*"); `null` oder "*/*"
      * akzeptiert beides. */
     data class Pick(val mimeTypeFilter: String?) : ExternalIntent
+
+    /** ACTION_SEND/ACTION_SEND_MULTIPLE — "Teilen mit ConneXias Galerie" aus einer Fremd-App
+     * (analyse.md Abschnitt 5 — "Gallery ohne ACTION_SEND"). [mimeType] ist `Intent.type` des
+     * empfangenen Intents, als Fallback für Uris, die selbst keinen (oder nur einen
+     * unspezifischen Wildcard-Typ) über den ContentResolver preisgeben — s.
+     * [de.ble1st.gallery.data.media.SharedMediaImporter]. */
+    data class Send(val uris: List<Uri>, val mimeType: String?) : ExternalIntent
 }

@@ -91,6 +91,14 @@ Route bereits selbst (`Uri.decode()` intern), ein zusätzliches `URLDecoder.deco
 Albumname mit Leerzeichen kam als "Name+mit+Leerzeichen" an. Jetzt kodiert `Routes.encode` mit
 `Uri.encode` und die App decodiert selbst gar nicht mehr.
 
+**Suite-Integration (2026-09-03, s. `analyse.md` Abschnitt 5):** Die App war bisher nur
+"Öffnen mit"-Ziel für ein einzelnes MediaStore-Element sowie Bild-/Video-Auswahl für fremde Apps,
+nie SEND-Empfänger. Jetzt zusätzlich `ACTION_SEND`/`ACTION_SEND_MULTIPLE` ("Teilen mit ConneXias
+Galerie" aus Browser/Chat-Client/anderer Kamera-App) — `data/media/SharedMediaImporter.kt` legt
+jede empfangene Uri als eigenständige MediaStore-Kopie unter `Pictures`/`Movies "ConneXias
+Galerie"` an (reine Byte-Kopie, kein Decode/Recompress, erhält also Originalqualität und
+EXIF-Metadaten), analog zu ConneXias Files' Teilen-Empfang.
+
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte, mit Begründung):
 - **Gesichtsgruppierung**: würde On-Device-Gesichtserkennung brauchen — die gängige Lösung dafür
   (ML Kit) ist ein Google-Dienst und verstößt gegen die "kein Google Play Services/kein

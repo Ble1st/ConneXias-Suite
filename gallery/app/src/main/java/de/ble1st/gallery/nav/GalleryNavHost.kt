@@ -5,6 +5,9 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -13,6 +16,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -26,6 +31,7 @@ import androidx.navigation.navArgument
 import de.ble1st.gallery.data.media.ALL_BUCKET_ID
 import de.ble1st.gallery.data.media.MediaItem
 import de.ble1st.gallery.data.media.MediaType
+import de.ble1st.gallery.data.media.SharedMediaImporter
 import de.ble1st.gallery.permission.MediaPermission
 import de.ble1st.gallery.ui.GalleryViewModel
 import de.ble1st.gallery.ui.albums.AlbumsScreen
@@ -97,9 +103,12 @@ fun GalleryNavHost(
                     // Bei ACTION_VIEW von außen (s. ExternalIntent-Doc) direkt zum betroffenen
                     // Element springen statt über Albums — der Aufrufer (z. B. ConneXias Kamera)
                     // erwartet, dass "In Galerie öffnen" auch wirklich diese eine Aufnahme zeigt.
+                    // ACTION_SEND/SEND_MULTIPLE brauchen erst einen asynchronen Import-Schritt
+                    // (s. Routes.IMPORT_SHARE-Doc), landen deshalb nicht direkt auf einem Element.
                     val destination = when (externalIntent) {
                         is ExternalIntent.ViewItem ->
                             if (externalIntent.isVideo) Routes.video(externalIntent.itemId) else Routes.imageViewer(ALL_BUCKET_ID, externalIntent.itemId)
+                        is ExternalIntent.Send -> Routes.IMPORT_SHARE
                         else -> Routes.ALBUMS
                     }
                     navController.navigate(destination) {
@@ -121,6 +130,40 @@ fun GalleryNavHost(
                 onOpenTrash = { navController.navigate(Routes.TRASH) },
                 onOpenCloudSync = { navController.navigate(Routes.CLOUD_SYNC) },
             )
+        }
+
+        // analyse.md Abschnitt 5 ("Gallery ohne ACTION_SEND"): importiert die geteilten Uris über
+        // SharedMediaImporter und meldet das Ergebnis per Toast, bevor es zu Albums weitergeht —
+        // s. Routes.IMPORT_SHARE-Doc, warum das kein direkter ONBOARDING-Sprung sein kann.
+        composable(Routes.IMPORT_SHARE) {
+            val sendIntent = externalIntent as? ExternalIntent.Send
+            if (sendIntent == null) {
+                // Sollte nicht erreichbar sein (nur über den ONBOARDING-Zweig oben verlinkt), aber
+                // kein Absturz auf einen fehlenden Intent — einfach zu Albums.
+                LaunchedEffect(Unit) {
+                    navController.navigate(Routes.ALBUMS) { popUpTo(Routes.IMPORT_SHARE) { inclusive = true } }
+                }
+            } else {
+                var result by remember { mutableStateOf<SharedMediaImporter.Result?>(null) }
+                LaunchedEffect(sendIntent) {
+                    result = SharedMediaImporter.importAll(context, sendIntent.uris, sendIntent.mimeType)
+                }
+                val current = result
+                if (current == null) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    LaunchedEffect(current) {
+                        val message = buildString {
+                            append("${current.imported.size} importiert")
+                            if (current.failedCount > 0) append(", ${current.failedCount} fehlgeschlagen")
+                        }
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        navController.navigate(Routes.ALBUMS) { popUpTo(Routes.IMPORT_SHARE) { inclusive = true } }
+                    }
+                }
+            }
         }
 
         composable(

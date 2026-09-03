@@ -23,6 +23,13 @@ object Routes {
     const val ALBUMS = "albums"
     const val TRASH = "trash"
     const val CLOUD_SYNC = "cloud_sync"
+
+    /** Zwischenstopp für ACTION_SEND/ACTION_SEND_MULTIPLE (s. ExternalIntent.Send) — der Import
+     * über [de.ble1st.gallery.data.media.SharedMediaImporter] ist asynchroner IO, kann also anders
+     * als ExternalIntent.ViewItem nicht in einem synchronen Sprung von ONBOARDING aus erledigt
+     * werden. Kein Argument in der Route, weil die Uri-Liste (aus ExternalIntent.Send) direkt aus
+     * dem NavHost-Funktionsparameter gelesen wird, nicht aus dem Backstack. */
+    const val IMPORT_SHARE = "import_share"
     private const val GRID_PATTERN = "grid/{bucketId}/{bucketName}"
     private const val IMAGE_VIEWER_PATTERN = "image/{bucketId}/{itemId}"
     private const val CUSTOM_ALBUM_IMAGE_VIEWER_PATTERN = "customAlbumImage/{albumId}/{itemId}"

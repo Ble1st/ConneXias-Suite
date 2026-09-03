@@ -72,6 +72,19 @@
                 <data android:mimeType="image/*" />
                 <data android:mimeType="video/*" />
             </intent-filter>
+            <!-- "Teilen mit ConneXias Galerie" aus einer Fremd-App (Browser, Chat-Client, andere
+                 Kamera-App) — bisher war diese App nur "Öffnen mit"-Ziel für ein einzelnes
+                 MediaStore-Element, nie SEND-Empfänger (analyse.md Abschnitt 5 — "Gallery ohne
+                 ACTION_SEND"). data/media/SharedMediaImporter.kt kopiert jede empfangene Uri als
+                 eigenständige MediaStore-Kopie unter Pictures/Movies "ConneXias Galerie", analog
+                 zu ConneXias Files' Teilen-Empfang (data/share/IncomingShare.kt). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
         </activity>
 
     </application>
