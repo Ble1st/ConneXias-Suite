@@ -40,6 +40,14 @@ sealed interface OperationState {
         val skippedCount: Int = 0,
     ) : OperationState
     data class Failed(val type: OperationType, val message: String) : OperationState
+
+    /**
+     * Der Nutzer hat über die Notification abgebrochen. [droppedCount] sind die Aufträge, die
+     * dadurch aus der Warteschlange geflogen sind, **ohne** den gerade laufenden — der meldet
+     * sich mit seinem eigenen (Teil-)Ergebnis als [Completed], denn was bis zum Abbruch kopiert
+     * wurde, ist tatsächlich kopiert.
+     */
+    data class Cancelled(val droppedCount: Int) : OperationState
 }
 
 /** Ergebnis eines einzelnen Datei-/Ordner-Vorgangs — Sammlung davon ergibt Completed.failedCount. */

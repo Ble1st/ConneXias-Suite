@@ -36,6 +36,8 @@ import de.ble1st.files.data.share.IncomingView
 import de.ble1st.files.data.share.PickRequest
 import de.ble1st.files.data.webdav.WebDavAccountStore
 import de.ble1st.files.permission.StoragePermission
+import de.ble1st.files.ui.about.AboutScreen
+import de.ble1st.files.ui.about.LicensesScreen
 import de.ble1st.files.ui.browser.FileBrowserScreen
 import de.ble1st.files.ui.home.HomeScreen
 import de.ble1st.files.ui.localshare.LocalShareScreen
@@ -52,8 +54,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/**
+ * [onPicked] nimmt seit 2026-09-03 eine Liste statt einer einzelnen Uri entgegen — der
+ * Auswahlmodus kann jetzt auch mehrere Dateien liefern (`EXTRA_ALLOW_MULTIPLE`, s.
+ * [PickRequest]). Bei Einzelauswahl ist die Liste einelementig; die Unterscheidung, wie daraus ein
+ * Ergebnis-Intent wird, trifft [de.ble1st.files.MainActivity].
+ */
 @Composable
-fun FilesNavHost(onPicked: (Uri) -> Unit = {}) {
+fun FilesNavHost(onPicked: (List<Uri>) -> Unit = {}) {
     val navController = rememberNavController()
     val context = LocalContext.current
 
@@ -146,6 +154,7 @@ fun FilesNavHost(onPicked: (Uri) -> Unit = {}) {
                     onOpenFolder = { file -> navController.navigate(Routes.browser(file.path)) },
                     onOpenWebDavAccount = { account -> navController.navigate(Routes.webdav(account.id, "/")) },
                     onOpenTrash = { navController.navigate(Routes.TRASH) },
+                    onOpenAbout = { navController.navigate(Routes.ABOUT) },
                     onOpenRecentFile = { entry -> handleFileOpen(navController, context, entry) },
                 )
             }
@@ -155,16 +164,27 @@ fun FilesNavHost(onPicked: (Uri) -> Unit = {}) {
             TrashScreen(onNavigateUp = { navController.popBackStack() })
         }
 
+        composable(Routes.ABOUT) {
+            AboutScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLicenses = { navController.navigate(Routes.LICENSES) },
+            )
+        }
+
+        composable(Routes.LICENSES) {
+            LicensesScreen(onBack = { navController.popBackStack() })
+        }
+
         composable(
             route = Routes.browserPattern(),
             arguments = listOf(navArgument("path") { type = NavType.StringType }),
         ) { backStackEntry ->
             val encodedPath = backStackEntry.arguments?.getString("path").orEmpty()
             val directory = File(Routes.decodePathArg(encodedPath))
-            val pickMode by PickRequest.active.collectAsState()
+            val pickSpec by PickRequest.spec.collectAsState()
             FileBrowserScreen(
                 directory = directory,
-                pickMode = pickMode,
+                pickSpec = pickSpec,
                 canNavigateUp = navController.previousBackStackEntry != null,
                 onNavigateUp = { navController.popBackStack() },
                 onOpenFolder = { file -> navController.navigate(Routes.browser(file.path)) },
@@ -172,12 +192,16 @@ fun FilesNavHost(onPicked: (Uri) -> Unit = {}) {
                     // analyse.md Abschnitt 5 ("Files ist kein Datei-Picker für andere Apps"): im
                     // Auswahlmodus (ACTION_GET_CONTENT) gibt ein Tap die Datei an den Aufrufer
                     // zurück, statt sie im eigenen Betrachter zu öffnen — s. PickRequest-Klassendoc.
-                    if (pickMode) {
-                        onPicked(FileActions.uriFor(context, entry.file))
+                    if (pickSpec != null) {
+                        onPicked(listOf(FileActions.uriFor(context, entry.file)))
                     } else {
                         handleFileOpen(navController, context, entry)
                     }
                 },
+                // Mehrfachauswahl bestätigt: der Bildschirm liefert die markierten Dateien, die
+                // Umwandlung in content://-Uris passiert hier — dieselbe Stelle und dieselbe
+                // FileProvider-Autorität wie bei der Einzelauswahl darüber.
+                onPickMultiple = { files -> onPicked(files.map { FileActions.uriFor(context, it) }) },
                 onOpenLocalShare = { dir -> navController.navigate(Routes.localShare(dir.path)) },
             )
         }

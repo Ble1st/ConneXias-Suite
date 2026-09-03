@@ -4,12 +4,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -21,29 +23,40 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.ble1st.files.R
 import de.ble1st.files.data.localshare.LocalShareStatus
+import de.ble1st.files.util.QrCode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
  * Start/Stop-Umschalter für die WLAN/Hotspot-Freigabe des übergebenen Ordners. Bewusst schlanke
- * MVP-Fassung (s. README): nur Herunterladen (kein Upload-Empfang), nur ein Text-Link zum
- * Kopieren/Teilen statt eines QR-Codes — bei einer im selben WLAN erreichbaren URL ist Copy/Share
- * (z. B. per Chat an ein zweites eigenes Gerät) meist ohnehin praktischer als ein zusätzlich zu
- * scannender Code.
+ * Fassung (s. README): nur Herunterladen, kein Upload-Empfang.
+ *
+ * Der Link steht als Text (Kopieren/Teilen an ein zweites eigenes Gerät) **und** seit 2026-09-03
+ * als QR-Code da. Der Text allein reichte nur für den Fall "zweites eigenes Gerät, auf dem ich
+ * ohnehin einen Messenger offen habe" — der eigentliche Anwendungsfall der Freigabe ist aber das
+ * fremde Gerät im selben WLAN, auf das sich der Link gerade *nicht* per Chat schicken lässt und
+ * dessen Nutzer sonst eine IP samt Port abtippen müsste.
  */
 @Composable
 fun LocalShareScreen(directory: File, onNavigateUp: () -> Unit) {
@@ -76,6 +89,7 @@ fun LocalShareScreen(directory: File, onNavigateUp: () -> Unit) {
                 when (val current = status) {
                     is LocalShareStatus.Running -> {
                         Text(current.url, style = MaterialTheme.typography.titleMedium)
+                        QrCodeCard(content = current.url)
                         Row(modifier = Modifier.padding(top = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = {
                                 copyToClipboard(context, current.url)
@@ -103,6 +117,37 @@ fun LocalShareScreen(directory: File, onNavigateUp: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Der QR-Code auf einer eigenen weißen Fläche — auch im Dunkelmodus, s. [QrCode]-Klassendoc. Die
+ * weiße Fläche ist zugleich die "Quiet Zone", die der Code zum Erkanntwerden braucht.
+ *
+ * Erzeugt wird außerhalb der Composition ([produceState] auf [Dispatchers.Default]), abhängig von
+ * Inhalt und Kantenlänge: die Bitmap-Allokation ist der teure Teil, und der Link ändert sich beim
+ * Neustart der Freigabe (anderer Port).
+ */
+@Composable
+private fun QrCodeCard(content: String) {
+    val sizeDp = 220.dp
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val sizePx = with(density) { sizeDp.roundToPx() }
+    val bitmap by produceState<android.graphics.Bitmap?>(null, content, sizePx) {
+        value = withContext(Dispatchers.Default) { QrCode.encode(content, sizePx) }
+    }
+    val image = bitmap ?: return
+    Surface(
+        modifier = Modifier.padding(top = 16.dp),
+        color = Color.White,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Image(
+            bitmap = image.asImageBitmap(),
+            contentDescription = stringResource(id = R.string.local_share_qr_description),
+            modifier = Modifier.padding(12.dp).size(sizeDp),
+            alignment = Alignment.Center,
+        )
     }
 }
 

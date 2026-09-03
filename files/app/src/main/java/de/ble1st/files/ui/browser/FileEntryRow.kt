@@ -34,10 +34,20 @@ fun FileEntryRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     trailingContent: @Composable (() -> Unit)? = null,
+    /** Ordner, in dem der Eintrag liegt — gesetzt, wenn diese Zeile ein Treffer der rekursiven
+     * Suche ist (s. [de.ble1st.files.data.search.RecursiveSearch]). Ohne diese Angabe stünden
+     * gleichnamige Treffer aus verschiedenen Ordnern ununterscheidbar untereinander. */
+    pathLabel: String? = null,
 ) {
     ListItem(
         headlineContent = { Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = { Text(subtitleFor(entry)) },
+        supportingContent = {
+            Text(
+                text = if (pathLabel != null) "$pathLabel · ${subtitleFor(entry)}" else subtitleFor(entry),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
         leadingContent = {
             if (isSelectionMode) {
                 Icon(

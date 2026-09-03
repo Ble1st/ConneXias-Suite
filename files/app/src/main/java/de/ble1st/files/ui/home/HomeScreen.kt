@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -73,6 +74,7 @@ fun HomeScreen(
     onOpenFolder: (File) -> Unit,
     onOpenWebDavAccount: (WebDavAccount) -> Unit,
     onOpenTrash: () -> Unit,
+    onOpenAbout: () -> Unit,
     onOpenRecentFile: (FileEntry) -> Unit,
 ) {
     val context = LocalContext.current
@@ -111,6 +113,9 @@ fun HomeScreen(
                 actions = {
                     IconButton(onClick = onOpenTrash) {
                         Icon(Icons.Filled.Delete, contentDescription = stringResource(id = R.string.trash_title))
+                    }
+                    IconButton(onClick = onOpenAbout) {
+                        Icon(Icons.Outlined.Info, contentDescription = stringResource(id = R.string.about_title))
                     }
                 },
             )

@@ -28,6 +28,8 @@ object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
     const val TRASH = "trash"
+    const val ABOUT = "about"
+    const val LICENSES = "licenses"
     private const val BROWSER_PATTERN = "browser/{path}"
     private const val VIEWER_PATTERN = "viewer/{category}/{path}"
     private const val WEBDAV_PATTERN = "webdav/{accountId}/{path}"

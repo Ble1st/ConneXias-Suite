@@ -14,6 +14,7 @@ coil = "3.6.1"
 media3 = "1.11.0"
 okhttp = "5.5.0"
 securityCrypto = "1.1.0"
+zxingCore = "3.5.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -51,6 +52,11 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 # Verschlüsselte Ablage der WebDAV-Zugangsdaten (statt Klartext-SharedPreferences) — AndroidX/
 # Google-OSS, kein Play-Services-Dienst.
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+# QR-Code für den Freigabe-Link der WLAN/Hotspot-Freigabe (ui/localshare). Bewusst nur das
+# reine `com.google.zxing:core` (Encoder, keine transitiven Abhängigkeiten) statt des in
+# Warden/Kamera verwendeten `zxing-android-embedded` — das bringt eine komplette Scanner-
+# Activity samt CameraX-Anbindung mit, und gescannt wird hier nichts.
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

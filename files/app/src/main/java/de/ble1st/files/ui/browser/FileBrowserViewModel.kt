@@ -15,13 +15,19 @@ import de.ble1st.files.data.fileops.FileOperationRequestBuilder
 import de.ble1st.files.data.fileops.FileOperationService
 import de.ble1st.files.data.fileops.FileOperations
 import de.ble1st.files.data.fs.FileEntry
+import de.ble1st.files.util.resolveMimeType
 import de.ble1st.files.data.fs.LocalFileSystem
+import de.ble1st.files.data.share.MimeTypeFilter
 import de.ble1st.files.data.fs.SortOrder
 import de.ble1st.files.data.fs.sortedByOrder
+import de.ble1st.files.data.search.RecursiveSearch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -36,15 +42,40 @@ data class FileBrowserUiState(
     val errorMessage: String? = null,
     val pendingDialog: BrowserDialog? = null,
     val viewMode: ViewMode = ViewMode.LIST,
+    /** Sucht über den gesamten Teilbaum statt nur im aktuellen Ordner (s.
+     * [de.ble1st.files.data.search.RecursiveSearch]). Umschaltbar in der Such-Leiste. */
+    val recursiveSearch: Boolean = false,
+    val searchRunning: Boolean = false,
+    val searchResults: List<FileEntry> = emptyList(),
+    val searchTruncated: Boolean = false,
+    /** Typmuster, auf die eine fremde App per `ACTION_GET_CONTENT` eingeschränkt hat — leer heißt
+     * "keine Einschränkung" (s. [de.ble1st.files.data.share.PickSpec]). */
+    val pickMimeTypes: List<String> = emptyList(),
 ) {
     val isSelectionMode: Boolean get() = selectedPaths.isNotEmpty()
+
+    /** True, während die rekursive Suche das Ergebnis liefert statt der Ordnerinhalt. Steuert in
+     * der UI, ob die Treffer mit ihrem Ordnerpfad angezeigt werden und ob Aktionen, die sich auf
+     * "den aktuellen Ordner" beziehen (Einfügen, Neu anlegen), sinnvoll sind. */
+    val showingSearchResults: Boolean get() = recursiveSearch && searchQuery.isNotBlank()
+
     val visibleEntries: List<FileEntry> by lazy {
-        val filtered = if (searchQuery.isBlank()) {
-            entries
-        } else {
-            entries.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        val filtered = when {
+            showingSearchResults -> searchResults
+            searchQuery.isBlank() -> entries
+            else -> entries.filter { it.name.contains(searchQuery, ignoreCase = true) }
         }
-        filtered.sortedByOrder(sortOrder)
+        // Typ-Filter greift ausschließlich auf Dateien: Ordner bleiben immer sichtbar, sonst wäre
+        // im Auswahlmodus einer fremden App gar keine Navigation mehr möglich (der gesuchte
+        // Ordner enthält ja nicht zwingend selbst passende Dateien).
+        val typeFiltered = if (pickMimeTypes.isEmpty()) {
+            filtered
+        } else {
+            filtered.filter { entry ->
+                entry.isDirectory || MimeTypeFilter.matches(resolveMimeType(entry.file), pickMimeTypes)
+            }
+        }
+        typeFiltered.sortedByOrder(sortOrder)
     }
 }
 
@@ -97,9 +128,88 @@ class FileBrowserViewModel(application: Application, private val directory: File
         }
     }
 
-    fun setSearchQuery(query: String) = _uiState.update { it.copy(searchQuery = query) }
+    private var searchJob: Job? = null
+
+    fun setSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+        restartRecursiveSearchIfNeeded()
+    }
+
+    fun setRecursiveSearch(enabled: Boolean) {
+        _uiState.update {
+            it.copy(
+                recursiveSearch = enabled,
+                // Beim Ausschalten die alten Treffer wegwerfen: sie stammen aus anderen Ordnern und
+                // hätten in der wieder rein lokalen Filterung nichts zu suchen.
+                searchResults = if (enabled) it.searchResults else emptyList(),
+                searchTruncated = if (enabled) it.searchTruncated else false,
+            )
+        }
+        restartRecursiveSearchIfNeeded()
+    }
+
+    /**
+     * Startet die Suche neu, sobald sich Eingabe oder Modus ändern. Ein laufender Durchlauf wird
+     * vorher abgebrochen — sonst würden bei zügigem Tippen mehrere Durchläufe gleichzeitig über
+     * denselben Baum laufen und ihre Ergebnisse gegenseitig überschreiben, in unvorhersehbarer
+     * Reihenfolge.
+     *
+     * Die 300 ms Verzögerung vor dem eigentlichen Start sind kein Kosmetik-Debounce: jeder
+     * Tastendruck würde sonst einen vollständigen Baumdurchlauf über den gesamten Gerätespeicher
+     * anstoßen, von dem alle bis auf den letzten sofort wieder verworfen werden.
+     */
+    private fun restartRecursiveSearchIfNeeded() {
+        searchJob?.cancel()
+        val state = _uiState.value
+        if (!state.showingSearchResults) {
+            _uiState.update { it.copy(searchRunning = false) }
+            return
+        }
+        val query = state.searchQuery
+        _uiState.update { it.copy(searchRunning = true) }
+        searchJob = viewModelScope.launch {
+            delay(SEARCH_DEBOUNCE_MILLIS)
+            val result = withContext(Dispatchers.IO) {
+                // isActive der Koroutine als Abbruch-Signal: ein `cancel()` von außen stoppt damit
+                // auch den blockierenden Baumdurchlauf, nicht erst die Koroutine danach.
+                RecursiveSearch.search(directory, query, isCancelled = { !isActive })
+            }
+            // Ein abgebrochener Durchlauf gehört zu einer inzwischen überholten Eingabe — sein
+            // Teilergebnis darf den Zustand nicht mehr anfassen.
+            if (result.cancelled) return@launch
+            // FileEntry.from() (stat je Treffer + MIME-Auflösung) läuft bewusst hier statt in der
+            // Suche selbst, damit die Suchlogik framework-frei bleibt (s. RecursiveSearch-
+            // Klassendoc) — ebenfalls im IO-Kontext, aber nur noch für das Ergebnis, das
+            // tatsächlich angezeigt wird.
+            val entries = withContext(Dispatchers.IO) { result.files.map { FileEntry.from(it) } }
+            _uiState.update {
+                if (it.searchQuery != query) {
+                    it
+                } else {
+                    it.copy(
+                        searchRunning = false,
+                        searchResults = entries,
+                        searchTruncated = result.truncated,
+                    )
+                }
+            }
+        }
+    }
+
+    /** Ordnerpfad eines Suchtreffers relativ zum durchsuchten Ordner — `null` für einen Treffer,
+     * der direkt hier liegt. Nur in der Ergebnisanzeige verwendet. */
+    fun relativeParentPathOf(entry: FileEntry): String? =
+        RecursiveSearch.relativeParentPath(directory, entry.file)
 
     fun setSortOrder(order: SortOrder) = _uiState.update { it.copy(sortOrder = order) }
+
+    /** Vom Bildschirm gesetzt, sobald bekannt ist, worauf eine `ACTION_GET_CONTENT`-Anfrage
+     * eingeschränkt hat. Liegt im Zustand statt nur an der Anzeigestelle, damit "Alles auswählen"
+     * und die Auswahl selbst dieselbe gefilterte Liste sehen — sonst könnte eine Mehrfachauswahl
+     * Dateien zurückgeben, die der Aufrufer gar nicht angefragt hat. */
+    fun setPickMimeTypes(mimeTypes: List<String>) = _uiState.update {
+        if (it.pickMimeTypes == mimeTypes) it else it.copy(pickMimeTypes = mimeTypes)
+    }
 
     fun toggleSelection(entry: FileEntry) = _uiState.update { state ->
         val path = entry.file.path
@@ -113,9 +223,13 @@ class FileBrowserViewModel(application: Application, private val directory: File
         state.copy(selectedPaths = state.visibleEntries.map { it.file.path }.toSet())
     }
 
+    /** Sucht bewusst in [FileBrowserUiState.visibleEntries] statt in `entries`: bei einer
+     * rekursiven Suche liegen die ausgewählten Treffer gar nicht im aktuellen Ordner und wären in
+     * `entries` nicht zu finden — eine Auswahl aus dem Suchergebnis hätte dann still nichts
+     * ausgewählt. */
     fun selectedEntries(): List<FileEntry> {
         val state = _uiState.value
-        return state.entries.filter { it.file.path in state.selectedPaths }
+        return state.visibleEntries.filter { it.file.path in state.selectedPaths }
     }
 
     fun showDialog(dialog: BrowserDialog?) = _uiState.update { it.copy(pendingDialog = dialog) }
@@ -243,6 +357,10 @@ class FileBrowserViewModel(application: Application, private val directory: File
 
     /** Eigene, kleine Factory statt der generischen `viewModelFactory { initializer { } }`-DSL —
      * die bräuchte den Ordnerpfad über CreationExtras, hier reicht ein direkt übergebenes File. */
+    private companion object {
+        const val SEARCH_DEBOUNCE_MILLIS = 300L
+    }
+
     class Factory(private val application: Application, private val directory: File) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =

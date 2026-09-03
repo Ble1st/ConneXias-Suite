@@ -4,7 +4,7 @@ FOSS-Dateimanager (`de.ble1st.files`), Android, ein einziges Gradle-Modul. Kein
 Google-Play-Services-/proprietärer-Google-Dienst verbaut; Material 3 (mit einer
 expressive-nahen Formsprache, s. `ui/theme/Theme.kt`), Jetpack Compose.
 
-## Umfang (Stand: Kern-Ausbauschritt + eigene Betrachter)
+## Umfang (Stand: 2026-09-03)
 
 - Datei-Browser über den kompletten lokalen Speicher (intern + SD-Karten), via
   `MANAGE_EXTERNAL_STORAGE`.
@@ -42,9 +42,11 @@ expressive-nahen Formsprache, s. `ui/theme/Theme.kt`), Jetpack Compose.
   Automatische endgültige Löschung nach 30 Tagen, opportunistisch beim Öffnen des Bildschirms statt
   über einen eigenen periodischen Worker (`TrashStore.purgeExpired`).
 - Grid-Ansicht (2026-09-03, `ui/browser/FileEntryGrid.kt`): Umschalter im Datei-Browser, global
-  persistiert (`ViewModePreference`). Miniaturbilder über Coil nur für Bilder; MVP-Fassung ohne
-  Video-Thumbnails (bräuchten `coil-video`) und ohne eigenes Pro-Kachel-Menü — Öffnen/Auswählen wie
-  in der Listenansicht, Aktionen laufen über die vorhandene Auswahl-Toolbar.
+  persistiert (`ViewModePreference`). Miniaturbilder über Coil für Bilder und über
+  `MediaMetadataRetriever` plus einen kleinen LRU-Speichercache für Videos (`util/VideoThumbnails.kt`
+  — bewusst ohne die Zusatzabhängigkeit `coil-video`, s. dortiges Klassendoc). Kein eigenes
+  Pro-Kachel-Menü: Öffnen/Auswählen wie in der Listenansicht, Aktionen laufen über die vorhandene
+  Auswahl-Toolbar.
 - Zuletzt verwendet (2026-09-03, `data/recent/RecentFilesStore.kt`): neuer Home-Bereich mit den
   zuletzt tatsächlich geöffneten Dateien (nicht Ordnern), protokolliert am zentralen Tap-Dispatch
   in `FilesNavHost.kt`. Tap öffnet über denselben Betrachter-Pfad wie im Browser; eine
@@ -54,8 +56,23 @@ expressive-nahen Formsprache, s. `ui/theme/Theme.kt`), Jetpack Compose.
   (`LocalHttpServer`, kein `nanohttpd` — seit 2016 unmaintained, s. dortiges Klassendoc) für jeden im
   selben WLAN/Hotspot per Link freigeben; erreichbar über das neue Netzwerk-Symbol im Datei-Browser.
   Token-Pflicht in der URL (kein offener Server), Pfad-Traversal-Schutz gegen Anfragen von außen.
-  MVP-Fassung: nur Herunterladen (kein Upload-Empfang), nur Text-Link zum Kopieren/Teilen statt eines
-  QR-Codes, kein HTTPS (reines Heimnetz-Szenario, kein öffentliches Internet).
+  Der Link steht als Text (Kopieren/Teilen) und als QR-Code zum Abscannen bereit
+  (`util/QrCode.kt`, `com.google.zxing:core`). Weiterhin bewusst schlank: nur Herunterladen (kein
+  Upload-Empfang), kein HTTPS (reines Heimnetz-Szenario, kein öffentliches Internet).
+- Rekursive Suche (2026-09-03, `data/search/RecursiveSearch.kt`): die Lupe durchsucht auf Wunsch
+  den gesamten Teilbaum unterhalb des aktuellen Ordners statt nur die geladene Liste. Umschalter in
+  der Suchleiste, Breitensuche (Treffer nahe am Startordner zuerst), 300-ms-Debounce, harte Grenzen
+  für Trefferanzahl/besuchte Ordner/Tiefe, keine Verfolgung von Verzeichnis-Symlinks. Suchergebnisse
+  zeigen den Ordner des Treffers als Unterzeile.
+- Auftrags-Warteschlange (2026-09-03, `data/fileops/FileOperationService.kt`): mehrere Kopier-/
+  Verschiebe-/Lösch-/Zip-Aufträge werden der Reihe nach abgearbeitet, statt dass ein zweiter
+  abgewiesen wird. Die UI sperrt dadurch keine Aktionen mehr; Fortschrittsbalken und Notification
+  zeigen, wie viele Aufträge noch warten. Abbrechen stoppt den laufenden Auftrag und verwirft die
+  Warteschlange (s. `FileOperationQueue.requestCancel`).
+- Über-Bildschirm (2026-09-03, `ui/about/AboutScreen.kt`): Version, Lizenz und Fremdbibliotheken,
+  erreichbar über das Info-Symbol auf Home. Der Lizenztext liegt als
+  `res/raw/third_party_licenses.txt` in der App selbst — Apache-2.0 §4(d) verlangt, dass die
+  Attribution dem Empfänger der Binary zugänglich ist, nicht nur dem Leser des Repositories.
 
 **Sicherheits-/Robustheitsfixes (2026-09-02, s. `analyse.md`):** `file_paths.xml` deckt nur noch
 `/storage` statt des echten Filesystem-Roots ab; Namen bei Neu-Anlegen/Umbenennen/SAF-Import/
@@ -68,7 +85,8 @@ RFC-Default (stilles Überschreiben) zu verlassen; Zip-Extraktion begrenzt die e
 Gesamtgröße (Zip-Bomben-Schutz, ergänzt den bereits vorhandenen Zip-Slip-Schutz); Mehrfach-Teilen
 setzt zusätzlich `ClipData`, damit Empfänger wie Gmail alle Uris statt nur der ersten sehen; ein
 zweiter Kopier-/Verschiebe-/Lösch-/Zip-Job wird nicht mehr still verworfen, sondern die
-entsprechenden Aktionen sind gesperrt, solange bereits einer läuft; "Entpacken" wird nur noch für
+entsprechenden Aktionen waren zunächst gesperrt, solange bereits einer lief (inzwischen durch die
+echte Warteschlange oben abgelöst); "Entpacken" wird nur noch für
 tatsächlich unterstützte Formate (ZIP/JAR) angeboten, nicht mehr für RAR/7z/TAR, die dort nur mit
 einem kryptischen Fehler gescheitert wären; `POST_NOTIFICATIONS` wird jetzt tatsächlich angefragt
 (vorher nur im Manifest deklariert); ein `http://`-Server zeigt jetzt eine sichtbare Warnung, dass
@@ -103,19 +121,19 @@ wie einen ganz normalen, nur mit dieser einen Datei gefüllten Ordner (`data/sha
 der App, kein separater Betrachter-Pfad; ein "Speichern" ergibt sich dabei kostenlos über die
 normale Verschieben/Kopieren-Funktion. `ACTION_GET_CONTENT` schaltet den bestehenden Datei-Browser
 in einen Auswahlmodus (`data/share/PickRequest.kt`) — ein Tap auf eine Datei gibt ihre
-`content://`-Uri an die anfragende App zurück, statt sie zu öffnen.
+`content://`-Uri an die anfragende App zurück, statt sie zu öffnen. Der Auswahlmodus wertet dabei
+den angefragten Typ (`Intent.getType()`/`EXTRA_MIME_TYPES`, s. `data/share/MimeTypeFilter.kt`) aus
+und blendet nicht passende Dateien aus, und beherrscht mit `EXTRA_ALLOW_MULTIPLE` die
+Mehrfachauswahl (Rückgabe als `ClipData`).
 
-**Noch nicht enthalten** (mögliche weitere Ausbauschritte): rekursive/globale Suche,
-weitere Archivformate (RAR/7z/TAR) — echte
+**Noch nicht enthalten** (mögliche weitere Ausbauschritte): Volltextsuche in Dateiinhalten (die
+Suche geht über Namen, nicht über Inhalte), weitere Archivformate (RAR/7z/TAR) — echte
 Entpack-Implementierungen dafür, nicht nur das UI-Ausblenden von oben —, weitere
-Netzwerkprotokolle (SMB/FTP), Digest-Auth für WebDAV, Video-Thumbnails in der Grid-Ansicht,
-Upload-Empfang und HTTPS für die WLAN/Hotspot-Freigabe, Settings-Screen,
-`GET_CONTENT` mit angefragtem Mime-Typ-Filter (jeder Dateityp wird aktuell zurückgegeben,
-unabhängig davon, wonach der Aufrufer fragt) und Mehrfachauswahl (`EXTRA_ALLOW_MULTIPLE`), eine
-echte `DocumentsProvider`-Rolle (deutlich größere API-Fläche als der einfache Intent-Vertrag oben —
-ein `DocumentsProvider` würde z. B. Systemordner-Navigation direkt im fremden App-Picker
-erlauben), echte Job-Warteschlange (mehrere Jobs sind jetzt UI-seitig gesperrt statt still
-verworfen, aber es gibt weiterhin keine Queue, die sie nacheinander abarbeitet).
+Netzwerkprotokolle (SMB/FTP), Digest-Auth für WebDAV, Upload-Empfang und HTTPS für die
+WLAN/Hotspot-Freigabe, ein eigener Einstellungs-Bildschirm (die wenigen Einstellungen sitzen
+derzeit dort, wo sie wirken), eine echte `DocumentsProvider`-Rolle (deutlich größere API-Fläche als
+der einfache Intent-Vertrag oben — ein `DocumentsProvider` würde z. B. Systemordner-Navigation
+direkt im fremden App-Picker erlauben).
 
 ## Build
 
@@ -145,4 +163,6 @@ Android-Version.
 
 ## License
 
-See [LICENSE](../LICENSE).
+See [LICENSE](../LICENSE). Fremdbibliotheken und deren Lizenzen:
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) — in der App unter „Über die App →
+Fremdbibliotheken“.

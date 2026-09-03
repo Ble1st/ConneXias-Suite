@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.ManageSearch
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
@@ -56,6 +58,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,9 +70,11 @@ import de.ble1st.files.data.fileops.FileOperationQueue
 import de.ble1st.files.data.fileops.OperationState
 import de.ble1st.files.data.fs.FileEntry
 import de.ble1st.files.data.share.IncomingShare
+import de.ble1st.files.data.share.PickSpec
 import de.ble1st.files.data.fs.SortKey
 import de.ble1st.files.data.fs.SortOrder
 import de.ble1st.files.data.fs.StorageRoots
+import de.ble1st.files.data.search.RecursiveSearch
 import de.ble1st.files.util.FileActions
 import de.ble1st.files.util.FileCategory
 import java.io.File
@@ -82,11 +87,15 @@ fun FileBrowserScreen(
     onOpenFolder: (File) -> Unit,
     onOpenFile: (FileEntry) -> Unit,
     onOpenLocalShare: (File) -> Unit,
-    // analyse.md Abschnitt 5 ("Files ist kein Datei-Picker für andere Apps"): true, während diese
-    // Activity-Instanz eine ACTION_GET_CONTENT-Anfrage einer Fremd-App bedient (s.
-    // data/share/PickRequest.kt). Ändert nur den Titel — der eigentliche Tap-Dispatch (Betrachter
-    // öffnen vs. Uri zurückgeben) liegt beim Aufrufer in FilesNavHost, nicht hier.
-    pickMode: Boolean = false,
+    // analyse.md Abschnitt 5 ("Files ist kein Datei-Picker für andere Apps"): != null, während
+    // diese Activity-Instanz eine ACTION_GET_CONTENT-Anfrage einer Fremd-App bedient (s.
+    // data/share/PickRequest.kt). Trägt seit 2026-09-03 auch den angefragten Typ-Filter und das
+    // Mehrfachauswahl-Flag — der eigentliche Tap-Dispatch für die Einzelauswahl liegt weiterhin
+    // beim Aufrufer in FilesNavHost.
+    pickSpec: PickSpec? = null,
+    /** Übergibt die im Mehrfachauswahl-Modus bestätigte Auswahl an den Aufrufer. Bei
+     * Einzelauswahl unbenutzt (die läuft weiterhin über `onOpenFile`). */
+    onPickMultiple: (List<File>) -> Unit = {},
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as android.app.Application
@@ -96,14 +105,19 @@ fun FileBrowserScreen(
     )
     val state by viewModel.uiState.collectAsState()
     val clipboard by viewModel.clipboard.collectAsState()
+    val pickMode = pickSpec != null
+    // Der Typ-Filter muss im ViewModel-Zustand landen, nicht nur an der Anzeigestelle greifen —
+    // sonst würde "Alles auswählen" auch die ausgefilterten Dateien mit auswählen (s.
+    // setPickMimeTypes-Doc).
+    LaunchedEffect(pickSpec) {
+        viewModel.setPickMimeTypes(if (pickSpec?.hasTypeRestriction == true) pickSpec.mimeTypes else emptyList())
+    }
     val operationState by FileOperationQueue.state.collectAsState()
-    // FileOperationService nimmt nur genau einen Job gleichzeitig entgegen — ein zweiter Start
-    // wird dort still verworfen (s. Service-Klassendoc). Ohne diese Sperre in der UI konnte man
-    // während eines laufenden Kopier-/Verschiebe-/Lösch-/Zip-Jobs einen weiteren anstoßen, der dann
-    // kommentarlos nichts tat. Betrifft nur Aktionen, die tatsächlich über den Service laufen
-    // (Einfügen/Löschen/Komprimieren/Entpacken) — Auswahl, Umbenennen, Neu anlegen, Import laufen
-    // direkt und unabhängig vom Service.
-    val jobRunning = operationState is OperationState.Running
+    // Seit der Service eine echte Warteschlange hat (s. FileOperationService-Klassendoc), sperrt
+    // die UI keine Aktionen mehr, solange ein Job läuft — ein weiterer Auftrag reiht sich
+    // einfach ein. Angezeigt wird nur noch, wie viele warten.
+    val queuedCount by FileOperationQueue.pendingCount.collectAsState()
+    val operationResults by FileOperationQueue.results.collectAsState()
     var searchActive by remember { mutableStateOf(false) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var addMenuExpanded by remember { mutableStateOf(false) }
@@ -136,8 +150,13 @@ fun FileBrowserScreen(
     // Sobald ein Kopier-/Verschiebe-/Lösch-/Zip-Job im Hintergrund fertig ist, muss die Liste neu
     // geladen werden — der Service läuft außerhalb des ViewModels und kennt die aktuell sichtbaren
     // Ordner nicht, ein einfacher Refresh bei jedem Completed ist günstiger als gezieltes Tracking.
-    LaunchedEffect(operationState) {
-        when (val s = operationState) {
+    // Ausgelöst wird auf der id des ältesten unquittierten Ergebnisses, nicht auf der Liste
+    // selbst: sonst würde ein währenddessen fertig werdender zweiter Auftrag die gerade laufende
+    // Snackbar-Anzeige des ersten abbrechen und von vorn beginnen lassen.
+    val nextResult = operationResults.firstOrNull()
+    LaunchedEffect(nextResult?.id) {
+        val result = nextResult ?: return@LaunchedEffect
+        when (val s = result.state) {
             is OperationState.Completed -> {
                 viewModel.refresh()
                 val parts = buildList {
@@ -146,14 +165,21 @@ fun FileBrowserScreen(
                     if (s.failedCount > 0) add("${s.failedCount} fehlgeschlagen")
                 }
                 snackbarHostState.showSnackbar(parts.joinToString(", "))
-                FileOperationQueue.acknowledgeTerminalState()
             }
-            is OperationState.Failed -> {
-                snackbarHostState.showSnackbar("Fehlgeschlagen: ${s.message}")
-                FileOperationQueue.acknowledgeTerminalState()
+            is OperationState.Failed -> snackbarHostState.showSnackbar("Fehlgeschlagen: ${s.message}")
+            is OperationState.Cancelled -> {
+                viewModel.refresh()
+                snackbarHostState.showSnackbar(
+                    if (s.droppedCount > 0) {
+                        "Abgebrochen — ${s.droppedCount} wartende Aufträge verworfen"
+                    } else {
+                        "Abgebrochen"
+                    },
+                )
             }
             else -> Unit
         }
+        FileOperationQueue.acknowledgeResult(result)
     }
 
     Scaffold(
@@ -162,6 +188,14 @@ fun FileBrowserScreen(
             Column {
                 if (state.isSelectionMode) {
                     SelectionTopBar(
+                        // Im Mehrfachauswahl-Modus einer fremden App ersetzt ein Bestätigen-Haken
+                        // die sonstigen Aktionen: Kopieren/Löschen/Komprimieren wären dort nicht
+                        // nur nutzlos, sondern verwirrend — der Aufrufer wartet auf Dateien.
+                        onConfirmPick = if (pickSpec?.allowMultiple == true) {
+                            { onPickMultiple(viewModel.selectedEntries().map { it.file }) }
+                        } else {
+                            null
+                        },
                         selectedCount = state.selectedPaths.size,
                         onClose = viewModel::clearSelection,
                         onSelectAll = viewModel::selectAll,
@@ -170,13 +204,17 @@ fun FileBrowserScreen(
                         onDelete = { viewModel.showDialog(BrowserDialog.ConfirmDelete(viewModel.selectedEntries())) },
                         onShare = { FileActions.share(context, viewModel.selectedEntries().map { it.file }) },
                         onCompress = { viewModel.showDialog(BrowserDialog.Compress(viewModel.selectedEntries())) },
-                        jobRunning = jobRunning,
                     )
                 } else if (searchActive) {
                     SearchTopBar(
                         query = state.searchQuery,
+                        recursive = state.recursiveSearch,
                         onQueryChange = viewModel::setSearchQuery,
-                        onClose = { searchActive = false; viewModel.setSearchQuery("") },
+                        onToggleRecursive = { viewModel.setRecursiveSearch(!state.recursiveSearch) },
+                        onClose = {
+                            searchActive = false
+                            viewModel.setSearchQuery("")
+                        },
                     )
                 } else {
                     TopAppBar(
@@ -225,6 +263,18 @@ fun FileBrowserScreen(
                     val progress = (operationState as OperationState.Running).progress
                     val fraction = if (progress.totalCount > 0) progress.processedCount / progress.totalCount.toFloat() else 0f
                     LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                    if (queuedCount > 0) {
+                        Text(
+                            text = pluralStringResource(id = R.plurals.operation_queue_pending, count = queuedCount, queuedCount),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                        )
+                    }
+                } else if (state.searchRunning) {
+                    // Unbestimmter Balken: die rekursive Suche kennt die Gesamtzahl der zu
+                    // durchlaufenden Ordner nicht im Voraus und könnte deshalb keinen ehrlichen
+                    // Fortschritt anzeigen.
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
         },
@@ -269,7 +319,11 @@ fun FileBrowserScreen(
                         modifier = Modifier.padding(16.dp),
                     )
                     state.visibleEntries.isEmpty() -> Text(
-                        text = stringResource(id = R.string.browser_empty),
+                        text = if (state.showingSearchResults && !state.searchRunning) {
+                            stringResource(id = R.string.search_no_results)
+                        } else {
+                            stringResource(id = R.string.browser_empty)
+                        },
                         modifier = Modifier.padding(16.dp),
                     )
                     state.viewMode == ViewMode.GRID -> FileEntryGrid(
@@ -280,10 +334,17 @@ fun FileBrowserScreen(
                             when {
                                 state.isSelectionMode -> viewModel.toggleSelection(entry)
                                 entry.isDirectory -> onOpenFolder(entry.file)
+                                // Mehrfachauswahl (EXTRA_ALLOW_MULTIPLE): ein Tap wählt aus,
+                                // statt die Datei sofort zurückzugeben und die Activity zu
+                                // beenden — sonst käme man nie über eine Datei hinaus.
+                                pickSpec?.allowMultiple == true -> viewModel.toggleSelection(entry)
                                 else -> onOpenFile(entry)
                             }
                         },
                         onLongClick = { entry -> viewModel.toggleSelection(entry) },
+                        pathLabelFor = { entry ->
+                            if (state.showingSearchResults) viewModel.relativeParentPathOf(entry) else null
+                        },
                     )
                     else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(state.visibleEntries, key = { it.file.path }) { entry ->
@@ -296,10 +357,17 @@ fun FileBrowserScreen(
                                     when {
                                         state.isSelectionMode -> viewModel.toggleSelection(entry)
                                         entry.isDirectory -> onOpenFolder(entry.file)
+                                        // s. Kommentar im Grid-Zweig oben
+                                        pickSpec?.allowMultiple == true -> viewModel.toggleSelection(entry)
                                         else -> onOpenFile(entry)
                                     }
                                 },
                                 onLongClick = { viewModel.toggleSelection(entry) },
+                                pathLabel = if (state.showingSearchResults) {
+                                    viewModel.relativeParentPathOf(entry)
+                                } else {
+                                    null
+                                },
                                 trailingContent = {
                                     Box {
                                         IconButton(onClick = { rowMenuExpanded = true }) {
@@ -316,8 +384,7 @@ fun FileBrowserScreen(
                                             onShare = { FileActions.share(context, listOf(entry.file)) },
                                             onProperties = { viewModel.showDialog(BrowserDialog.Properties(entry)) },
                                             onExtract = { viewModel.extractHere(entry) },
-                                            jobRunning = jobRunning,
-                                        )
+                                                            )
                                     }
                                 },
                             )
@@ -325,11 +392,20 @@ fun FileBrowserScreen(
                     }
                 }
             }
+            // Ehrlicher Hinweis statt einer scheinbar vollständigen Liste: die Suche bricht bei
+            // 500 Treffern bzw. 20 000 durchlaufenen Ordnern ab (s. RecursiveSearch-Klassendoc).
+            if (state.showingSearchResults && state.searchTruncated) {
+                Text(
+                    text = stringResource(id = R.string.search_truncated, RecursiveSearch.MAX_RESULTS),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             if (clipboard != null) {
                 PasteBar(
                     isCut = clipboard?.mode == ClipboardMode.CUT,
                     count = clipboard?.paths?.size ?: 0,
-                    jobRunning = jobRunning,
                     onPaste = viewModel::pasteFromClipboard,
                     onCancel = { ClipboardHolder.clear() },
                 )
@@ -384,6 +460,7 @@ fun FileBrowserScreen(
 @Composable
 private fun SelectionTopBar(
     selectedCount: Int,
+    onConfirmPick: (() -> Unit)?,
     onClose: () -> Unit,
     onSelectAll: () -> Unit,
     onCopy: () -> Unit,
@@ -391,7 +468,6 @@ private fun SelectionTopBar(
     onDelete: () -> Unit,
     onShare: () -> Unit,
     onCompress: () -> Unit,
-    jobRunning: Boolean,
 ) {
     // Sechs Action-Icons + Schließen-Icon lassen auf einem schmalen Telefon (~360dp) keinen Platz
     // mehr für den Titeltext ("1 ausgewählt" bricht sonst Zeichen für Zeichen um, live am Gerät
@@ -410,26 +486,29 @@ private fun SelectionTopBar(
             IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Auswahl beenden") }
         },
         actions = {
-            IconButton(onClick = onCopy) { Icon(Icons.Filled.ContentCopy, contentDescription = "Kopieren") }
-            IconButton(onClick = onCut) { Icon(Icons.Filled.ContentCut, contentDescription = "Ausschneiden") }
-            IconButton(onClick = onShare) { Icon(Icons.Filled.Share, contentDescription = "Teilen") }
-            // Löschen/Komprimieren laufen über FileOperationService — gesperrt, solange bereits ein
-            // Job läuft (s. jobRunning-Kommentar in FileBrowserScreen).
-            IconButton(onClick = onDelete, enabled = !jobRunning) { Icon(Icons.Filled.Delete, contentDescription = "Löschen") }
-            Box {
-                IconButton(onClick = { overflowExpanded = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "Mehr")
+            if (onConfirmPick != null) {
+                IconButton(onClick = onConfirmPick, enabled = selectedCount > 0) {
+                    Icon(Icons.Filled.Check, contentDescription = stringResource(id = R.string.action_pick_confirm))
                 }
-                DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Alle auswählen") },
-                        onClick = { overflowExpanded = false; onSelectAll() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Komprimieren") },
-                        enabled = !jobRunning,
-                        onClick = { overflowExpanded = false; onCompress() },
-                    )
+            } else {
+                IconButton(onClick = onCopy) { Icon(Icons.Filled.ContentCopy, contentDescription = "Kopieren") }
+                IconButton(onClick = onCut) { Icon(Icons.Filled.ContentCut, contentDescription = "Ausschneiden") }
+                IconButton(onClick = onShare) { Icon(Icons.Filled.Share, contentDescription = "Teilen") }
+                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Löschen") }
+                Box {
+                    IconButton(onClick = { overflowExpanded = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "Mehr")
+                    }
+                    DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Alle auswählen") },
+                            onClick = { overflowExpanded = false; onSelectAll() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Komprimieren") },
+                            onClick = { overflowExpanded = false; onCompress() },
+                        )
+                    }
                 }
             }
         },
@@ -437,13 +516,43 @@ private fun SelectionTopBar(
 }
 
 @Composable
-private fun SearchTopBar(query: String, onQueryChange: (String) -> Unit, onClose: () -> Unit) {
+private fun SearchTopBar(
+    query: String,
+    recursive: Boolean,
+    onQueryChange: (String) -> Unit,
+    onToggleRecursive: () -> Unit,
+    onClose: () -> Unit,
+) {
     TopAppBar(
         title = {
-            TextField(value = query, onValueChange = onQueryChange, singleLine = true, placeholder = { Text("Suchen …") })
+            TextField(
+                value = query,
+                onValueChange = onQueryChange,
+                singleLine = true,
+                placeholder = {
+                    Text(
+                        stringResource(
+                            id = if (recursive) R.string.search_placeholder_recursive else R.string.search_placeholder_local,
+                        ),
+                    )
+                },
+            )
         },
         navigationIcon = {
             IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Suche schließen") }
+        },
+        actions = {
+            // Umschalter zwischen "nur dieser Ordner" (die bisherige, rein lokale Filterung der
+            // bereits geladenen Liste) und "auch alle Unterordner" (echter Baumdurchlauf, s.
+            // RecursiveSearch). Eingefärbt statt beschriftet, weil in der Titelzeile neben dem
+            // Eingabefeld kein Platz für Text ist.
+            IconButton(onClick = onToggleRecursive) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ManageSearch,
+                    contentDescription = stringResource(id = R.string.search_toggle_recursive),
+                    tint = if (recursive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                )
+            }
         },
     )
 }
@@ -487,25 +596,24 @@ private fun RowActionsMenu(
     onShare: () -> Unit,
     onProperties: () -> Unit,
     onExtract: () -> Unit,
-    jobRunning: Boolean,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(text = { Text("Umbenennen") }, onClick = { onDismiss(); onRename() })
         DropdownMenuItem(text = { Text("Kopieren") }, onClick = { onDismiss(); onCopy() })
         DropdownMenuItem(text = { Text("Ausschneiden") }, onClick = { onDismiss(); onCut() })
         if (de.ble1st.files.util.isExtractable(entry.file.name)) {
-            DropdownMenuItem(text = { Text("Entpacken") }, enabled = !jobRunning, onClick = { onDismiss(); onExtract() })
+            DropdownMenuItem(text = { Text("Entpacken") }, onClick = { onDismiss(); onExtract() })
         }
         if (!entry.isDirectory) {
             DropdownMenuItem(text = { Text("Teilen") }, onClick = { onDismiss(); onShare() })
         }
         DropdownMenuItem(text = { Text("Eigenschaften") }, onClick = { onDismiss(); onProperties() })
-        DropdownMenuItem(text = { Text("Löschen") }, enabled = !jobRunning, onClick = { onDismiss(); onDelete() })
+        DropdownMenuItem(text = { Text("Löschen") }, onClick = { onDismiss(); onDelete() })
     }
 }
 
 @Composable
-private fun PasteBar(isCut: Boolean, count: Int, jobRunning: Boolean, onPaste: () -> Unit, onCancel: () -> Unit) {
+private fun PasteBar(isCut: Boolean, count: Int, onPaste: () -> Unit, onCancel: () -> Unit) {
     Surface(tonalElevation = 3.dp) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -514,7 +622,7 @@ private fun PasteBar(isCut: Boolean, count: Int, jobRunning: Boolean, onPaste: (
             Text(if (isCut) "$count zum Verschieben" else "$count zum Kopieren")
             Row {
                 Button(onClick = onCancel) { Text("Verwerfen") }
-                Button(onClick = onPaste, enabled = !jobRunning) {
+                Button(onClick = onPaste) {
                     Icon(Icons.Filled.ContentPaste, contentDescription = null)
                     Text(" Einfügen")
                 }

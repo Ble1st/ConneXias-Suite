@@ -1,4 +1,4 @@
-package de.ble1st.camera.ui.about
+package de.ble1st.files.ui.about
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -24,7 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import de.ble1st.camera.R
+import de.ble1st.files.R
 
 /**
  * Über-Bildschirm — in allen vier Suite-Apps nach demselben Muster gebaut (Warden hatte als

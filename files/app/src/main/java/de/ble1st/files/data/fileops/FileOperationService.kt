@@ -14,11 +14,10 @@ import de.ble1st.files.data.trash.TrashEntry
 import de.ble1st.files.data.trash.TrashStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.ArrayDeque
 
 /**
  * Foreground-Service für Kopier-/Verschiebe-/Lösch-/Zip-Jobs (FileOperations/ZipOperations).
@@ -27,17 +26,42 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Kommentar). Als Foreground-Service, damit Android einen laufenden Datei-Transfer nicht killt,
  * sobald die App in den Hintergrund wechselt.
  *
- * Nimmt genau einen Job pro Start entgegen ([busy]-Flag weist einen zweiten Start ab, statt ihn zu
- * queuen) — die UI (FileBrowserViewModel) verhindert das ohnehin, indem sie neue Aktionen
- * deaktiviert, solange [FileOperationQueue.state] `Running` ist. Eine echte Warteschlange für
- * mehrere gleichzeitig angestoßene Jobs ist ein Ausbauschritt, kein Tag-1-Bedarf.
+ * Arbeitet die Aufträge **der Reihe nach aus einer Warteschlange** ab (seit 2026-09-03; vorher
+ * wies ein `busy`-Flag jeden zweiten Auftrag stillschweigend ab, weshalb die UI alle
+ * Datei-Aktionen sperren musste, solange irgendetwas lief — bei einem großen Kopiervorgang über
+ * mehrere Minuten war die App damit faktisch nur noch zum Zusehen zu gebrauchen).
+ *
+ * Bewusst **streng nacheinander** und nicht parallel: mehrere gleichzeitige Kopiervorgänge auf
+ * demselben Datenträger sind zusammen nicht schneller als nacheinander, machen aber jede
+ * Fortschrittsanzeige mehrdeutig und können sich gegenseitig ins Gehege kommen (ein Job löscht
+ * einen Ordner, den ein anderer gerade schreibt).
+ *
+ * Der Zugriff auf [pending] ist synchronisiert, weil er aus zwei Richtungen kommt: [onStartCommand]
+ * läuft auf dem Hauptthread, [drain] auf [Dispatchers.IO].
  */
 class FileOperationService : Service() {
 
-    private val busy = AtomicBoolean(false)
+    private val lock = Any()
+
+    /** Wartende Aufträge, ohne den gerade laufenden. */
+    private val pending = ArrayDeque<OperationRequest>()
+
+    /** Ob gerade eine [drain]-Schleife läuft. Verhindert, dass ein zweiter Auftrag eine zweite
+     * Schleife startet — er wird stattdessen von der bestehenden mit abgearbeitet. */
+    private var draining = false
+
+    /** startId des zuletzt zugestellten Auftrags; nur damit ein [stopSelf] nicht einen Auftrag
+     * mit abräumt, der zwischen "Warteschlange leer" und dem Stopp noch hereinkam. */
+    private var latestStartId = 0
+
+    /** Die zuletzt gebaute Notification — [onStartCommand] muss auf jedes
+     * `startForegroundService` mit einem `startForeground` antworten, soll dabei aber nicht die
+     * Anzeige des gerade laufenden Auftrags durch die des neu eingereihten ersetzen. */
+    @Volatile
+    private var lastNotification: Notification? = null
+
     private val scopeJob = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.IO + scopeJob)
-    private var currentJob: Job? = null
 
     override fun onBind(intent: Intent?) = null
 
@@ -58,19 +82,72 @@ class FileOperationService : Service() {
             return START_NOT_STICKY
         }
         val request = intent?.toOperationRequest()
-        if (request == null || !busy.compareAndSet(false, true)) {
-            if (!busy.get()) stopSelf(startId)
+        if (request == null) {
+            // Kaputter/leerer Intent — nichts einzureihen. stopSelf(startId) nur, wenn seitdem
+            // kein echter Auftrag hereinkam (das prüft Android anhand der startId selbst).
+            stopSelf(startId)
             return START_NOT_STICKY
         }
-        FileOperationQueue.cancelRequested.set(false)
-        startForeground(NOTIFICATION_ID, buildNotification(request.type, null))
-        currentJob = scope.launch {
-            runRequest(request)
-            busy.set(false)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf(startId)
+        val startDraining: Boolean
+        synchronized(lock) {
+            latestStartId = startId
+            pending.addLast(request)
+            FileOperationQueue.publishPending(pending.size)
+            startDraining = !draining
+            if (startDraining) {
+                draining = true
+                FileOperationQueue.cancelRequested.set(false)
+            }
+            // Pflicht-Antwort auf startForegroundService, s. lastNotification-Kommentar oben.
+            startForeground(NOTIFICATION_ID, lastNotification ?: buildNotification(request.type, null, pending.size - 1))
         }
+        if (startDraining) scope.launch { drain() }
         return START_NOT_STICKY
+    }
+
+    /**
+     * Arbeitet die Warteschlange ab, bis sie leer ist oder abgebrochen wurde, und beendet danach
+     * den Service.
+     *
+     * Läuft immer nur einmal gleichzeitig (s. [draining]). Ein währenddessen eingereihter Auftrag
+     * wird von der laufenden Schleife mitgenommen, ohne dass es dafür ein Wecksignal bräuchte —
+     * die Schleife schaut nach jedem Auftrag ohnehin nach.
+     */
+    private fun drain() {
+        while (true) {
+            val next = synchronized(lock) {
+                val head = pending.pollFirst()
+                if (head == null) draining = false
+                FileOperationQueue.publishPending(pending.size)
+                head
+            } ?: break
+
+            runRequest(next)
+
+            if (FileOperationQueue.cancelRequested.get()) {
+                // Abbruch gilt für die gesamte Warteschlange (s. FileOperationQueue.requestCancel).
+                val dropped = synchronized(lock) {
+                    val count = pending.size
+                    pending.clear()
+                    draining = false
+                    FileOperationQueue.publishPending(0)
+                    count
+                }
+                FileOperationQueue.publishResult(OperationState.Cancelled(dropped))
+                break
+            }
+        }
+        FileOperationQueue.publish(OperationState.Idle)
+        // Stopp-Entscheidung und Stopp unter demselben Lock wie das Einreihen: sonst könnte
+        // zwischen "Warteschlange ist leer" und stopForeground ein neuer Auftrag anlaufen, dem
+        // hier die Notification unter den Füßen weggezogen würde.
+        synchronized(lock) {
+            if (!draining && pending.isEmpty()) {
+                lastNotification = null
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(latestStartId)
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -141,15 +218,20 @@ class FileOperationService : Service() {
             },
             onFailure = { error -> OperationState.Failed(request.type, error.message ?: "Unbekannter Fehler") },
         )
-        FileOperationQueue.publish(finalState)
+        FileOperationQueue.publishResult(finalState)
     }
 
     private fun updateNotification(type: OperationType, progress: OperationProgress) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(type, progress))
+        val queued = synchronized(lock) { pending.size }
+        manager.notify(NOTIFICATION_ID, buildNotification(type, progress, queued))
     }
 
-    private fun buildNotification(type: OperationType, progress: OperationProgress?): Notification {
+    private fun buildNotification(
+        type: OperationType,
+        progress: OperationProgress?,
+        queuedCount: Int,
+    ): Notification {
         val cancelIntent = Intent(this, FileOperationService::class.java).setAction(ACTION_CANCEL)
         val cancelPendingIntent = PendingIntent.getService(
             this, 0, cancelIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
@@ -170,10 +252,16 @@ class FileOperationService : Service() {
                 if (progress != null && progress.totalCount > 0) {
                     setProgress(progress.totalCount, progress.processedCount, false)
                 }
+                // Nur anzeigen, wenn tatsächlich etwas wartet — sonst stünde bei jedem einzelnen
+                // Auftrag eine "0 warten"-Zeile in der Notification.
+                if (queuedCount > 0) {
+                    setSubText(resources.getString(R.string.notification_queue_pending, queuedCount))
+                }
             }
             .setOngoing(true)
             .addAction(0, getString(R.string.action_cancel), cancelPendingIntent)
             .build()
+            .also { lastNotification = it }
     }
 
     companion object {

@@ -120,6 +120,7 @@ dependencies {
     // WebDAV-Netzwerkspeicher-Anbindung — s. data/webdav/.
     implementation(libs.okhttp)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
