@@ -411,6 +411,10 @@ class ConcordBus(
             // nächsten Zeitplanlauf stillschweigend herunterzuschalten.
             AutoProfileStorage.saveLastEffective(context, profile)
             UsbLockStateReceiver.syncRegistration(context)
+            // Status-Widget (widget/WardenStatusWidget.kt, 2026-09-03): einziger Aufrufpunkt, den
+            // sowohl der manuelle Profil-Tap als auch AutoProfileController zwingend durchlaufen —
+            // s. dortiges Klassendoc, warum genau hier statt in DestructiveActionExecutor.
+            de.ble1st.warden.widget.WardenStatusWidget.requestUpdate(context)
             if (result.failed.isNotEmpty()) {
                 Log.w(TAG, "Profil ${profile.name}: fehlgeschlagen für ${result.failed}")
             }

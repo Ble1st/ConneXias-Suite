@@ -196,6 +196,10 @@ dependencies {
     implementation(libs.timber)
     // ChildVPN-Config-Import per QR-Code scannen (NetworkScreen.kt, ChildVpnSection).
     implementation(libs.zxing.android.embedded)
+    // Status-Widget (widget/WardenStatusWidget.kt) — Feature 6 aus docs/umsetzungsplan-7-features.md,
+    // ursprünglich 2026-08-29 bewusst nicht gebaut (s. dortige Abwägung), jetzt als reine
+    // Status-Anzeige nachgereicht (kein Tap-Aktions-Bypass um WardenLockActivity herum).
+    implementation(libs.androidx.glance.appwidget)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)

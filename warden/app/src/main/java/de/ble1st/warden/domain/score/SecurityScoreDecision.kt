@@ -14,8 +14,12 @@ package de.ble1st.warden.domain.score
  *   Signalen berechnet werden: Bedrohungen (Verdachtsscanner), Rechte-Hygiene (Permission-Audit),
  *   Geräte-Integrität ([de.ble1st.warden.integrity.DeviceIntegrityStatus]) und Härtungsgrad
  *   (Anteil aktiver Safeguards aus dem reversiblen Katalog).
- * - Kein kreisförmiger Gauge, kein Kategorie-Drill-down — weiterhin bewusste Scope-Reduktion.
- *   Die 30-Tage-Historie selbst wurde am 2026-08-30 nachgereicht
+ * - Kein Kategorie-Drill-down — weiterhin bewusste Scope-Reduktion (die vier Kategorie-Zeilen im
+ *   Screen zeigen die Aufschlüsselung bereits, ein eigener Bildschirm pro Kategorie böte darüber
+ *   hinaus keinen neuen Informationsgehalt). Der kreisförmige Gauge selbst wurde am 2026-09-03
+ *   nachgereicht ([de.ble1st.warden.ui.SecurityScoreScreen]-Klassendoc) — reine Zeichenergänzung,
+ *   diese Berechnungslogik blieb unverändert. Die 30-Tage-Historie selbst wurde am 2026-08-30
+ *   nachgereicht
  *   ([de.ble1st.warden.score.SecurityScoreHistoryStore]), genau wie hier vorgezeichnet: als reiner
  *   Anbau, ohne dass sich an dieser Berechnungslogik etwas geändert hat — [evaluate] bleibt eine
  *   zustandslose Momentaufnahme, die Historie lebt ausschließlich im Store.

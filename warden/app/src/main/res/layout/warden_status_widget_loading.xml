@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Platzhalter-Layout, das Glance genau bis zum ersten fertig komponierten Frame zeigt (s.
+     WardenStatusWidget-Klassendoc) — reines RemoteViews-Layout, kein Compose, weil Glance vor der
+     ersten Composition zwingend eine klassische Layout-Resource als android:initialLayout
+     braucht. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:text="@string/widget_title" />

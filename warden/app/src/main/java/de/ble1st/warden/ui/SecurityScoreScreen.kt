@@ -1,6 +1,8 @@
 package de.ble1st.warden.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +25,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -38,10 +45,17 @@ import java.time.format.DateTimeFormatter
 
 /**
  * Feature 5 "Security Score Dashboard" aus `docs/umsetzungsplan-7-features.md`, 2026-08-29 — s.
- * [de.ble1st.warden.domain.score.SecurityScoreDecision]-Klassendoc für die verbleibenden
- * Abweichungen vom Plan (vier statt fünf Kategorien, kein kreisförmiger Gauge, kein
- * Kategorie-Drill-down). Die 30-Tage-Historie selbst wurde am 2026-08-30 nachgereicht
- * ([SecurityScoreHistoryStore]) — die Berechnungslogik blieb dabei unverändert, nur ein Anbau.
+ * [de.ble1st.warden.domain.score.SecurityScoreDecision]-Klassendoc für die verbleibende
+ * Abweichung vom Plan (vier statt fünf Kategorien, kein Kategorie-Drill-down). Die 30-Tage-
+ * Historie selbst wurde am 2026-08-30 nachgereicht ([SecurityScoreHistoryStore]) — die
+ * Berechnungslogik blieb dabei unverändert, nur ein Anbau.
+ *
+ * **Kreisförmiger Gauge nachgereicht (2026-09-03, Ideenliste-Folgegespräch 3):** ursprünglich
+ * bewusst als Scope-Reduktion weggelassen (s. [SecurityScoreDecision]-Klassendoc). Reine
+ * Zeichenergänzung um [SecurityScoreGauge] — der zugrunde liegende Score/die Kategorien-Zeilen
+ * sind unverändert, nur die Gesamtzahl steht jetzt zusätzlich in einem Fortschritts-Ring statt
+ * nur als reine Zahl. Kein Kategorie-Drill-down (bewusst weiterhin nicht gebaut — vier
+ * Balken-Zeilen darunter zeigen die Aufschlüsselung bereits).
  *
  * Eigenständiger Bildschirm statt einer weiteren Kennzahl direkt auf dem Dashboard — die vier
  * zugrunde liegenden Lesepfade ([de.ble1st.warden.score.SecurityScoreCalculator]-Klassendoc) sind
@@ -120,16 +134,21 @@ fun SecurityScoreScreen(
                             },
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text(
-                            text = "${breakdown.total}",
-                            style = MaterialTheme.typography.displayLarge,
-                            color = levelColor,
-                        )
-                        Text(
-                            text = breakdown.level.label,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = levelColor,
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            SecurityScoreGauge(total = breakdown.total, color = levelColor)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "${breakdown.total}",
+                                    style = MaterialTheme.typography.displayLarge,
+                                    color = levelColor,
+                                )
+                                Text(
+                                    text = breakdown.level.label,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = levelColor,
+                                )
+                            }
+                        }
                     }
                     HorizontalDivider()
                     ScoreCategoryRow(stringResource(R.string.security_score_category_threats), breakdown.threatScore)
@@ -160,6 +179,42 @@ private fun levelColor(level: SecurityScoreLevel) = when (level) {
     SecurityScoreLevel.SEHR_GUT, SecurityScoreLevel.GUT -> MaterialTheme.colorScheme.primary
     SecurityScoreLevel.VERBESSERUNGSWUERDIG -> MaterialTheme.colorScheme.tertiary
     SecurityScoreLevel.KRITISCH -> MaterialTheme.colorScheme.error
+}
+
+/** Reiner Fortschritts-Ring um die bereits vorhandene Gesamtzahl herum (die als Compose-Text in
+ * der Mitte darübergelegt wird, s. Aufrufer) — trägt selbst keinen eigenen Text/keine eigene
+ * Content-Description, die sitzt weiterhin auf der umschließenden [Box] im Aufrufer, damit
+ * TalkBack die Zahl weiterhin genau einmal vorliest statt zusätzlich über den Canvas zu
+ * stolpern. `total` wird nicht selbst auf 0..100 begrenzt — [SecurityScoreDecision.total]
+ * garantiert das bereits an der Quelle, ein zweites Clamping hier wäre nur stille
+ * Fehlermaskierung, falls das doch einmal nicht zuträfe. */
+@Composable
+private fun SecurityScoreGauge(total: Int, color: Color, modifier: Modifier = Modifier) {
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
+    Canvas(modifier = modifier.size(160.dp)) {
+        val strokeWidth = 14.dp.toPx()
+        val diameter = size.minDimension - strokeWidth
+        val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
+        val arcSize = Size(diameter, diameter)
+        drawArc(
+            color = trackColor,
+            startAngle = -90f,
+            sweepAngle = 360f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+        )
+        drawArc(
+            color = color,
+            startAngle = -90f,
+            sweepAngle = 360f * (total / 100f),
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+        )
+    }
 }
 
 @Composable

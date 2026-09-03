@@ -16,6 +16,7 @@ biometric = "1.1.0"
 workManager = "2.11.2"
 lifecycle = "2.11.0"
 zxingEmbedded = "4.3.0"
+glance = "1.2.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -51,6 +52,11 @@ androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-p
 # reines `com.google.zxing:core` als einzige transitive Abhängigkeit (per POM verifiziert), kein
 # Play-Services/ML-Kit — läuft also auch auf einem Device-Owner-Gerät ohne GMS.
 zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxingEmbedded" }
+# Homescreen-Widget (Ideenliste-Folgegespräch 3, 2026-09-03) — reines AndroidX-Jetpack-Artefakt,
+# kein Play-Services/GMS-Bezug, läuft also wie zxing-android-embedded auch auf einem
+# Device-Owner-Gerät ohne GMS. Ersetzt das ältere RemoteViews/AppWidgetProvider-Muster durch eine
+# Compose-artige API, konsistent mit dem Rest der UI.
+androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

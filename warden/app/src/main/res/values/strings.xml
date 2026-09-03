@@ -624,4 +624,14 @@
 
     <!-- de/ble1st/warden/appmanagement/SuspiciousAppScanController.kt -->
     <string name="suspicious_app_scan_critical_finding_reason">Kritischer Verdachtsfund: %1$s (%2$s)</string>
+
+    <!-- de/ble1st/warden/widget/WardenStatusWidget.kt -->
+    <string name="widget_title">Warden</string>
+    <string name="widget_description">Zeigt Lockdown-Status, aktives Profil und den zuletzt berechneten Sicherheits-Score. Tippen öffnet die App.</string>
+    <string name="widget_lockdown_active">Lockdown: aktiv</string>
+    <string name="widget_lockdown_inactive">Lockdown: inaktiv</string>
+    <string name="widget_lockdown_unknown">Lockdown: unbekannt</string>
+    <string name="widget_profile_line">Profil: %1$s</string>
+    <string name="widget_score_line">Score: %1$d (%2$s)</string>
+    <string name="widget_score_not_calculated">Score: noch nicht berechnet</string>
 </resources>

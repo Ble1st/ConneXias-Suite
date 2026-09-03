@@ -425,6 +425,26 @@
                 android:resource="@xml/clipboard_accessibility_config" />
         </service>
 
+        <!-- Status-Widget (Feature 6 aus docs/umsetzungsplan-7-features.md, ursprünglich
+             2026-08-29 bewusst nicht gebaut, nachgereicht 2026-09-03 als reine Status-Anzeige
+             ohne Schalt-Aktion — s. widget/WardenStatusWidget.kt-Klassendoc). exported="true" ist
+             für App-Widget-Receiver OS-vorgeschrieben (Launcher muss ihn ansprechen können,
+             dasselbe Muster wie bei den anderen OS-mandatorischen Fällen, s. CLAUDE.md "Manifest
+             component exposure") — es gibt keine sinnvolle android:permission dafür, App-Widgets
+             sind grundsätzlich für jeden Launcher erreichbar; die eigentliche Absicherung ist,
+             dass der Receiver rein lesend ist und keine Aktion auslöst. -->
+        <receiver
+            android:name=".widget.WardenStatusWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/warden_status_widget_info" />
+        </receiver>
+
     </application>
 
 </manifest>
