@@ -78,6 +78,11 @@ fun FileBrowserScreen(
     onNavigateUp: () -> Unit,
     onOpenFolder: (File) -> Unit,
     onOpenFile: (FileEntry) -> Unit,
+    // analyse.md Abschnitt 5 ("Files ist kein Datei-Picker für andere Apps"): true, während diese
+    // Activity-Instanz eine ACTION_GET_CONTENT-Anfrage einer Fremd-App bedient (s.
+    // data/share/PickRequest.kt). Ändert nur den Titel — der eigentliche Tap-Dispatch (Betrachter
+    // öffnen vs. Uri zurückgeben) liegt beim Aufrufer in FilesNavHost, nicht hier.
+    pickMode: Boolean = false,
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as android.app.Application
@@ -109,6 +114,7 @@ fun FileBrowserScreen(
         StorageRoots.list(context).firstOrNull { it.path == directory }?.label
     }
     val screenTitle = storageRootLabel ?: directory.name.ifEmpty { directory.path }
+    val effectiveTitle = if (pickMode) "Datei auswählen: $screenTitle" else screenTitle
 
     val pendingShare by IncomingShare.pending.collectAsState()
     // Sobald der Nutzer nach einem "Teilen mit ConneXias Files" (s. IncomingShare-Klassendoc)
@@ -170,7 +176,7 @@ fun FileBrowserScreen(
                     )
                 } else {
                     TopAppBar(
-                        title = { Text(screenTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        title = { Text(effectiveTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         navigationIcon = {
                             if (canNavigateUp) {
                                 IconButton(onClick = onNavigateUp) {

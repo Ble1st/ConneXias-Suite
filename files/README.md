@@ -72,15 +72,27 @@ Kopiervorgang meldet den noch unvollständigen Ordner nicht mehr als Erfolg; ZIP
 begrenzt jetzt zusätzlich zur Gesamtgröße auch die Eintragsanzahl (Schutz vor
 Viele-winzige-Einträge-Zip-Bomben).
 
+**Suite-Integration (2026-09-03, s. `analyse.md` Abschnitt 5):** Die App war bisher nur
+"Teilen"-Empfänger (`ACTION_SEND`/`SEND_MULTIPLE`), nie "Öffnen mit"-Ziel oder Datei-Picker für
+andere Apps. Jetzt zusätzlich: `ACTION_VIEW` (z. B. ein E-Mail-Anhang, eine
+Download-Benachrichtigung) kopiert die fremde Uri in einen frischen Cache-Ordner und öffnet ihn
+wie einen ganz normalen, nur mit dieser einen Datei gefüllten Ordner (`data/share/IncomingView.kt`)
+— derselbe, bereits getestete Tap-Dispatch (eigener Betrachter/"Öffnen mit") wie überall sonst in
+der App, kein separater Betrachter-Pfad; ein "Speichern" ergibt sich dabei kostenlos über die
+normale Verschieben/Kopieren-Funktion. `ACTION_GET_CONTENT` schaltet den bestehenden Datei-Browser
+in einen Auswahlmodus (`data/share/PickRequest.kt`) — ein Tap auf eine Datei gibt ihre
+`content://`-Uri an die anfragende App zurück, statt sie zu öffnen.
+
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte): Papierkorb/Undo für
 Löschvorgänge, rekursive/globale Suche, weitere Archivformate (RAR/7z/TAR) — echte
 Entpack-Implementierungen dafür, nicht nur das UI-Ausblenden von oben —, weitere
 Netzwerkprotokolle (SMB/FTP), Digest-Auth für WebDAV, Grid-/Thumbnail-Ansicht, Settings-Screen,
-`GET_CONTENT`/`ACTION_VIEW`-Dokumentenanbieter-Rolle (die App kann Dateien empfangen, aber noch
-nicht als Datei-Picker für andere Apps auftreten — eigenständiger Ausbauschritt, ein
-`DocumentsProvider` ist eine deutlich größere API-Fläche als der Share-Empfang oben), echte
-Job-Warteschlange (mehrere Jobs sind jetzt UI-seitig gesperrt statt still verworfen, aber es gibt
-weiterhin keine Queue, die sie nacheinander abarbeitet).
+`GET_CONTENT` mit angefragtem Mime-Typ-Filter (jeder Dateityp wird aktuell zurückgegeben,
+unabhängig davon, wonach der Aufrufer fragt) und Mehrfachauswahl (`EXTRA_ALLOW_MULTIPLE`), eine
+echte `DocumentsProvider`-Rolle (deutlich größere API-Fläche als der einfache Intent-Vertrag oben —
+ein `DocumentsProvider` würde z. B. Systemordner-Navigation direkt im fremden App-Picker
+erlauben), echte Job-Warteschlange (mehrere Jobs sind jetzt UI-seitig gesperrt statt still
+verworfen, aber es gibt weiterhin keine Queue, die sie nacheinander abarbeitet).
 
 ## Build
 

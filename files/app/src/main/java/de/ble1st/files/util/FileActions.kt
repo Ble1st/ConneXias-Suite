@@ -15,7 +15,11 @@ import java.io.File
  */
 object FileActions {
 
-    private fun uriFor(context: Context, file: File) =
+    /** Öffentlich (statt `private`), weil auch [de.ble1st.files.nav.FilesNavHost] eine
+     * content://-Uri braucht, um eine per ACTION_GET_CONTENT ausgewählte Datei an den Aufrufer
+     * zurückzugeben — derselbe Uri-Aufbau wie für "Öffnen mit"/"Teilen", nur mit anderem
+     * Empfänger. */
+    fun uriFor(context: Context, file: File) =
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 
     fun openWithOtherApp(context: Context, file: File) {
