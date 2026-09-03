@@ -63,6 +63,29 @@ einer Änderung jetzt auf einem Hintergrund-Thread aus statt blockierend auf dem
 (ANR-Risiko bei großen Bibliotheken); "Aufnahmedatum" sortiert/zeigt jetzt `DATE_TAKEN` mit
 `DATE_ADDED`-Fallback statt ausschließlich `DATE_ADDED` (Aufnahme- statt Import-/Sync-Zeitpunkt).
 
+**2. Durchgang (2026-09-03, s. `analyse.md`):** ein nicht lesbares Element (gelöscht, Berechtigung
+entzogen) wurde beim Cloud-Sync bisher als leere Datei hochgeladen und trotzdem als erfolgreich
+gesichert markiert (Server antwortet auf ein leeres PUT oft mit 2xx) — gilt jetzt explizit als
+Fehlschlag, bevor überhaupt hochgeladen wird; ein `displayName` mit "/" landete durch den
+Remote-Pfad-Segment-Splitter versehentlich in einem zusätzlichen Unterordner, wird jetzt saniert;
+"Jetzt sichern" persistierte die Formularfelder bisher immer, ungetestet — derselbe Fehler, der
+beim Test-Knopf schon behoben war, ist jetzt auch hier behoben (persistiert wird nur nach
+erfolgreichem Test); `ACTION_VIEW` akzeptierte jede Uri mit numerischem letzten Pfadsegment ohne
+Authority-Prüfung (`content://fremde.app/item/42` hätte MediaStore-Element 42 geöffnet), jetzt auf
+`MediaStore.AUTHORITY` beschränkt; der System-Löschdialog-Callback (Betrachter, Grid, Papierkorb)
+behandelte ein Abbrechen (`RESULT_CANCELED`) bisher wie einen Löscherfolg, prüft jetzt
+`resultCode == RESULT_OK`; `CustomAlbumScreen` rief `onNavigateUp()` bei einem zwischenzeitlich
+gelöschten Album direkt im Composable-Körper auf statt in einem Seiteneffekt (Absturz-/
+Endlosschleifen-Risiko), jetzt in `LaunchedEffect`; Teilen setzte die Uri(s) nur als `EXTRA_STREAM`,
+nicht zusätzlich im `ClipData` (manche Ziel-Apps brauchen Letzteres für den Lesezugriff); die
+Bild-/Video-Auswahl für fremde Apps (`ACTION_PICK`/`GET_CONTENT`) gewährte keinen dauerhaften
+Zugriff (`FLAG_GRANT_PERSISTABLE_URI_PERMISSION` fehlte, `takePersistableUriPermission` beim
+Aufrufer scheiterte dadurch); der Bildeditor transkodierte auch dann verlustbehaftet neu (und verlor
+dabei alle EXIF-Metadaten), wenn weder Filter noch Zuschnitt das Bild überhaupt verändert hätten
+(Filter NONE + Crop ORIGINAL kopiert jetzt die Originalbytes unverändert); derselbe
+Pending-Leiche-Fehler wie bei ConneXias Kameras Filter-Speichern (s. dort) betraf auch
+`PhotoEditSaver.saveEdited` — behoben.
+
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte, mit Begründung):
 - **Gesichtsgruppierung**: würde On-Device-Gesichtserkennung brauchen — die gängige Lösung dafür
   (ML Kit) ist ein Google-Dienst und verstößt gegen die "kein Google Play Services/kein

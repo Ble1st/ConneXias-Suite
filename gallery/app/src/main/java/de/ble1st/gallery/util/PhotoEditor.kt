@@ -130,6 +130,14 @@ object PhotoEditSaver {
     suspend fun saveEdited(context: Context, sourceUri: Uri, filter: PhotoFilter, aspect: CropAspect): Uri? =
         withContext(Dispatchers.IO) {
             val resolver = context.contentResolver
+            // analyse.md (2. Durchgang, Mittel): Filter NONE + Crop ORIGINAL verändern das Bild gar
+            // nicht — ein Decode+Recompress-Durchlauf lief bisher trotzdem, verlustbehaftet neu
+            // komprimiert (Bitmap.compress) UND ohne jede EXIF-Metadaten (das Ausgangsbild trägt
+            // z. B. Aufnahmedatum/GPS, `resolver.insert` beginnt ohne sie). "Speichern" ohne
+            // tatsächliche Änderung erzeugte so eine schlechtere Kopie des Originals.
+            if (filter == PhotoFilter.NONE && aspect == CropAspect.ORIGINAL) {
+                return@withContext copyUnedited(resolver, sourceUri)
+            }
             val rotationDegrees = readExifRotationDegrees(resolver, sourceUri)
             val decoded = decodeSampledBitmap(resolver, sourceUri, MAX_DECODED_DIMENSION) ?: return@withContext null
             // BitmapFactory decodiert die rohen Pixel unabhängig von der EXIF-Orientation — ohne
@@ -151,12 +159,53 @@ object PhotoEditSaver {
                 }
             }
             val outputUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext null
-            resolver.openOutputStream(outputUri)?.use { output -> edited.compress(Bitmap.CompressFormat.JPEG, 92, output) }
+            // analyse.md (2. Durchgang, Mittel): "Dieselbe Pending-Leiche wie Kamera-Filter" — s.
+            // ConneXias Kameras PhotoFilterSaver-Kommentar für die beiden vorherigen kaputten
+            // Zwischenzustände (Exception → für immer IS_PENDING=1 / null-Stream → leerer, aber
+            // sichtbarer Eintrag). Bei Fehlschlag wird der halbfertige Eintrag jetzt gelöscht.
+            val written = runCatching {
+                resolver.openOutputStream(outputUri)?.use { output -> edited.compress(Bitmap.CompressFormat.JPEG, 92, output) }
+            }.getOrNull() == true
+            if (!written) {
+                runCatching { resolver.delete(outputUri, null, null) }
+                return@withContext null
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 resolver.update(outputUri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
             }
             outputUri
         }
+
+    /** Reine Byte-Kopie ohne Decode/Recompress — für den Fall, dass Filter/Zuschnitt das Bild gar
+     * nicht verändern (s. [saveEdited]-Kommentar): erhält EXIF-Metadaten und Originalqualität, statt
+     * sie durch einen unnötigen JPEG-Recompress-Durchlauf zu verlieren. */
+    private fun copyUnedited(resolver: android.content.ContentResolver, sourceUri: Uri): Uri? {
+        val mimeType = resolver.getType(sourceUri) ?: "image/jpeg"
+        val displayName = "IMG_edited_${timestampFormat.get()!!.format(Date())}"
+        val values = contentValuesOf(
+            MediaStore.Images.Media.DISPLAY_NAME to displayName,
+            MediaStore.Images.Media.MIME_TYPE to mimeType,
+        ).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ConneXias Galerie")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val outputUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+        val copied = runCatching {
+            resolver.openInputStream(sourceUri)?.use { input ->
+                resolver.openOutputStream(outputUri)?.use { output -> input.copyTo(output); true }
+            } ?: false
+        }.getOrDefault(false)
+        if (!copied) {
+            runCatching { resolver.delete(outputUri, null, null) }
+            return null
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            resolver.update(outputUri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+        }
+        return outputUri
+    }
 
     /** Zwei-Pass-Decodierung (erst nur die Maße lesen, dann mit passendem `inSampleSize`
      * herunterskaliert decodieren) statt `BitmapFactory.decodeStream(input)` direkt — Standard-

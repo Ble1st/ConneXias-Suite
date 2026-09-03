@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -25,7 +26,13 @@ class MainActivity : ComponentActivity() {
                             RESULT_OK,
                             Intent().apply {
                                 data = uri
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                // analyse.md (2. Durchgang, Mittel): FLAG_GRANT_READ_URI_PERMISSION
+                                // allein reicht für einen dauerhaften Zugriff nicht — ein Aufrufer,
+                                // der die Uri über den Prozesslebenszyklus hinaus behalten will,
+                                // ruft `ContentResolver.takePersistableUriPermission` auf; das
+                                // scheitert mit SecurityException, wenn der gebende Intent nicht
+                                // auch FLAG_GRANT_PERSISTABLE_URI_PERMISSION gesetzt hat.
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
                             },
                         )
                         finish()
@@ -46,6 +53,13 @@ class MainActivity : ComponentActivity() {
 
     private fun viewItemFromUri(uri: Uri?): ExternalIntent.ViewItem? {
         if (uri == null) return null
+        // analyse.md (2. Durchgang, Hoch): vorher akzeptierte diese Funktion JEDE Uri, deren
+        // letztes Pfadsegment zufällig eine Zahl war — ContentUris.parseId kennt keine Authority-
+        // Prüfung. Ein `content://com.other.provider/item/42` hätte MediaStore-Element 42 geöffnet
+        // (falsches Bild, keine erkennbare Ablehnung) statt regulär zu Albums zu gehen wie bei
+        // einer wirklich unbrauchbaren Uri. `MediaStore.AUTHORITY` ("media") ist die einzige
+        // Authority, unter der `parseId` hier je einen sinnvollen Treffer liefern kann.
+        if (uri.authority != MediaStore.AUTHORITY) return null
         // ContentUris.parseId schlägt für eine Uri fehl, die nicht mit einer numerischen ID endet
         // (z. B. ein fremder DocumentsProvider-Pfad) — in dem Fall gibt es hier keinen sinnvollen
         // MediaStore-Eintrag zu zeigen, also regulär zu Albums statt abzustürzen.

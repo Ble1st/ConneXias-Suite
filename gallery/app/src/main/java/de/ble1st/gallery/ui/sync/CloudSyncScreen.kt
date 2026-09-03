@@ -142,8 +142,16 @@ fun CloudSyncScreen(viewModel: GalleryViewModel, onBack: () -> Unit) {
                 Button(
                     enabled = isValid && !progress.running,
                     onClick = {
+                        // analyse.md (2. Durchgang, Mittel): "Jetzt sichern" persistierte die
+                        // aktuellen Feldwerte bisher immer, ungeachtet eines Tests — derselbe Fehler,
+                        // der beim "Verbindung testen"-Knopf schon behoben wurde (s. dessen
+                        // Kommentar), war hier stehen geblieben. Ein Tippfehler im Passwort landete
+                        // so weiterhin unbemerkt dauerhaft im verschlüsselten Storage, nur eben über
+                        // diesen Knopf statt über den Test-Knopf. Persistiert wird jetzt
+                        // ausschließlich über einen erfolgreichen "Verbindung testen"-Lauf; der Sync
+                        // selbst läuft mit den aktuellen Feldwerten, auch wenn sie (noch) nicht
+                        // gespeichert sind.
                         val account = WebDavAccount(baseUrl.trim(), username.trim(), password)
-                        WebDavAccountStore.save(context, account)
                         CloudSyncManager.startSync(context, account, allItems)
                     },
                     modifier = Modifier.padding(top = 16.dp),

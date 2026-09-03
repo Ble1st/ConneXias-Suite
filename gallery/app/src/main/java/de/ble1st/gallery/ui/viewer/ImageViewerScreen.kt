@@ -1,5 +1,6 @@
 package de.ble1st.gallery.ui.viewer
 
+import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -108,9 +109,13 @@ fun ImageViewerScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
 
+    // analyse.md (2. Durchgang, Mittel): dieser Callback feuert bei JEDEM Rückkehren aus dem
+    // System-Löschdialog, auch wenn der Nutzer dort abgebrochen/zurückgewischt hat
+    // (RESULT_CANCELED) — vorher wurde das identisch zu einem Erfolg behandelt: der Betrachter
+    // schloss sich, die Auswahl wurde geleert, das Medium war aber unverändert noch da.
     val deleteLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
-    ) { viewModel.onItemsDeleted(); onDeleted() }
+    ) { result -> if (result.resultCode == Activity.RESULT_OK) { viewModel.onItemsDeleted(); onDeleted() } }
 
     Scaffold(
         topBar = {

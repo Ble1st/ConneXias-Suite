@@ -1,5 +1,6 @@
 package de.ble1st.gallery.ui.viewer
 
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -72,9 +73,11 @@ fun VideoPlayerScreen(item: MediaItem, viewModel: GalleryViewModel, onBack: () -
     }
     DisposableEffect(exoPlayer) { onDispose { exoPlayer.release() } }
 
+    // s. ImageViewerScreen-Kommentar: Abbrechen im System-Dialog darf nicht wie ein Löscherfolg
+    // behandelt werden.
     val deleteLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
-    ) { viewModel.onItemsDeleted(); onDeleted() }
+    ) { result -> if (result.resultCode == Activity.RESULT_OK) { viewModel.onItemsDeleted(); onDeleted() } }
 
     Scaffold(
         topBar = {

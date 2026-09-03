@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,8 +83,13 @@ fun CustomAlbumScreen(
 
     if (album == null) {
         // Album wurde zwischenzeitlich gelöscht (z. B. über einen zweiten offenen Tab dieses
-        // Screens) — kein Absturz auf eine jetzt ungültige Referenz.
-        onNavigateUp()
+        // Screens) — kein Absturz auf eine jetzt ungültige Referenz. analyse.md (2. Durchgang,
+        // Mittel): `onNavigateUp()` rief hier vorher direkt im Composable-Körper während der
+        // Komposition selbst auf (nicht in einem Seiteneffekt) — ein NavController-Aufruf mitten in
+        // der Komposition ist nicht unterstützt und konnte je nach Timing zu einem Absturz oder
+        // einer Recompose-Schleife führen. `LaunchedEffect` entkoppelt den Aufruf sauber, dasselbe
+        // Muster wie ImageViewerScreens "letztes Bild gelöscht"-Fall.
+        LaunchedEffect(Unit) { onNavigateUp() }
         return
     }
     // album.name statt des über die Route mitgegebenen albumName-Parameters: nach einem Umbenennen

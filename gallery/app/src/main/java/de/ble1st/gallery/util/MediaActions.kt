@@ -2,6 +2,7 @@ package de.ble1st.gallery.util
 
 import android.app.RecoverableSecurityException
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
@@ -37,6 +38,12 @@ object MediaActions {
             }
         }
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // analyse.md (2. Durchgang, Mittel): EXTRA_STREAM allein reicht bei manchen Ziel-Apps für
+        // den Lesezugriff nicht — sie erwarten die zu gewährenden Uris im ClipData (üblicher Weg
+        // bei Mehrfachauswahl, von manchen Apps aber auch für eine einzelne Uri verlangt).
+        intent.clipData = uris.drop(1).fold(ClipData.newUri(context.contentResolver, "media", uris.first())) { clip, uri ->
+            clip.apply { addItem(ClipData.Item(uri)) }
+        }
         launchOrToast(context, Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 

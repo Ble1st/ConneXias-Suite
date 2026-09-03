@@ -1,5 +1,6 @@
 package de.ble1st.gallery.ui.trash
 
+import android.app.Activity
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -69,12 +70,15 @@ fun TrashScreen(onBack: () -> Unit) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val selectionActive = selection.isNotEmpty()
 
+    // s. ImageViewerScreen-Kommentar (ConneXias Galerie, gleiche Ursache): Abbrechen im
+    // System-Dialog darf die Auswahl nicht kommentarlos leeren, als wäre die Aktion durchgelaufen
+    // — sonst müsste der Nutzer nach einem Abbruch die Auswahl erneut zusammenklicken.
     val restoreLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
-    ) { selection = emptySet() }
+    ) { result -> if (result.resultCode == Activity.RESULT_OK) selection = emptySet() }
     val deleteLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
-    ) { selection = emptySet() }
+    ) { result -> if (result.resultCode == Activity.RESULT_OK) selection = emptySet() }
 
     Scaffold(
         topBar = {

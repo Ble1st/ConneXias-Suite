@@ -66,19 +66,40 @@ object CloudSyncManager {
         var failed = 0
         for (item in pending) {
             _progress.value = _progress.value.copy(currentName = item.displayName)
-            val tempFile = withContext(Dispatchers.IO) {
+            // analyse.md (2. Durchgang, Hoch): `openInputStream` kann `null` liefern (Element
+            // zwischenzeitlich gelöscht, Berechtigung entzogen) — vorher wurde der `?.use`-Block
+            // dann einfach übersprungen, `tempFile` blieb ein reines File-Objekt ohne Datei auf der
+            // Platte. `WebDavClient.upload` konnte darauf trotzdem `asRequestBody` aufrufen
+            // (Content-Length 0 für eine nicht existierende Datei), der Server antwortete auf ein
+            // leeres PUT oft trotzdem mit 2xx — der Upload galt dann als erfolgreich abgeschlossen
+            // (`markSynced`), obwohl der Server nichts oder nur eine leere Datei erhalten hat. Jetzt
+            // wird ein nicht lesbares Quellelement explizit als Fehlschlag gewertet, bevor überhaupt
+            // hochgeladen wird.
+            val readable = withContext(Dispatchers.IO) {
                 val temp = File(context.cacheDir, "cloud_sync_${UUID.randomUUID()}")
-                context.contentResolver.openInputStream(item.uri)?.use { input ->
+                val ok = context.contentResolver.openInputStream(item.uri)?.use { input ->
                     temp.outputStream().use { output -> input.copyTo(output) }
-                }
-                temp
+                    temp.length() > 0
+                } ?: false
+                if (ok) temp else { temp.delete(); null }
             }
+            if (readable == null) {
+                failed += 1
+                _progress.value = _progress.value.copy(uploaded = uploaded, failed = failed)
+                continue
+            }
+            val tempFile = readable
             val mimeType = context.contentResolver.getType(item.uri) ?: "application/octet-stream"
             // Der bloße Dateiname als Remote-Pfad kollidiert leicht — zwei unabhängige "IMG_0001.jpg"
             // (unterschiedliches Album/Datum, selber Name) würden sich auf dem Server sonst
             // gegenseitig überschreiben. Die MediaStore-ID als Präfix macht den Pfad eindeutig,
             // ohne den ursprünglichen Namen für den Menschen am anderen Ende unlesbar zu machen.
-            val remotePath = "$REMOTE_FOLDER/${item.id}_${item.displayName}"
+            // analyse.md (2. Durchgang, Hoch): `displayName` kann ein "/" enthalten (MediaStore
+            // erzwingt das nicht) — `WebDavClient.urlFor` splittet den Remote-Pfad an jedem "/" in
+            // eigene Segmente, ein Name wie "a/b.jpg" hätte den Upload also in einen zusätzlichen,
+            // ungewollten Unterordner "a" gelenkt. "/" wird hier durch "_" ersetzt.
+            val safeDisplayName = item.displayName.replace('/', '_')
+            val remotePath = "$REMOTE_FOLDER/${item.id}_$safeDisplayName"
             val result = WebDavClient.upload(account, remotePath, tempFile, mimeType)
             withContext(Dispatchers.IO) { tempFile.delete() }
 

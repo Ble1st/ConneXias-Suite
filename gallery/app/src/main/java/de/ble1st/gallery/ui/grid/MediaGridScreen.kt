@@ -1,5 +1,6 @@
 package de.ble1st.gallery.ui.grid
 
+import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -109,9 +110,11 @@ fun MediaGridScreen(
     // Berechtigung (s. MediaActions.requestDelete-Klassendoc "Bekannte Einschränkung") — in
     // beiden Fällen reicht hier ein reines "Auswahl zurücksetzen", der Grid-Inhalt selbst
     // aktualisiert sich automatisch über den ContentObserver in GalleryViewModel.
+    // s. ImageViewerScreen-Kommentar: Abbrechen im System-Dialog darf nicht wie ein Löscherfolg
+    // behandelt werden.
     val deleteLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
-    ) { viewModel.onItemsDeleted() }
+    ) { result -> if (result.resultCode == Activity.RESULT_OK) viewModel.onItemsDeleted() }
 
     Scaffold(
         topBar = {
