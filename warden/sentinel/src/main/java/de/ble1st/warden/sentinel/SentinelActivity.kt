@@ -44,7 +44,17 @@ import de.ble1st.warden.sentinel.pin.SentinelPinStore
 import java.nio.charset.StandardCharsets
 import uniffi.connexias_engine.PasswordHash
 
-private const val MIN_PIN_LENGTH = 4
+// analyse.md (2. Durchgang, "weiterhin gültig" — "Sentinel-PIN 4 vs. Warden 6"): eine neu
+// eingerichtete Sentinel-PIN verlangte bisher nur vier Ziffern, obwohl Warden selbst für neue
+// PINs sechs verlangt (WardenPinActivity.kt, Vorschlag U-5, 2026-08-29) — Sentinels PIN ist der
+// einzige Ausstieg aus einem echten Kiosk-Zustand, verdient also keine schwächere Untergrenze als
+// Wardens eigene Dashboard-PIN. Derselbe Vier-vs-sechs-Split wie dort: MIN_PIN_LENGTH (6) gilt für
+// die Einrichtung einer neuen PIN, UNLOCK_MIN_PIN_LENGTH (4) bleibt für das Prüfen einer bereits
+// vorhandenen (ggf. noch alten, vierstelligen) PIN erhalten.
+private const val MIN_PIN_LENGTH = 6
+
+/** Bereits eingerichtete, ältere vierstellige PINs müssen weiter eingebbar bleiben. */
+private const val UNLOCK_MIN_PIN_LENGTH = 4
 private const val MAX_PIN_LENGTH = 8
 
 /**
@@ -308,7 +318,7 @@ private fun SentinelScreen(
     }
 
     fun onConfirmVerify(blob: SentinelPinBlob) {
-        if (digits.size < MIN_PIN_LENGTH) return
+        if (digits.size < UNLOCK_MIN_PIN_LENGTH) return
         val nowSeconds = System.currentTimeMillis() / 1000
         if (!SentinelAntiHammeringDecision.isAttemptAllowedNow(blob.backoffUntilEpochSeconds, nowSeconds)) {
             message = "Gesperrt — noch ${blob.backoffUntilEpochSeconds - nowSeconds}s warten."
@@ -383,6 +393,15 @@ private fun SentinelScreen(
                         onBackspace = ::onBackspace,
                         onConfirm = { onConfirmVerify(result.blob) },
                         confirmExtraDisabled = blocked,
+                        // Bewusst UNLOCK_MIN_PIN_LENGTH (4) und nicht MIN_PIN_LENGTH (6), obwohl
+                        // neue PINs jetzt mindestens sechsstellig sind — dieselbe Abwägung wie
+                        // WardenPinActivity.kt (Vorschlag U-5): (1) Alt-PINs mit vier Ziffern
+                        // müssen weiter eingebbar bleiben; (2) würde der Bestätigen-Knopf exakt
+                        // bei der echten PIN-Länge aktiv, wäre diese an der Oberfläche ablesbar,
+                        // ohne einen Versuch zu verbrauchen. Eine feste, niedrige Schwelle verrät
+                        // sie nicht — der Preis ist ein zu früher Tap, der einen
+                        // Anti-Hammering-Versuch kostet.
+                        minConfirmLength = UNLOCK_MIN_PIN_LENGTH,
                     )
                 }
 
@@ -431,6 +450,7 @@ private fun SetupContent(
     onBackspace: () -> Unit,
     onConfirm: () -> Unit,
     confirmExtraDisabled: Boolean = false,
+    minConfirmLength: Int = MIN_PIN_LENGTH,
 ) {
     Text(text = subtitle, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
     message?.let {
@@ -441,7 +461,7 @@ private fun SetupContent(
         onDigit = onDigit,
         onBackspace = onBackspace,
         onConfirm = onConfirm,
-        confirmEnabled = digits.size >= MIN_PIN_LENGTH && !confirmExtraDisabled,
+        confirmEnabled = digits.size >= minConfirmLength && !confirmExtraDisabled,
     )
 }
 
