@@ -144,6 +144,12 @@ ohne Play-Services-Laufzeitabhängigkeit); Material 3 (mit einer expressive-nahe
 - **Bildschirm ging während Countdown/Foto-Schreiben durch Auto-Lock aus.** `keepScreenOn` war nur
   an `isRecording` geknüpft, nicht an die übrigen "beschäftigt"-Phasen. Jetzt an `state.isBusy`
   geknüpft.
+- **RECORD_AUDIO war Pflicht für den Fotobetrieb (2026-09-03).** `CameraPermission.required` (das
+  Onboarding-Gate) verlangte bisher auch Mikrofonzugriff — eine Ablehnung sperrte den kompletten
+  Sucher, nicht nur den Ton in Videos. `required` umfasst jetzt nur noch CAMERA; RECORD_AUDIO wird
+  weiterhin im selben Dialog mit angefragt (kein stiller Funktionslücken-Ton-Verlust), fehlt sie
+  aber, nimmt der Videomodus jetzt einfach stumm auf statt den Sucher zu blockieren — mit einem
+  kurzen Hinweis und einer erneuten Anfrage beim manuellen Wechsel in den Videomodus.
 
 ## Build
 

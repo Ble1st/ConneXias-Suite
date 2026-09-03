@@ -99,6 +99,13 @@ jede empfangene Uri als eigenständige MediaStore-Kopie unter `Pictures`/`Movies
 Galerie"` an (reine Byte-Kopie, kein Decode/Recompress, erhält also Originalqualität und
 EXIF-Metadaten), analog zu ConneXias Files' Teilen-Empfang.
 
+**Auswahl leckte über Alben hinweg (2026-09-03).** `GalleryViewModel.selection` ist bewusst ein
+einziges, über den ganzen NavHost geteiltes StateFlow — ohne einen Reset beim Bucket-Wechsel zeigte
+ein frisch geöffnetes Album sofort den Auswahlmodus (Top-Bar mit Löschen/Teilen/Info) mit dem Stand
+aus dem zuletzt verlassenen Album. `MediaGridScreen` leert die Auswahl jetzt bei jedem tatsächlichen
+Bucket-Wechsel (nicht bei jeder Rekomposition — Zurückkommen von einem Betrachter zum selben Album
+verwirft sie weiterhin nicht).
+
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte, mit Begründung):
 - **Gesichtsgruppierung**: würde On-Device-Gesichtserkennung brauchen — die gängige Lösung dafür
   (ML Kit) ist ein Google-Dienst und verstößt gegen die "kein Google Play Services/kein
