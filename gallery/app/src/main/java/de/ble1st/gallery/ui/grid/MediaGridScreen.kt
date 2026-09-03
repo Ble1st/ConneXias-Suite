@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,6 +91,17 @@ fun MediaGridScreen(
     val selection by viewModel.selection.collectAsState()
     val customAlbums by viewModel.customAlbums.collectAsState()
     val bucketItems = remember(allItems, sortOrder, bucketId) { viewModel.itemsForBucket(bucketId) }
+
+    // analyse.md ("weiterhin gültig" — "Selection leckt über Alben"): [GalleryViewModel.selection]
+    // ist ein einziges, geteiltes StateFlow über alle Grid-/Album-Ansichten hinweg (bewusst, s.
+    // Klassendoc dort) — ohne diesen Reset zeigte ein frisch geöffnetes Album sofort den
+    // Auswahlmodus (Top-Bar mit Löschen/Teilen/Info) mit der Anzahl aus dem zuletzt verlassenen
+    // Album, obwohl in diesem Album selbst noch nichts angetippt wurde. Nur an [bucketId] gebunden,
+    // nicht an jede Rekomposition — Zurückkommen von einem Betrachter zum selben Album (bucketId
+    // unverändert) verwirft die Auswahl absichtlich nicht.
+    LaunchedEffect(bucketId) {
+        viewModel.clearSelection()
+    }
 
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
