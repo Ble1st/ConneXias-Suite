@@ -37,6 +37,7 @@ object SuspiciousAppScanDecision {
         deviceAdminNewlyActivatedPackageNames: Set<String> = emptySet(),
         accessibilityNewlyActivatedPackageNames: Set<String> = emptySet(),
         versionDowngradedPackageNames: Set<String> = emptySet(),
+        permissionEscalatedPackageNames: Set<String> = emptySet(),
         ownPackageName: String,
         protectedPackageNames: Set<String>,
         systemPackageNames: Set<String>,
@@ -61,6 +62,7 @@ object SuspiciousAppScanDecision {
         record(deviceAdminNewlyActivatedPackageNames, SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED)
         record(accessibilityNewlyActivatedPackageNames, SuspiciousSignal.ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED)
         record(versionDowngradedPackageNames, SuspiciousSignal.VERSION_DOWNGRADED)
+        record(permissionEscalatedPackageNames, SuspiciousSignal.PERMISSION_ESCALATED)
 
         return signalsByPackage
             .map { (pkg, signals) -> SuspiciousAppFinding(pkg, signals) }

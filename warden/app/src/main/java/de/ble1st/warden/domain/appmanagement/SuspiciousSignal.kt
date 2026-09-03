@@ -47,6 +47,12 @@ package de.ble1st.warden.domain.appmanagement
  *   Play-Installers/-Signaturschemas v3 und für Drittapps (auch Device Owner) nicht ansprechbar;
  *   dies ist eine eigene, lokale versionCode-Baseline nach demselben Muster wie
  *   [SIGNING_CERT_CHANGED].
+ *
+ * Ein zehntes Signal (2026-09-03, "Permission-Diff bei App-Updates"):
+ * - [PERMISSION_ESCALATED] — ein bereits vorher gesehenes Paket deklariert jetzt eine
+ *   gefährliche Permission, die es vorher nicht hatte (typischerweise ein App-Update, das
+ *   nachträglich mehr Rechte fordert) — s. `de.ble1st.warden.domain.appmanagement
+ *   .PermissionEscalationDecision`/`de.ble1st.warden.appmanagement.PermissionHistoryStore`.
  */
 enum class SuspiciousSignal(val bit: Int) {
     EXTRA_DEVICE_ADMIN(1 shl 0),
@@ -58,6 +64,7 @@ enum class SuspiciousSignal(val bit: Int) {
     DEVICE_ADMIN_NEWLY_ACTIVATED(1 shl 6),
     ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED(1 shl 7),
     VERSION_DOWNGRADED(1 shl 8),
+    PERMISSION_ESCALATED(1 shl 9),
     ;
 
     companion object {

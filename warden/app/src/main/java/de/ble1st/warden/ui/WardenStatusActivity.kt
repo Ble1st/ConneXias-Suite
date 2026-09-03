@@ -80,10 +80,18 @@ import de.ble1st.warden.autoreboot.AutoRebootStorage
 import de.ble1st.warden.domain.cellsecurity.CellSecurityReaction
 import de.ble1st.warden.domain.sim.SimChangeReaction
 import de.ble1st.warden.domain.profile.AutoProfileConfig
+import de.ble1st.warden.domain.wifitrust.WifiTrustReaction
 import de.ble1st.warden.profile.AutoProfileStorage
 import de.ble1st.warden.failedattempts.FailedAttemptsRebootStorage
 import de.ble1st.warden.cellsecurity.CellSecurityController
 import de.ble1st.warden.cellsecurity.CellSecurityStorage
+import de.ble1st.warden.wifitrust.WifiCurrentSsidReader
+import de.ble1st.warden.wifitrust.WifiTrustController
+import de.ble1st.warden.wifitrust.WifiTrustStorage
+import de.ble1st.warden.antitheft.AntiTheftAlarmStorage
+import de.ble1st.warden.config.WardenConfigExporter
+import de.ble1st.warden.config.WardenConfigImporter
+import de.ble1st.warden.domain.config.WardenConfigCodec
 import de.ble1st.warden.sim.SimChangeController
 import de.ble1st.warden.sim.SimChangeStorage
 import de.ble1st.warden.bus.ConcordBus
@@ -338,6 +346,30 @@ class WardenStatusActivity : ComponentActivity() {
             var cellSecurityReaction by remember {
                 mutableStateOf(CellSecurityStorage.loadReaction(applicationContext))
             }
+            // "WLAN-Vertrauensliste" (2026-09-03) — reiner Soll-Wert plus die vom Nutzer geführte
+            // SSID-Liste, dieselbe Verkabelung wie cellSecurityReaction darüber.
+            var wifiTrustReaction by remember {
+                mutableStateOf(WifiTrustStorage.loadReaction(applicationContext))
+            }
+            var trustedWifiSsids by remember {
+                mutableStateOf(WifiTrustStorage.loadTrustedSsids(applicationContext))
+            }
+            // Nur ein UI-Komfort für den "aktuelles Netz hinzufügen"-Knopf (s. WifiTrustField-
+            // Klassendoc) — bewusst einmalig beim Aufbau gelesen statt live nachgeführt, ein
+            // veralteter Stand kostet hier höchstens einen erneuten Bildschirmaufruf.
+            val currentWifiSsid = remember {
+                runCatching { WifiCurrentSsidReader(applicationContext).currentSsid() }.getOrNull()
+            }
+            // "Diebstahlschutz-Alarm" (2026-09-03) — läuft über ConcordBus (s. dessen Klassendoc-
+            // Ergänzung), anders als die reinen Reaktions-Präferenzen oben, weil hier bereits ein
+            // ConcordBus-Zugriffspunkt für dieselbe Art lokaler Präferenz existiert
+            // (isUsbAutoLockEnabled/setUsbAutoLockEnabled als Vorbild).
+            var antiTheftMotionAlarmEnabled by remember {
+                mutableStateOf(runCatching { concordBus.isAntiTheftMotionAlarmEnabled() }.getOrDefault(false))
+            }
+            var antiTheftChargerAlarmEnabled by remember {
+                mutableStateOf(runCatching { concordBus.isAntiTheftChargerAlarmEnabled() }.getOrDefault(false))
+            }
             // "Automatische Profilumschaltung" (2026-08-28) — reiner Soll-Wert wie die übrigen
             // Härtungs-Felder; angewendet wird ausschließlich vom periodischen Worker.
             var autoProfileConfig by remember {
@@ -477,6 +509,32 @@ class WardenStatusActivity : ComponentActivity() {
                         autoProfileConfig = updated
                         AutoProfileStorage.save(applicationContext, updated)
                     },
+                    onExportConfig = {
+                        WardenConfigCodec.encode(WardenConfigExporter(applicationContext, concordBus).export())
+                    },
+                    onImportConfig = { text ->
+                        runCatching {
+                            WardenConfigImporter(applicationContext, concordBus).import(WardenConfigCodec.decode(text))
+                        }.onSuccess { result ->
+                            Log.i(TAG, "Konfiguration importiert: $result")
+                            // Persistierte Präferenzen dieser Activity spiegeln die frisch
+                            // importierten Werte sofort — sonst zeigt die UI bis zum nächsten
+                            // Aktivitäts-Neustart den alten Stand, obwohl der Import bereits
+                            // geschrieben hat.
+                            simChangeReaction = SimChangeStorage.loadReaction(applicationContext)
+                            cellSecurityReaction = CellSecurityStorage.loadReaction(applicationContext)
+                            wifiTrustReaction = WifiTrustStorage.loadReaction(applicationContext)
+                            trustedWifiSsids = WifiTrustStorage.loadTrustedSsids(applicationContext)
+                            antiTheftMotionAlarmEnabled = AntiTheftAlarmStorage.load(applicationContext).motionAlarmEnabled
+                            antiTheftChargerAlarmEnabled = AntiTheftAlarmStorage.load(applicationContext).chargerAlarmEnabled
+                            autoProfileConfig = AutoProfileStorage.load(applicationContext)
+                            lockScreenText = WardenLockScreenTextStorage.load(applicationContext)
+                            organizationName = WardenOrganizationNameStorage.load(applicationContext)
+                            supportMessage = WardenSupportMessageStorage.load(applicationContext)
+                            autoRebootThresholdHours = AutoRebootStorage.loadThresholdHours(applicationContext)
+                            failedAttemptsRebootThreshold = FailedAttemptsRebootStorage.loadThreshold(applicationContext)
+                        }.onFailure { Log.w(TAG, "Konfigurations-Import fehlgeschlagen", it) }
+                    },
                     simChangeReaction = simChangeReaction,
                     onSimChangeReactionChange = { updated ->
                         // Ausschalten verwirft die Baseline: sonst gälte beim Wiedereinschalten
@@ -507,6 +565,37 @@ class WardenStatusActivity : ComponentActivity() {
                             runCatching { CellSecurityController(applicationContext).checkAndMaybeReact(BuildConfig.DEBUG) }
                                 .onFailure { Log.w(TAG, "Zellen-Baseline konnte nicht sofort gesetzt werden", it) }
                         }
+                    },
+                    wifiTrustReaction = wifiTrustReaction,
+                    onWifiTrustReactionChange = { updated ->
+                        wifiTrustReaction = updated
+                        WifiTrustStorage.saveReaction(applicationContext, updated)
+                        if (updated != null) {
+                            runCatching { WifiTrustController(applicationContext).checkAndMaybeReact() }
+                                .onFailure { Log.w(TAG, "WLAN-Vertrauens-Prüfung konnte nicht sofort ausgeführt werden", it) }
+                        }
+                    },
+                    trustedWifiSsids = trustedWifiSsids,
+                    onAddTrustedWifiSsid = { ssid ->
+                        WifiTrustStorage.addTrustedSsid(applicationContext, ssid)
+                        trustedWifiSsids = WifiTrustStorage.loadTrustedSsids(applicationContext)
+                    },
+                    onRemoveTrustedWifiSsid = { ssid ->
+                        WifiTrustStorage.removeTrustedSsid(applicationContext, ssid)
+                        trustedWifiSsids = WifiTrustStorage.loadTrustedSsids(applicationContext)
+                    },
+                    currentWifiSsid = currentWifiSsid,
+                    antiTheftMotionAlarmEnabled = antiTheftMotionAlarmEnabled,
+                    onAntiTheftMotionAlarmChange = { enabled ->
+                        antiTheftMotionAlarmEnabled = enabled
+                        runCatching { concordBus.setAntiTheftMotionAlarmEnabled(enabled) }
+                            .onFailure { Log.w(TAG, "Bewegungsalarm-Schalter fehlgeschlagen", it) }
+                    },
+                    antiTheftChargerAlarmEnabled = antiTheftChargerAlarmEnabled,
+                    onAntiTheftChargerAlarmChange = { enabled ->
+                        antiTheftChargerAlarmEnabled = enabled
+                        runCatching { concordBus.setAntiTheftChargerAlarmEnabled(enabled) }
+                            .onFailure { Log.w(TAG, "Ladekabel-Alarm-Schalter fehlgeschlagen", it) }
                     },
                     failedAttemptsRebootThreshold = failedAttemptsRebootThreshold,
                     secureLockScreenConfigured = secureLockScreenConfigured,
@@ -682,8 +771,20 @@ private fun WardenRoot(
     onSimChangeReactionChange: (SimChangeReaction?) -> Unit,
     cellSecurityReaction: CellSecurityReaction?,
     onCellSecurityReactionChange: (CellSecurityReaction?) -> Unit,
+    wifiTrustReaction: WifiTrustReaction?,
+    onWifiTrustReactionChange: (WifiTrustReaction?) -> Unit,
+    trustedWifiSsids: Set<String>,
+    onAddTrustedWifiSsid: (String) -> Unit,
+    onRemoveTrustedWifiSsid: (String) -> Unit,
+    currentWifiSsid: String?,
+    antiTheftMotionAlarmEnabled: Boolean,
+    onAntiTheftMotionAlarmChange: (Boolean) -> Unit,
+    antiTheftChargerAlarmEnabled: Boolean,
+    onAntiTheftChargerAlarmChange: (Boolean) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
+    onExportConfig: () -> String,
+    onImportConfig: (String) -> Unit,
 ) {
     // rememberSaveable statt remember (Architektur-Review 2026-08-24, F-3): ohne das landete man
     // nach jeder Konfigurationsänderung (Rotation, Falt-/Split-Screen-Vorgang) unabhängig vom
@@ -1141,8 +1242,20 @@ private fun WardenRoot(
                 onSimChangeReactionChange = onSimChangeReactionChange,
                 cellSecurityReaction = cellSecurityReaction,
                 onCellSecurityReactionChange = onCellSecurityReactionChange,
+                wifiTrustReaction = wifiTrustReaction,
+                onWifiTrustReactionChange = onWifiTrustReactionChange,
+                trustedWifiSsids = trustedWifiSsids,
+                onAddTrustedWifiSsid = onAddTrustedWifiSsid,
+                onRemoveTrustedWifiSsid = onRemoveTrustedWifiSsid,
+                currentWifiSsid = currentWifiSsid,
+                antiTheftMotionAlarmEnabled = antiTheftMotionAlarmEnabled,
+                onAntiTheftMotionAlarmChange = onAntiTheftMotionAlarmChange,
+                antiTheftChargerAlarmEnabled = antiTheftChargerAlarmEnabled,
+                onAntiTheftChargerAlarmChange = onAntiTheftChargerAlarmChange,
                 autoProfileConfig = autoProfileConfig,
                 onAutoProfileConfigChange = onAutoProfileConfigChange,
+                onExportConfig = onExportConfig,
+                onImportConfig = onImportConfig,
                 onBack = { screen = WardenScreen.Status },
             )
         }

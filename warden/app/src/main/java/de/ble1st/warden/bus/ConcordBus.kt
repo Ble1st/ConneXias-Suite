@@ -34,6 +34,8 @@ import de.ble1st.warden.registry.SafeguardCatalog
 import de.ble1st.warden.registry.SafeguardRegistryStore
 import de.ble1st.warden.registry.WardenProfileApplier
 import de.ble1st.warden.registry.WardenProfileApplyResult
+import de.ble1st.warden.antitheft.AntiTheftAlarmStorage
+import de.ble1st.warden.antitheft.AntiTheftLockStateReceiver
 import de.ble1st.warden.usb.UsbAutoLockStorage
 import de.ble1st.warden.usb.UsbLockStateReceiver
 import de.ble1st.warden.wardenAuditLog
@@ -285,6 +287,31 @@ class ConcordBus(
     fun setClipboardGuardEnabled(enabled: Boolean): Boolean =
         authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "setClipboardGuardEnabled") {
             ClipboardGuardStorage.setEnabled(context, enabled)
+            true
+        }
+
+    /** "Diebstahlschutz-Alarm" (2026-09-03, Ideenliste Punkte 3+4) — zwei unabhängige lokale
+     * Präferenzen ([AntiTheftAlarmStorage]), kein `Safeguard`/registry-Eintrag, dasselbe Muster wie
+     * [isUsbAutoLockEnabled]/[setUsbAutoLockEnabled] oben: [de.ble1st.warden.antitheft
+     * .AntiTheftLockStateReceiver] führt den eigentlichen Zustand nach, hier wird nur die
+     * Präferenz geschrieben und die Empfänger-Registrierung synchron gehalten. */
+    fun isAntiTheftMotionAlarmEnabled(): Boolean =
+        authorize(BusCommand.READ, "isAntiTheftMotionAlarmEnabled") { AntiTheftAlarmStorage.load(context).motionAlarmEnabled }
+
+    fun setAntiTheftMotionAlarmEnabled(enabled: Boolean): Boolean =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "setAntiTheftMotionAlarmEnabled") {
+            AntiTheftAlarmStorage.setMotionAlarmEnabled(context, enabled)
+            AntiTheftLockStateReceiver.syncRegistration(context)
+            true
+        }
+
+    fun isAntiTheftChargerAlarmEnabled(): Boolean =
+        authorize(BusCommand.READ, "isAntiTheftChargerAlarmEnabled") { AntiTheftAlarmStorage.load(context).chargerAlarmEnabled }
+
+    fun setAntiTheftChargerAlarmEnabled(enabled: Boolean): Boolean =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "setAntiTheftChargerAlarmEnabled") {
+            AntiTheftAlarmStorage.setChargerAlarmEnabled(context, enabled)
+            AntiTheftLockStateReceiver.syncRegistration(context)
             true
         }
 

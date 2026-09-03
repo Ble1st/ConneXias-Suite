@@ -12,6 +12,7 @@ import de.ble1st.warden.domain.appmanagement.SuspiciousAppFinding
 import de.ble1st.warden.domain.appmanagement.SuspiciousAppScanDecision
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
 import de.ble1st.warden.domain.appmanagement.ThreatSeverity
+import de.ble1st.warden.domain.appmanagement.PermissionEscalationDecision
 import de.ble1st.warden.domain.appmanagement.VersionDowngradeDecision
 import de.ble1st.warden.domain.pin.WardenLockTaskAutoEngageDecision
 import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
@@ -101,6 +102,8 @@ class SuspiciousAppScanController(
     private val signingCertHistoryStore: SigningCertHistoryStore,
     private val versionReader: PackageVersionReader,
     private val versionHistoryStore: VersionHistoryStore,
+    private val dangerousPermissionReader: DangerousPermissionReader,
+    private val permissionHistoryStore: PermissionHistoryStore,
     private val activeCapabilityReader: ActiveCapabilityReader,
     private val activationHistoryStore: ActivationHistoryStore,
     private val notifiedStore: SuspiciousAppNotifiedStore,
@@ -258,6 +261,13 @@ class SuspiciousAppScanController(
             currentVersionCodes,
         )
 
+        val currentDangerousPermissions = nonSystemPackageNames
+            .associateWith { pkg -> dangerousPermissionReader.dangerousPermissionsFor(pkg) }
+        val permissionEscalated = PermissionEscalationDecision.evaluate(
+            permissionHistoryStore.dangerousPermissions(),
+            currentDangerousPermissions,
+        )
+
         val findings = SuspiciousAppScanDecision.evaluate(
             deviceAdminPackageNames = adminReader.declaredDeviceAdminPackageNames(),
             accessibilityPackageNames = accessibilityScanner.declaredAccessibilityServicePackageNames(),
@@ -268,6 +278,7 @@ class SuspiciousAppScanController(
             deviceAdminNewlyActivatedPackageNames = newlyActivatedAdmins,
             accessibilityNewlyActivatedPackageNames = newlyActivatedAccessibility,
             versionDowngradedPackageNames = versionDowngraded,
+            permissionEscalatedPackageNames = permissionEscalated,
             ownPackageName = ownPackageName,
             protectedPackageNames = protectedPackageNames,
             systemPackageNames = systemPackageNames,
@@ -281,6 +292,7 @@ class SuspiciousAppScanController(
             activationHistoryStore.recordActiveAccessibilityServices(currentActiveAccessibility)
             currentFingerprints.forEach { (pkg, fingerprint) -> signingCertHistoryStore.record(pkg, fingerprint) }
             currentVersionCodes.forEach { (pkg, versionCode) -> versionHistoryStore.record(pkg, versionCode) }
+            currentDangerousPermissions.forEach { (pkg, permissions) -> permissionHistoryStore.record(pkg, permissions) }
         }
     }
 

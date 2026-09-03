@@ -15,6 +15,9 @@ import de.ble1st.warden.logging.SecurityEventStore
 import de.ble1st.warden.profile.AutoProfileWorker
 import de.ble1st.warden.cellsecurity.CellSecurityStartupWorker
 import de.ble1st.warden.cellsecurity.CellSecurityWorker
+import de.ble1st.warden.wifitrust.WifiTrustStartupWorker
+import de.ble1st.warden.wifitrust.WifiTrustWorker
+import de.ble1st.warden.score.ScoreReminderWorker
 import de.ble1st.warden.sim.SimChangeStartupWorker
 import de.ble1st.warden.sim.SimChangeWorker
 import de.ble1st.warden.logging.LogStorage
@@ -27,6 +30,7 @@ import de.ble1st.warden.appmanagement.AppDataWiper
 import de.ble1st.warden.appmanagement.AppFreezeManager
 import de.ble1st.warden.appmanagement.AppManagementController
 import de.ble1st.warden.appmanagement.AppUninstaller
+import de.ble1st.warden.appmanagement.DangerousPermissionReader
 import de.ble1st.warden.appmanagement.DangerousPermissionRevoker
 import de.ble1st.warden.appmanagement.DeviceAdminCapabilityScanner
 import de.ble1st.warden.appmanagement.InstallSourceScanner
@@ -34,6 +38,7 @@ import de.ble1st.warden.appmanagement.InstalledAppLister
 import de.ble1st.warden.appmanagement.NotificationListenerScanner
 import de.ble1st.warden.appmanagement.OverlayPermissionScanner
 import de.ble1st.warden.appmanagement.PackageVersionReader
+import de.ble1st.warden.appmanagement.PermissionHistoryStore
 import de.ble1st.warden.appmanagement.SigningCertHistoryStore
 import de.ble1st.warden.appmanagement.SigningCertReader
 import de.ble1st.warden.appmanagement.VersionHistoryStore
@@ -46,6 +51,7 @@ import de.ble1st.warden.appmanagement.SuspiciousAppScanWorker
 import de.ble1st.warden.bus.ConcordBus
 import de.ble1st.warden.performance.BatterySamplingWorker
 import de.ble1st.warden.presence.WardenLockSession
+import de.ble1st.warden.antitheft.AntiTheftLockStateReceiver
 import de.ble1st.warden.sentinelbridge.SentinelWatchdogController
 import de.ble1st.warden.usb.UsbAutoLockWorker
 import de.ble1st.warden.usb.UsbLockStateReceiver
@@ -116,6 +122,8 @@ class WardenApplication : Application() {
             signingCertHistoryStore = SigningCertHistoryStore(this),
             versionReader = PackageVersionReader(this),
             versionHistoryStore = VersionHistoryStore(this),
+            dangerousPermissionReader = DangerousPermissionReader(this),
+            permissionHistoryStore = PermissionHistoryStore(this),
             activeCapabilityReader = ActiveCapabilityReader(this),
             activationHistoryStore = ActivationHistoryStore(this),
             notifiedStore = SuspiciousAppNotifiedStore(this),
@@ -284,6 +292,14 @@ class WardenApplication : Application() {
             Log.w("WardenApplication", "USB-Lock-Receiver-Registrierung übersprungen", e)
         }
         try {
+            // "Diebstahlschutz-Alarm" (2026-09-03) — dieselbe Begründung wie
+            // UsbLockStateReceiver.syncRegistration direkt darüber: dynamische Registrierung muss
+            // bei jedem Prozessstart erneut hergestellt werden, kein Manifest-Eintrag möglich.
+            AntiTheftLockStateReceiver.syncRegistration(this)
+        } catch (e: Exception) {
+            Log.w("WardenApplication", "Diebstahlschutz-Receiver-Registrierung übersprungen", e)
+        }
+        try {
             // Performance-Monitoring-Fenster (2026-08-25) — dieselbe Best-Effort-Begründung wie
             // oben: unabhängig davon, ob der Bildschirm je geöffnet wird, sammelt dieser Worker
             // laufend Batterie-Verlaufsdaten, damit beim ersten Öffnen bereits eine Drain-Rate
@@ -323,6 +339,22 @@ class WardenApplication : Application() {
             CellSecurityStartupWorker.scheduleOnce(this)
         } catch (e: Exception) {
             Log.w("WardenApplication", "Mobilfunkzellen-Prüfung beim Start übersprungen", e)
+        }
+        try {
+            // "WLAN-Vertrauensliste" (2026-09-03) — dieselbe Begründung wie die beiden Prüfungen
+            // direkt darüber: periodischer Worker plus ein verzögerter Sofortlauf nach dem
+            // Prozessstart, statt bis zu 15 Minuten auf den ersten periodischen Lauf zu warten.
+            WifiTrustWorker.schedule(this)
+            WifiTrustStartupWorker.scheduleOnce(this)
+        } catch (e: Exception) {
+            Log.w("WardenApplication", "WLAN-Vertrauens-Prüfung beim Start übersprungen", e)
+        }
+        try {
+            // "Score-Berechnung-Erinnerung" (2026-09-03) — kein Sofortlauf beim Start nötig, s.
+            // ScoreReminderController-Klassendoc.
+            ScoreReminderWorker.schedule(this)
+        } catch (e: Exception) {
+            Log.w("WardenApplication", "Score-Erinnerung-Planung übersprungen", e)
         }
         try {
             // "Automatische Profilumschaltung" (2026-08-28) — nur planen, nicht sofort ausführen:

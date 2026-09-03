@@ -382,5 +382,6 @@ private fun signalsText(signals: Set<SuspiciousSignal>): String =
             SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED -> "Geräteadmin gerade aktiviert"
             SuspiciousSignal.ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED -> "Bedienungshilfe gerade aktiviert"
             SuspiciousSignal.VERSION_DOWNGRADED -> "Version zurückgestuft"
+            SuspiciousSignal.PERMISSION_ESCALATED -> "Neue gefährliche Rechte seit Update"
         }
     }

@@ -428,6 +428,11 @@
     <string name="settings_naming_title">Namensvergebung</string>
     <string name="settings_naming_subtitle">Zusatztext, Organisationsname, Support-Hinweis</string>
     <string name="settings_section_hardening">Härtung</string>
+    <string name="settings_section_config">Konfiguration</string>
+    <string name="settings_config_export_title">Exportieren</string>
+    <string name="settings_config_export_subtitle">Härtungskonfiguration als Textdatei sichern (ohne PIN, Schlüssel, Protokolle)</string>
+    <string name="settings_config_import_title">Importieren</string>
+    <string name="settings_config_import_subtitle">Zuvor exportierte Konfiguration wieder einspielen</string>
     <string name="settings_section_info">Info</string>
     <string name="settings_licenses_title">Lizenzen</string>
     <string name="settings_licenses_subtitle">Open-Source-Bestandteile dieser App</string>
@@ -474,6 +479,21 @@
     <string name="cell_security_field_title">Reaktion auf Mobilfunkzellen-Auffälligkeiten</string>
     <string name="cell_security_field_description">Prüft regelmäßig die registrierte Mobilfunkzelle auf Anzeichen, die bei einem IMSI-Catcher (Fake-Sendemast) auftreten können — z. B. eine plötzliche Funkgenerations-Herabstufung oder ein widersprüchlicher Gebietscode. Das ist ein Verdachtssignal, kein Beweis: Android erlaubt Apps keinen Zugriff auf das Basisband, echte Fehlalarme (z. B. beim Fahren durch ein Funkloch) sind möglich.</string>
 
+    <!-- de/ble1st/warden/ui/WifiTrustField.kt -->
+    <string name="wifi_trust_field_title">Reaktion auf unbekannte WLANs</string>
+    <string name="wifi_trust_field_description">Prüft regelmäßig, ob das verbundene WLAN in der Vertrauensliste unten steht. Reine SSID-Prüfung, kein Netzwerk-Fingerabdruck — ein Angreifer, der einen Netznamen kopiert, wird dadurch nicht erkannt.</string>
+    <string name="wifi_trust_list_title">Vertraute Netze</string>
+    <string name="wifi_trust_add_ssid_label">Netzname (SSID) hinzufügen</string>
+    <string name="wifi_trust_add_ssid_action">Hinzufügen</string>
+    <string name="wifi_trust_remove_ssid_content_description">%1$s entfernen</string>
+    <string name="wifi_trust_add_current_action">Aktuelles Netz „%1$s“ hinzufügen</string>
+
+    <!-- de/ble1st/warden/ui/AntiTheftField.kt -->
+    <string name="anti_theft_field_title">Diebstahlschutz-Alarm</string>
+    <string name="anti_theft_field_description">Löst einen lauten Alarm aus, der nur durch echtes Entsperren des Geräts endet. Beide Auslöser wirken ausschließlich bei gesperrtem Gerät.</string>
+    <string name="anti_theft_field_motion_label">Bewegungsalarm bei gesperrtem Gerät</string>
+    <string name="anti_theft_field_charger_label">Alarm bei Ladekabel-Abzug im gesperrten Zustand</string>
+
     <!-- de/ble1st/warden/ui/AutoProfileField.kt -->
     <string name="auto_profile_field_title">Automatische Profilumschaltung</string>
     <string name="auto_profile_field_description">Schaltet die Härtungsprofile ohne Zutun um — nach Uhrzeit oder wenn der Sicherheits-Scanner einen kritischen Fund führt. Zurücknehmen darf die Automatik nur, was sie selbst gesetzt hat: ein von Hand gewähltes strengeres Profil bleibt stehen, bis Sie es selbst wechseln.</string>
@@ -496,6 +516,15 @@
     <string name="suspicious_app_confirm_freeze_warning">„%1$s“ (%2$s) wird eingefroren (jederzeit über die App-Verwaltung rückgängig zu machen).</string>
     <string name="suspicious_app_confirm_generic_title">Aktion bestätigen</string>
 
+    <!-- de/ble1st/warden/clipboard/ClipboardSensitiveContentNotifier.kt -->
+    <string name="notification_clipboard_sensitive_channel_name">Sensible Einfügung</string>
+    <string name="notification_clipboard_sensitive_channel_description">Meldet, wenn beim Cross-App-Erkennung-Scan ein möglicherweise sensibler Wert (Seed-Phrase, Kartennummer, API-Key) in eine fremde App eingefügt wurde.</string>
+    <string name="clipboard_sensitive_notification_title">Möglicherweise sensibler Wert eingefügt</string>
+    <string name="clipboard_sensitive_notification_text">%1$s in %2$s erkannt. Prüfe, ob das beabsichtigt war.</string>
+    <string name="clipboard_sensitive_category_seed_phrase">Etwas, das wie eine Wallet-Seed-Phrase aussieht</string>
+    <string name="clipboard_sensitive_category_credit_card">Etwas, das wie eine Kartennummer aussieht</string>
+    <string name="clipboard_sensitive_category_api_key">Etwas, das wie ein API-Key/Zugangstoken aussieht</string>
+
     <!-- de/ble1st/warden/sim/SimChangeNotifier.kt -->
     <string name="notification_sim_change_channel_name">SIM-Wechsel</string>
     <string name="notification_sim_change_channel_description">Meldet, wenn die eingelegte SIM-Karte wechselt oder entfernt wird.</string>
@@ -509,6 +538,23 @@
     <string name="notification_cell_security_channel_description">Meldet ungewöhnliches Verhalten der registrierten Mobilfunkzelle (möglicher Hinweis auf einen IMSI-Catcher, kein Beweis).</string>
     <string name="notification_cell_security_critical_title">Verdächtige Mobilfunkzelle</string>
     <string name="notification_cell_security_warning_title">Ungewöhnliches Zellverhalten</string>
+
+    <!-- de/ble1st/warden/antitheft/AntiTheftAlarmNotifier.kt -->
+    <string name="notification_anti_theft_channel_name">Diebstahlschutz-Alarm</string>
+    <string name="notification_anti_theft_channel_description">Zeigt an, dass der Diebstahlschutz-Alarm gerade aktiv ist. Endet erst mit einer echten Geräte-Entsperrung.</string>
+    <string name="notification_anti_theft_title">Diebstahlschutz-Alarm aktiv</string>
+
+    <!-- de/ble1st/warden/wifitrust/WifiTrustNotifier.kt -->
+    <string name="notification_wifi_trust_channel_name">Unbekanntes WLAN</string>
+    <string name="notification_wifi_trust_channel_description">Meldet, wenn sich das Gerät mit einem WLAN verbindet, das nicht in der Vertrauensliste steht.</string>
+    <string name="notification_wifi_trust_title">Unbekanntes WLAN erkannt</string>
+    <string name="notification_wifi_trust_text">Verbunden mit „%1$s“, nicht in der Vertrauensliste. %2$s</string>
+
+    <!-- de/ble1st/warden/score/ScoreReminderNotifier.kt -->
+    <string name="notification_score_reminder_channel_name">Sicherheits-Score-Erinnerung</string>
+    <string name="notification_score_reminder_channel_description">Erinnert, wenn der Sicherheits-Score seit über 30 Tagen nicht neu berechnet wurde.</string>
+    <string name="notification_score_reminder_title">Sicherheits-Score aktualisieren?</string>
+    <string name="notification_score_reminder_text">Der letzte berechnete Sicherheits-Score ist über 30 Tage alt.</string>
 
     <!-- de/ble1st/warden/vpn/WardenVpnService.kt -->
     <string name="notification_net_lockdown_channel_name">Warden Netz-Sperre</string>

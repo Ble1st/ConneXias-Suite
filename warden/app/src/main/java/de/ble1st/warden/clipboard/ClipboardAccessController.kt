@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
 import de.ble1st.warden.domain.clipboard.ClipboardAccessEvent
+import de.ble1st.warden.domain.clipboard.SensitiveContentDetector
 import de.ble1st.warden.wardenAuditLog
 
 /**
@@ -32,6 +33,21 @@ class ClipboardAccessController(private val context: Context) {
             wardenAuditLog(context).append(Log.INFO, TAG, "Zwischenablage-naher Zugriff erkannt: $label ($packageName)")
         } catch (e: Exception) {
             Log.w(TAG, "Cross-App-Zugriffsereignis nicht gespeichert", e)
+        }
+        // "Sensible-Einfügung-Alarm" (2026-09-03) — unabhängig vom obigen try/catch: ein
+        // fehlgeschlagenes Speichern des Historieneintrags soll die Alarmierung selbst nicht
+        // verhindern, beides sind unabhängige Senken für dasselbe Ereignis.
+        SensitiveContentDetector.detect(text)?.let { category ->
+            try {
+                ClipboardSensitiveContentNotifier(context).notify(category, label)
+                wardenAuditLog(context).append(
+                    Log.WARN,
+                    TAG,
+                    "Sensibler Inhalt erkannt (${category.name.lowercase()}) beim Einfügen in $label ($packageName)",
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Sensible-Einfügung-Alarm fehlgeschlagen", e)
+            }
         }
     }
 

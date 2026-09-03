@@ -415,6 +415,29 @@ bequem erreichbares echtes Passwortfeld im Testlauf zur Hand) und der `ownPackag
 wenig zusätzliche Aussagekraft, da beide Filter dieselbe einfache String-Vergleichslogik sind wie
 die bereits live bestätigten, und `ClipboardAccessDecisionTest` beide explizit abdeckt).
 
+### 3.2.8 Sensible-Einfügung-Alarm (2026-09-03, Folgegespräch nach 3.2.7)
+
+Erste tatsächliche Auswertung des in 3.2.7 gebauten Textinhalts, nicht nur Speicherung/Anzeige:
+`domain/clipboard/SensitiveContentDetector` (framework-frei, unit-getestet) prüft den von
+`ClipboardAccessibilityService` erfassten Feldinhalt auf drei grobe Muster — eine
+Seed-Phrase-artige Wortfolge (12/15/18/21/24 durchgehend kleingeschriebene 3-8-Zeichen-Token,
+**keine echte BIP-39-Wortliste**, bewusst: die vollen 2048 Wörter wären ein spürbarer
+Umfangs-/Pflegeaufwand für eine ohnehin nur grobe Heuristik), eine Kartennummer-artige Ziffernfolge
+(13-19 Ziffern, Luhn-validiert, eigene Implementierung statt Bibliothek) und ein API-Key-artiges
+Token (bekannte Präfixe wie `sk-`/`AKIA`/`ghp_`/`AIza` oder ein generischer
+"lang, gemischtgroß, mit Ziffer"-Heuristik-Fallback). Sucht im **gesamten** erfassten Feldtext nach
+einem Treffer, nicht nur im eingefügten Teilstück — derselbe Grund wie in 3.2.6/3.2.7 dokumentiert:
+`ClipboardAccessibilityService` liefert immer `event.text` (den kompletten aktuellen Feldinhalt),
+nie nur die eingefügte Differenz.
+
+Bei einem Treffer: eine eigene, von der ClipboardGuard-Historie unabhängige Senke —
+`ClipboardSensitiveContentNotifier` (`IMPORTANCE_HIGH`, trägt **nie** den erfassten Text selbst,
+nur die erkannte Kategorie) plus eine `WARN`-Audit-Log-Zeile. Läuft in
+`ClipboardAccessController.recordAccess()` **unabhängig** vom bereits vorhandenen
+Historien-Speichervorgang direkt darüber (eigenes try/catch) — ein fehlgeschlagenes Speichern des
+Verlaufseintrags darf die Alarmierung nicht mit sich reißen, beides sind unabhängige Senken für
+dasselbe Ereignis.
+
 ### 3.3 Warum nicht per DevicePolicyManager erzwingen
 
 Es gibt keine `setClipboard*`-Methode in `DevicePolicyManager` — anders als Kamera

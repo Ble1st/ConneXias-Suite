@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Diebstahlschutz-Alarm (2026-09-03, AntiTheftAlarmController): "normal"-Protection-Level,
+         automatisch gewährt, kein Laufzeit-Dialog. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- WLAN-Vertrauensliste (2026-09-03, WifiTrustController): liest nur die SSID des aktuell
+         verbundenen Netzes, "normal"-Protection-Level. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
     <!-- ChildVPN-Config per QR-Code scannen (2026-08-31, docs/design-barbican-prozess-childvpn.md,
          NetworkScreen.kt::ChildVpnSection). Anders als READ_PHONE_STATE/ACCESS_FINE_LOCATION unten
          bewusst NICHT per DevicePolicyManager.setPermissionGrantState selbst gewährt — ein

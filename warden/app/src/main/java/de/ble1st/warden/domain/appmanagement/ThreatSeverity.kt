@@ -43,6 +43,7 @@ enum class ThreatSeverity {
             SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED,
             SuspiciousSignal.ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED,
             SuspiciousSignal.VERSION_DOWNGRADED,
+            SuspiciousSignal.PERMISSION_ESCALATED,
             -> CRITICAL
         }
 

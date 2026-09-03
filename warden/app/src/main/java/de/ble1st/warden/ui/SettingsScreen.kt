@@ -1,6 +1,8 @@
 package de.ble1st.warden.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -20,12 +22,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import de.ble1st.warden.R
 import de.ble1st.warden.domain.cellsecurity.CellSecurityReaction
 import de.ble1st.warden.domain.sim.SimChangeReaction
 import de.ble1st.warden.domain.profile.AutoProfileConfig
+import de.ble1st.warden.domain.wifitrust.WifiTrustReaction
 import de.ble1st.warden.ui.theme.WardenAccent
 
 /**
@@ -71,8 +75,20 @@ fun SettingsScreen(
     onSimChangeReactionChange: (SimChangeReaction?) -> Unit,
     cellSecurityReaction: CellSecurityReaction?,
     onCellSecurityReactionChange: (CellSecurityReaction?) -> Unit,
+    wifiTrustReaction: WifiTrustReaction?,
+    onWifiTrustReactionChange: (WifiTrustReaction?) -> Unit,
+    trustedWifiSsids: Set<String>,
+    onAddTrustedWifiSsid: (String) -> Unit,
+    onRemoveTrustedWifiSsid: (String) -> Unit,
+    currentWifiSsid: String?,
+    antiTheftMotionAlarmEnabled: Boolean,
+    onAntiTheftMotionAlarmChange: (Boolean) -> Unit,
+    antiTheftChargerAlarmEnabled: Boolean,
+    onAntiTheftChargerAlarmChange: (Boolean) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
+    onExportConfig: () -> String,
+    onImportConfig: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     var showNamingSettings by remember { mutableStateOf(false) }
@@ -165,10 +181,56 @@ fun SettingsScreen(
                 onSelect = onCellSecurityReactionChange,
                 modifier = Modifier.padding(top = 16.dp),
             )
+            WifiTrustField(
+                selectedReaction = wifiTrustReaction,
+                onSelectReaction = onWifiTrustReactionChange,
+                trustedSsids = trustedWifiSsids,
+                onAddSsid = onAddTrustedWifiSsid,
+                onRemoveSsid = onRemoveTrustedWifiSsid,
+                currentSsid = currentWifiSsid,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            AntiTheftField(
+                motionAlarmEnabled = antiTheftMotionAlarmEnabled,
+                onMotionAlarmChange = onAntiTheftMotionAlarmChange,
+                chargerAlarmEnabled = antiTheftChargerAlarmEnabled,
+                onChargerAlarmChange = onAntiTheftChargerAlarmChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
             AutoProfileField(
                 config = autoProfileConfig,
                 onChange = onAutoProfileConfigChange,
                 modifier = Modifier.padding(top = 16.dp),
+            )
+
+            SectionLabel(stringResource(R.string.settings_section_config))
+            val context = LocalContext.current
+            val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+                if (uri != null) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { it.write(onExportConfig().toByteArray()) }
+                    }
+                }
+            }
+            val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) {
+                    val text = runCatching {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    }.getOrNull()
+                    if (text != null) onImportConfig(text)
+                }
+            }
+            MenuRow(
+                title = stringResource(R.string.settings_config_export_title),
+                subtitle = stringResource(R.string.settings_config_export_subtitle),
+                tag = "EX",
+                onClick = { exportLauncher.launch("warden-konfiguration.txt") },
+            )
+            MenuRow(
+                title = stringResource(R.string.settings_config_import_title),
+                subtitle = stringResource(R.string.settings_config_import_subtitle),
+                tag = "IM",
+                onClick = { importLauncher.launch(arrayOf("text/plain")) },
             )
 
             SectionLabel(stringResource(R.string.settings_section_info))

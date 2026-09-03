@@ -77,6 +77,7 @@ class SuspiciousAppNotifier(private val context: Context) {
                 SuspiciousSignal.DEVICE_ADMIN_NEWLY_ACTIVATED -> "Geräteadministrator gerade aktiviert"
                 SuspiciousSignal.ACCESSIBILITY_SERVICE_NEWLY_ACTIVATED -> "Bedienungshilfen-Dienst gerade aktiviert"
                 SuspiciousSignal.VERSION_DOWNGRADED -> "auf eine ältere Version zurückgestuft"
+                SuspiciousSignal.PERMISSION_ESCALATED -> "hat seit einem Update neue gefährliche Rechte"
             }
         }
         val channelId = channelId(severity)
