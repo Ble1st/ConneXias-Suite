@@ -33,7 +33,7 @@ class BatterySamplingWorker(
     }
 
     companion object {
-        private const val UNIQUE_WORK_NAME = "battery-sampling"
+        const val UNIQUE_WORK_NAME = "battery-sampling"
         private const val POLL_INTERVAL_MINUTES = 30L
 
         /** Idempotent (`KEEP`) — sicher bei jedem Prozessstart erneut aufzurufen

@@ -3,7 +3,9 @@ package de.ble1st.warden.presence
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
@@ -275,6 +278,25 @@ private fun LogViewerScreen(
                             text = { Text(String.format(stringResource(R.string.log_viewer_tab_system), current.systemEvents.records.size)) },
                         )
                     }
+                    if (!showSystemEvents) {
+                        // Audit-Log-Export (2026-09-03, Ideenliste "Audit-Log-Export"): exportiert
+                        // exakt die bereits geladenen, bereits entschlüsselten `current.entries` —
+                        // kein zweiter Presence-Nachweis und kein erneutes Entschlüsseln nötig, der
+                        // Zugriff ist schon erbracht. Gleiches SAF-Muster
+                        // (`ActivityResultContracts.CreateDocument("text/plain")`) wie
+                        // `SettingsScreen`s Konfigurations-Export.
+                        val context = LocalContext.current
+                        val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+                            if (uri != null) {
+                                runCatching {
+                                    context.contentResolver.openOutputStream(uri)?.use { it.write(formatAuditLogForExport(current.entries).toByteArray()) }
+                                }.onFailure { Log.w("LogViewerActivity", "Audit-Log-Export fehlgeschlagen", it) }
+                            }
+                        }
+                        TextButton(onClick = { exportLauncher.launch("warden-audit-log.txt") }) {
+                            Text(stringResource(R.string.log_viewer_export_action))
+                        }
+                    }
                     if (showSystemEvents) {
                         SystemEventList(current.systemEvents)
                     } else {
@@ -428,3 +450,28 @@ private val TIMESTAMP_FORMAT: DateTimeFormatter =
 private fun formatTimestamp(millis: Long): String =
     runCatching { TIMESTAMP_FORMAT.format(Instant.ofEpochMilli(millis)) }
         .getOrDefault("??.??.???? ??:??:??")
+
+private fun priorityLabel(priority: Int): String = when (priority) {
+    Log.ASSERT -> "ASSERT"
+    Log.ERROR -> "ERROR"
+    Log.WARN -> "WARN"
+    Log.INFO -> "INFO"
+    Log.DEBUG -> "DEBUG"
+    Log.VERBOSE -> "VERBOSE"
+    else -> priority.toString()
+}
+
+// Audit-Log-Export (2026-09-03): reine Textzeilen, keine JSON/CSV-Struktur — Warden hat sonst
+// nirgends einen strukturierten Export-Konsumenten, und ein Klartext-Transkript liest sich direkt.
+// Die Hash-Ketten-Felder (previousHash/hash) sind bewusst nicht enthalten: außerhalb dieser App
+// gibt es keinen Weg, sie unabhängig zu prüfen (dafür bräuchte es die volle Kette samt
+// GENESIS_HASH-Anker, s. HashChainLogStore) — ein Klartext-Transkript, keine eigenständig
+// verifizierbare Beweisdatei. Die Prüfung selbst bleibt Sache dieser Activity
+// (ChainVerificationResult, oben in AuditLogList sichtbar).
+private fun formatAuditLogForExport(entries: List<LogEntry>): String {
+    val header = "Warden Audit-Log-Export — ${formatTimestamp(System.currentTimeMillis())}, ${entries.size} Einträge\n\n"
+    val body = entries.joinToString("\n") { entry ->
+        "#${entry.sequence} | ${formatTimestamp(entry.timestampMillis)} | ${priorityLabel(entry.priority)} | ${entry.tag ?: "-"} | ${entry.message}"
+    }
+    return header + body
+}

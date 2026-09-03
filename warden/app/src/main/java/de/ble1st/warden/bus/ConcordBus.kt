@@ -36,6 +36,7 @@ import de.ble1st.warden.registry.WardenProfileApplier
 import de.ble1st.warden.registry.WardenProfileApplyResult
 import de.ble1st.warden.antitheft.AntiTheftAlarmStorage
 import de.ble1st.warden.antitheft.AntiTheftLockStateReceiver
+import de.ble1st.warden.tracker.TrackerGuardStorage
 import de.ble1st.warden.usb.UsbAutoLockStorage
 import de.ble1st.warden.usb.UsbLockStateReceiver
 import de.ble1st.warden.wardenAuditLog
@@ -312,6 +313,20 @@ class ConcordBus(
         authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "setAntiTheftChargerAlarmEnabled") {
             AntiTheftAlarmStorage.setChargerAlarmEnabled(context, enabled)
             AntiTheftLockStateReceiver.syncRegistration(context)
+            true
+        }
+
+    /** "BLE-Tracker-Wächter" (2026-09-03, Ideenliste "auch AirTags") — reine lokale Präferenz
+     * ([TrackerGuardStorage]), kein `Safeguard`/registry-Eintrag: [de.ble1st.warden.tracker
+     * .BleTrackerWorker] ist bereits unbedingt geplant (dasselbe "immer geplant, Controller prüft
+     * selbst"-Muster wie bei Cell-Security/WiFi-Vertrauensliste), dieser Schalter steuert nur, ob
+     * [de.ble1st.warden.tracker.BleTrackerController.checkOnce] etwas tut. */
+    fun isTrackerGuardEnabled(): Boolean =
+        authorize(BusCommand.READ, "isTrackerGuardEnabled") { TrackerGuardStorage.isEnabled(context) }
+
+    fun setTrackerGuardEnabled(enabled: Boolean): Boolean =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "setTrackerGuardEnabled") {
+            TrackerGuardStorage.setEnabled(context, enabled)
             true
         }
 

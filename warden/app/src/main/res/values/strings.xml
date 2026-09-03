@@ -36,6 +36,8 @@
     <string name="menu_network_subtitle">Netz-Sperre, Firewall-Policy, DNS-Filter</string>
     <string name="menu_security_score_title">Sicherheits-Score</string>
     <string name="menu_security_score_subtitle">Bedrohungen, Rechte, Integrität, Härtung in einer Zahl</string>
+    <string name="menu_system_diagnostics_title">Systemdiagnose</string>
+    <string name="menu_system_diagnostics_subtitle">Worker eingeplant, Berechtigungen erteilt, Empfänger aktiv?</string>
     <string name="menu_pin_management_title">Warden-PIN verwalten</string>
     <string name="menu_lock_now_title">Jetzt sperren</string>
     <string name="menu_lock_now_subtitle">Sofort, ohne Bestätigung</string>
@@ -400,6 +402,21 @@
     <string name="log_viewer_skipped_lines">⚠ %1$d beschädigte Zeile(n) übersprungen</string>
     <string name="log_viewer_visible_count">%1$d von %2$d Ereignissen</string>
     <string name="log_viewer_system_line">%1$s %2$s %3$s: %4$s</string>
+    <string name="log_viewer_export_action">Audit-Log exportieren</string>
+
+    <!-- de/ble1st/warden/ui/SystemDiagnosticsScreen.kt -->
+    <string name="system_diagnostics_title">Systemdiagnose</string>
+    <string name="system_diagnostics_loading">Lade…</string>
+    <string name="system_diagnostics_section_workers">Periodische Prüfungen</string>
+    <string name="system_diagnostics_workers_description">Ob der wiederkehrende Hintergrundjob für jeden lokalen Auslöser aktuell eingeplant ist. Sagt nichts darüber aus, ob die zugehörige Reaktion eingeschaltet ist — der Job läuft immer, die Entscheidung trifft der jeweilige Controller intern bei jedem Lauf.</string>
+    <string name="system_diagnostics_section_permissions">Selbst gewährte Berechtigungen</string>
+    <string name="system_diagnostics_permissions_description">Warden gewährt sich diese Berechtigungen selbst (Geräteinhaber-Recht), damit die lokalen Auslöser ohne manuelle Freigabe funktionieren. Fehlt eine, liest der zugehörige Auslöser stattdessen null und reagiert nicht — kein Absturz, aber auch keine Erkennung.</string>
+    <string name="system_diagnostics_section_receivers">Dynamisch registrierte Empfänger</string>
+    <string name="system_diagnostics_status_ok">OK</string>
+    <string name="system_diagnostics_status_missing">Fehlt</string>
+    <string name="system_diagnostics_receiver_feature_enabled">Feature eingeschaltet — sollte registriert sein</string>
+    <string name="system_diagnostics_receiver_feature_disabled">Feature ausgeschaltet — Abmeldung ist korrekt</string>
+    <string name="system_diagnostics_refresh_action">Aktualisieren</string>
 
     <!-- de/ble1st/warden/ui/AppManagementScreen.kt -->
     <string name="app_management_title">App-Verwaltung</string>
@@ -494,6 +511,11 @@
     <string name="anti_theft_field_motion_label">Bewegungsalarm bei gesperrtem Gerät</string>
     <string name="anti_theft_field_charger_label">Alarm bei Ladekabel-Abzug im gesperrten Zustand</string>
 
+    <!-- de/ble1st/warden/ui/TrackerGuardField.kt -->
+    <string name="tracker_guard_field_title">BLE-Tracker-Wächter</string>
+    <string name="tracker_guard_field_description">Prüft regelmäßig per Bluetooth-Low-Energy-Scan, ob ein nicht gekoppeltes Gerät (z. B. ein AirTag oder ähnliches Tracking-Zubehör) wiederholt in der Nähe bleibt. Verdachtssignal, kein Beweis — ein echtes AirTag rotiert seine Kennung regelmäßig, was eine zuverlässige Verfolgung über Stunden hinweg erschwert.</string>
+    <string name="tracker_guard_field_switch_label">Auf mitlaufende BLE-Geräte prüfen</string>
+
     <!-- de/ble1st/warden/ui/AutoProfileField.kt -->
     <string name="auto_profile_field_title">Automatische Profilumschaltung</string>
     <string name="auto_profile_field_description">Schaltet die Härtungsprofile ohne Zutun um — nach Uhrzeit oder wenn der Sicherheits-Scanner einen kritischen Fund führt. Zurücknehmen darf die Automatik nur, was sie selbst gesetzt hat: ein von Hand gewähltes strengeres Profil bleibt stehen, bis Sie es selbst wechseln.</string>
@@ -549,6 +571,13 @@
     <string name="notification_wifi_trust_channel_description">Meldet, wenn sich das Gerät mit einem WLAN verbindet, das nicht in der Vertrauensliste steht.</string>
     <string name="notification_wifi_trust_title">Unbekanntes WLAN erkannt</string>
     <string name="notification_wifi_trust_text">Verbunden mit „%1$s“, nicht in der Vertrauensliste. %2$s</string>
+
+    <!-- de/ble1st/warden/tracker/BleTrackerNotifier.kt -->
+    <string name="notification_ble_tracker_channel_name">BLE-Tracker-Verdacht</string>
+    <string name="notification_ble_tracker_channel_description">Meldet ein nicht gekoppeltes BLE-Gerät, das wiederholt über Zeit in der Nähe bleibt (möglicherweise ein Tracking-Zubehör).</string>
+    <string name="notification_ble_tracker_findmy_title">Möglicherweise ein AirTag/Find-My-Zubehör in der Nähe</string>
+    <string name="notification_ble_tracker_generic_title">Unbekanntes Gerät bleibt in der Nähe</string>
+    <string name="notification_ble_tracker_text">Adresse %1$s, %2$d Sichtungen. Prüfe, ob dir das Gerät bekannt vorkommt.</string>
 
     <!-- de/ble1st/warden/score/ScoreReminderNotifier.kt -->
     <string name="notification_score_reminder_channel_name">Sicherheits-Score-Erinnerung</string>

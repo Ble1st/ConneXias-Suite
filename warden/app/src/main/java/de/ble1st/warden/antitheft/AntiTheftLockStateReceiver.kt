@@ -53,6 +53,14 @@ class AntiTheftLockStateReceiver : BroadcastReceiver() {
         @Volatile
         private var registered: AntiTheftLockStateReceiver? = null
 
+        /**
+         * Nur für [de.ble1st.warden.diagnostics.SystemDiagnosticsReader] (2026-09-03) — dieser
+         * Empfänger ist der einzige dynamisch (de-)registrierte im ganzen Projekt ohne öffentlichen
+         * Statuszugriff; für die Systemdiagnose reicht ein reiner Lesezugriff auf denselben
+         * synchronisierten Zustand, den [syncRegistration] auch selbst prüft.
+         */
+        fun isRegistered(): Boolean = synchronized(this) { registered != null }
+
         fun syncRegistration(context: Context) {
             val app = context.applicationContext
             val want = AntiTheftAlarmStorage.load(app).isAnyEnabled

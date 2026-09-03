@@ -1,4 +1,4 @@
-package de.ble1st.warden.score
+package de.ble1st.warden.tracker
 
 import android.content.Context
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -9,29 +9,30 @@ import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
 
 /**
- * WorkManager-Glue für [ScoreReminderController] (2026-09-03) — ein Tageszyklus reicht, anders als
- * die 15-Minuten-Perioden der übrigen lokalen Trigger: eine 30-Tage-Schwelle muss nicht minutengenau
- * geprüft werden, s. [de.ble1st.warden.domain.score.ScoreReminderDecision]-Klassendoc.
+ * WorkManager-Glue für [BleTrackerController] (2026-09-03) — 15-Minuten-Periode wie die übrigen
+ * lokalen Trigger (WorkManagers erzwungenes Minimum). Kein Startup-Sofortlauf: ein frisch
+ * gestartetes Gerät braucht keine sofortige BLE-Prüfung, anders als z. B. SIM-Wechsel direkt nach
+ * einem verdächtigen Neustart.
  */
-class ScoreReminderWorker(
+class BleTrackerWorker(
     context: Context,
     params: WorkerParameters,
 ) : Worker(context, params) {
 
     override fun doWork(): Result {
-        ScoreReminderController(applicationContext).checkAndMaybeRemind()
+        BleTrackerController(applicationContext).checkOnce()
         return Result.success()
     }
 
     companion object {
-        const val UNIQUE_WORK_NAME = "score-reminder-check"
-        private const val POLL_INTERVAL_DAYS = 1L
+        const val UNIQUE_WORK_NAME = "ble-tracker-check"
+        private const val POLL_INTERVAL_MINUTES = 15L
 
         /** Idempotent (`KEEP`), sicher bei jedem Prozessstart erneut aufzurufen. */
         fun schedule(context: Context) {
-            val request = PeriodicWorkRequestBuilder<ScoreReminderWorker>(
-                POLL_INTERVAL_DAYS,
-                TimeUnit.DAYS,
+            val request = PeriodicWorkRequestBuilder<BleTrackerWorker>(
+                POLL_INTERVAL_MINUTES,
+                TimeUnit.MINUTES,
             ).build()
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(UNIQUE_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)

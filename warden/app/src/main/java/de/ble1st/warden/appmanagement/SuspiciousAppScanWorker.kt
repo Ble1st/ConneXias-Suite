@@ -33,7 +33,7 @@ class SuspiciousAppScanWorker(
     }
 
     companion object {
-        private const val UNIQUE_WORK_NAME = "suspicious-app-scan"
+        const val UNIQUE_WORK_NAME = "suspicious-app-scan"
         private const val UNIQUE_IMMEDIATE_WORK_NAME = "suspicious-app-scan-immediate"
         private const val POLL_INTERVAL_MINUTES = 15L
 

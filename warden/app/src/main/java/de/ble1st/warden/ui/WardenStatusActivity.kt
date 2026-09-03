@@ -70,6 +70,8 @@ import de.ble1st.warden.appmanagement.InstalledAppLister
 import de.ble1st.warden.appmanagement.PermissionAuditInfo
 import de.ble1st.warden.appmanagement.PermissionAuditScanner
 import de.ble1st.warden.domain.score.SecurityScoreBreakdown
+import de.ble1st.warden.diagnostics.SystemDiagnosticsReader
+import de.ble1st.warden.diagnostics.SystemDiagnosticsSnapshot
 import de.ble1st.warden.score.SecurityScoreCalculator
 import de.ble1st.warden.score.SecurityScoreHistoryStore
 import de.ble1st.warden.appmanagement.SentinelInstallStatus
@@ -370,6 +372,9 @@ class WardenStatusActivity : ComponentActivity() {
             var antiTheftChargerAlarmEnabled by remember {
                 mutableStateOf(runCatching { concordBus.isAntiTheftChargerAlarmEnabled() }.getOrDefault(false))
             }
+            var trackerGuardEnabled by remember {
+                mutableStateOf(runCatching { concordBus.isTrackerGuardEnabled() }.getOrDefault(false))
+            }
             // "Automatische Profilumschaltung" (2026-08-28) — reiner Soll-Wert wie die übrigen
             // Härtungs-Felder; angewendet wird ausschließlich vom periodischen Worker.
             var autoProfileConfig by remember {
@@ -597,6 +602,12 @@ class WardenStatusActivity : ComponentActivity() {
                         runCatching { concordBus.setAntiTheftChargerAlarmEnabled(enabled) }
                             .onFailure { Log.w(TAG, "Ladekabel-Alarm-Schalter fehlgeschlagen", it) }
                     },
+                    trackerGuardEnabled = trackerGuardEnabled,
+                    onTrackerGuardEnabledChange = { enabled ->
+                        trackerGuardEnabled = enabled
+                        runCatching { concordBus.setTrackerGuardEnabled(enabled) }
+                            .onFailure { Log.w(TAG, "BLE-Tracker-Wächter-Schalter fehlgeschlagen", it) }
+                    },
                     failedAttemptsRebootThreshold = failedAttemptsRebootThreshold,
                     secureLockScreenConfigured = secureLockScreenConfigured,
                     onFailedAttemptsRebootThresholdChange = { updated ->
@@ -713,6 +724,8 @@ private sealed class WardenScreen {
     data object SecurityScore : WardenScreen()
     /** Phase 2 ("Signal 2", docs/design-clipboard-guard.md Abschnitt 3.2.6/3.2.7). */
     data object ClipboardCrossApp : WardenScreen()
+    /** Ideenliste-Vorschlag 5 ("Systemdiagnose-Bildschirm", 2026-09-03). */
+    data object SystemDiagnostics : WardenScreen()
 }
 
 /** Architektur-Review 2026-08-24 (F-3) — `WardenScreen` selbst ist keine der sonst über
@@ -737,6 +750,7 @@ private val WardenScreenSaver: Saver<WardenScreen, String> = Saver(
             "Network" -> WardenScreen.Network
             "SecurityScore" -> WardenScreen.SecurityScore
             "ClipboardCrossApp" -> WardenScreen.ClipboardCrossApp
+            "SystemDiagnostics" -> WardenScreen.SystemDiagnostics
             else -> WardenScreen.Status
         }
     },
@@ -781,6 +795,8 @@ private fun WardenRoot(
     onAntiTheftMotionAlarmChange: (Boolean) -> Unit,
     antiTheftChargerAlarmEnabled: Boolean,
     onAntiTheftChargerAlarmChange: (Boolean) -> Unit,
+    trackerGuardEnabled: Boolean,
+    onTrackerGuardEnabledChange: (Boolean) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
     onExportConfig: () -> String,
@@ -916,6 +932,7 @@ private fun WardenRoot(
                 onOpenNetwork = { screen = WardenScreen.Network },
                 onOpenSecurityScore = { screen = WardenScreen.SecurityScore },
                 onOpenClipboardCrossApp = { screen = WardenScreen.ClipboardCrossApp },
+                onOpenSystemDiagnostics = { screen = WardenScreen.SystemDiagnostics },
             )
         }
         WardenScreen.AppManagement -> {
@@ -1252,6 +1269,8 @@ private fun WardenRoot(
                 onAntiTheftMotionAlarmChange = onAntiTheftMotionAlarmChange,
                 antiTheftChargerAlarmEnabled = antiTheftChargerAlarmEnabled,
                 onAntiTheftChargerAlarmChange = onAntiTheftChargerAlarmChange,
+                trackerGuardEnabled = trackerGuardEnabled,
+                onTrackerGuardEnabledChange = onTrackerGuardEnabledChange,
                 autoProfileConfig = autoProfileConfig,
                 onAutoProfileConfigChange = onAutoProfileConfigChange,
                 onExportConfig = onExportConfig,
@@ -1541,6 +1560,28 @@ private fun WardenRoot(
                         }
                     }
                 },
+            )
+        }
+        WardenScreen.SystemDiagnostics -> {
+            val appContext = LocalContext.current.applicationContext
+            val diagnosticsScope = rememberCoroutineScope()
+            var diagnosticsSnapshot by remember { mutableStateOf<SystemDiagnosticsSnapshot?>(null) }
+
+            fun refreshDiagnostics() {
+                diagnosticsScope.launch {
+                    diagnosticsSnapshot = withContext(Dispatchers.IO) {
+                        runCatching { SystemDiagnosticsReader(appContext).read() }
+                            .onFailure { Log.e("WardenStatus", "Systemdiagnose fehlgeschlagen", it) }
+                            .getOrNull()
+                    }
+                }
+            }
+            LaunchedEffect(Unit) { refreshDiagnostics() }
+
+            SystemDiagnosticsScreen(
+                snapshot = diagnosticsSnapshot,
+                onRefresh = { refreshDiagnostics() },
+                onBack = { screen = WardenScreen.Status },
             )
         }
         WardenScreen.ClipboardCrossApp -> {
@@ -1866,6 +1907,7 @@ private fun WardenStatusScreen(
     onOpenPerformanceMonitor: () -> Unit,
     onOpenNetwork: () -> Unit,
     onOpenSecurityScore: () -> Unit,
+    onOpenSystemDiagnostics: () -> Unit,
 ) {
     // Punkt 4 ("weitere App-UI-Verschönerungen", 2026-08-22) — haptisches Feedback für die einzige
     // sofort (ohne Bestätigungsschritt) ausgeführte Dashboard-Aktion, s. NumpadButton-Kommentar in
@@ -1960,6 +2002,12 @@ private fun WardenStatusScreen(
                 subtitle = stringResource(R.string.menu_security_score_subtitle),
                 tag = "SCR",
                 onClick = onOpenSecurityScore,
+            )
+            MenuRow(
+                title = stringResource(R.string.menu_system_diagnostics_title),
+                subtitle = stringResource(R.string.menu_system_diagnostics_subtitle),
+                tag = "SD",
+                onClick = onOpenSystemDiagnostics,
             )
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 

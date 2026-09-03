@@ -27,7 +27,7 @@ class CellSecurityWorker(
     }
 
     companion object {
-        private const val UNIQUE_WORK_NAME = "cell-security-check"
+        const val UNIQUE_WORK_NAME = "cell-security-check"
         private const val POLL_INTERVAL_MINUTES = 15L
 
         /** Idempotent (`KEEP`), sicher bei jedem Prozessstart erneut aufzurufen. */

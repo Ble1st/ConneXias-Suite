@@ -18,6 +18,7 @@ import de.ble1st.warden.cellsecurity.CellSecurityWorker
 import de.ble1st.warden.wifitrust.WifiTrustStartupWorker
 import de.ble1st.warden.wifitrust.WifiTrustWorker
 import de.ble1st.warden.score.ScoreReminderWorker
+import de.ble1st.warden.tracker.BleTrackerWorker
 import de.ble1st.warden.sim.SimChangeStartupWorker
 import de.ble1st.warden.sim.SimChangeWorker
 import de.ble1st.warden.logging.LogStorage
@@ -355,6 +356,14 @@ class WardenApplication : Application() {
             ScoreReminderWorker.schedule(this)
         } catch (e: Exception) {
             Log.w("WardenApplication", "Score-Erinnerung-Planung übersprungen", e)
+        }
+        try {
+            // "BLE-Tracker-Wächter" (2026-09-03) — immer geplant, TrackerGuardStorage.isEnabled
+            // entscheidet in BleTrackerController.checkOnce, ob tatsächlich gescannt wird
+            // (dasselbe Muster wie CellSecurityWorker/WifiTrustWorker).
+            BleTrackerWorker.schedule(this)
+        } catch (e: Exception) {
+            Log.w("WardenApplication", "BLE-Tracker-Planung übersprungen", e)
         }
         try {
             // "Automatische Profilumschaltung" (2026-08-28) — nur planen, nicht sofort ausführen:

@@ -35,10 +35,25 @@ class AntiTheftAlarmController(private val context: Context) {
     fun trigger(reason: String) {
         stopAlarm()
         wardenAuditLog(context).append(Log.ERROR, TAG, "Diebstahlschutz-Alarm ausgelöst: $reason")
+        logLastKnownLocation()
         runCatching { AntiTheftAlarmNotifier(context).notify(reason) }
             .onFailure { Log.w(TAG, "Alarm-Benachrichtigung fehlgeschlagen", it) }
         startSound()
         startVibration()
+    }
+
+    /** "Standort-Log beim Diebstahlschutz-Alarm" (2026-09-03) — best effort, eigenes try/catch statt
+     * den ganzen Alarmauslösepfad davon abhängig zu machen: fehlt der Standort, soll der Alarm
+     * trotzdem laufen. S. [AntiTheftLastLocationReader]-Klassendoc für die "kein aktiver Fix,
+     * nur letzter bekannter Wert"-Begründung. */
+    private fun logLastKnownLocation() {
+        try {
+            val reader = AntiTheftLastLocationReader(context)
+            val location = reader.read() ?: return
+            wardenAuditLog(context).append(Log.ERROR, TAG, "Letzter bekannter Standort bei Alarmauslösung: ${reader.describe(location)}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Standort-Log fehlgeschlagen", e)
+        }
     }
 
     fun stopAlarm() {

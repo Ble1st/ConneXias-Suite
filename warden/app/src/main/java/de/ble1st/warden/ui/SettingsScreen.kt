@@ -85,6 +85,8 @@ fun SettingsScreen(
     onAntiTheftMotionAlarmChange: (Boolean) -> Unit,
     antiTheftChargerAlarmEnabled: Boolean,
     onAntiTheftChargerAlarmChange: (Boolean) -> Unit,
+    trackerGuardEnabled: Boolean,
+    onTrackerGuardEnabledChange: (Boolean) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
     onExportConfig: () -> String,
@@ -195,6 +197,11 @@ fun SettingsScreen(
                 onMotionAlarmChange = onAntiTheftMotionAlarmChange,
                 chargerAlarmEnabled = antiTheftChargerAlarmEnabled,
                 onChargerAlarmChange = onAntiTheftChargerAlarmChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            TrackerGuardField(
+                enabled = trackerGuardEnabled,
+                onEnabledChange = onTrackerGuardEnabledChange,
                 modifier = Modifier.padding(top = 16.dp),
             )
             AutoProfileField(

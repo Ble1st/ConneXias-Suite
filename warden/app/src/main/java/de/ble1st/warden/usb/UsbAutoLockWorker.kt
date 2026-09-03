@@ -26,7 +26,7 @@ class UsbAutoLockWorker(
     }
 
     companion object {
-        private const val UNIQUE_WORK_NAME = "usb-auto-lock-check"
+        const val UNIQUE_WORK_NAME = "usb-auto-lock-check"
         private const val POLL_INTERVAL_MINUTES = 15L
 
         /** Idempotent (`KEEP`) — sicher bei jedem Prozessstart erneut aufzurufen

@@ -60,13 +60,26 @@
          seitdem selbst als Standort-Datum. Als Device Owner gewährt Warden sich nur die feine
          Variante selbst (setPermissionGrantState, s. CellObservationReader) — ohne Nutzerdialog,
          aber auch ohne stillen Zwang: fehlt die Berechtigung oder ist der System-Standortschalter
-         aus, liefert der Reader bewusst "nicht ermittelbar" statt eines Messwerts. Warden selbst
-         fragt an keiner anderen Stelle den tatsächlichen GPS-/Netz-Standort ab.
+         aus, liefert der Reader bewusst "nicht ermittelbar" statt eines Messwerts. Seit 2026-09-03
+         liest auch AntiTheftLastLocationReader (nur den zuletzt bekannten Wert, kein aktiver Fix)
+         beim Diebstahlschutz-Alarm dieselbe Berechtigung, dieselbe Selbstfreigabe.
          ACCESS_COARSE_LOCATION steht nur zusätzlich hier, weil Android 12+/Lints
          CoarseFineLocation-Regel das bei FINE ausdrücklich verlangt (Nutzer sollen FINE auf
          COARSE herabstufen können) — Warden gewährt/nutzt sie selbst nirgends. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- BLE-Tracker-Wächter (2026-09-03, BleTrackerScanner): beide seit Android 12 (API 31)
+         Laufzeit-Berechtigungen, von Warden per setPermissionGrantState selbst gewährt.
+         `neverForLocation` erklärt ausdrücklich, dass die Scan-Ergebnisse nicht für
+         Positionsbestimmung genutzt werden (Android liefert dann keine ACCESS_FINE_LOCATION-
+         Kopplung mehr für diesen Scan) — hier zutreffend, es interessiert nur Geräte-Anwesenheit/
+         -Kennung, keine Ortung über Empfangsstärke. BLUETOOTH_CONNECT wird nur für die Liste der
+         bereits gekoppelten Geräte gebraucht (Ausschluss aus der Verdachtsprüfung), nicht für eine
+         echte Verbindung. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!-- Milestone "Manifest-Scan + Sofort-Benachrichtigung": PackageInstaller.uninstall() für die
          "Deinstallieren"-Aktion (AppUninstaller). Für eine normale App würde das nur einen
