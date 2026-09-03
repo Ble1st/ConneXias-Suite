@@ -634,4 +634,35 @@
     <string name="widget_profile_line">Profil: %1$s</string>
     <string name="widget_score_line">Score: %1$d (%2$s)</string>
     <string name="widget_score_not_calculated">Score: noch nicht berechnet</string>
+    <!-- ui/SetupWizardScreen.kt — Ersteinrichtungs-Assistent -->
+    <string name="menu_setup_wizard_title">Ersteinrichtung</string>
+    <string name="setup_title">Ersteinrichtung</string>
+    <string name="setup_intro">Diese Übersicht zeigt, was Warden auf diesem Gerät bereits absichert und was noch fehlt. Jeder Schritt führt an die Stelle, an der er tatsächlich eingerichtet wird.</string>
+    <string name="setup_progress">%1$d von %2$d Schritten erledigt</string>
+    <string name="setup_state_done">Erledigt</string>
+    <string name="setup_state_open_required">Offen — ohne diesen Schritt schützt Warden nichts.</string>
+    <string name="setup_state_open_optional">Offen — optional.</string>
+    <string name="setup_state_blocked">Erst möglich, wenn Sentinel installiert ist.</string>
+    <string name="setup_action_refresh">Status prüfen</string>
+    <string name="setup_action_finish">Einrichtung abschließen</string>
+    <string name="setup_action_finish_incomplete">Später fortsetzen</string>
+
+    <string name="setup_step_device_owner_title">Device Owner</string>
+    <string name="setup_step_device_owner_description">Warden braucht Device-Owner-Rechte, um überhaupt eine Geräterichtlinie setzen zu können. Diese Rolle wird beim Einrichten des Geräts vergeben (QR-Provisionierung oder ADB) und lässt sich nachträglich nicht ohne Zurücksetzen des Geräts nachholen.</string>
+
+    <string name="setup_step_pin_title">Warden-PIN</string>
+    <string name="setup_step_pin_description">Schützt alle folgenschweren Aktionen (Neustart, Sperre, Kiosk, Zurücksetzen der Richtlinien). Ohne PIN läuft diese Absicherung ins Leere — die Aktionen sind dann ungeschützt.</string>
+    <string name="setup_step_pin_action">PIN festlegen</string>
+
+    <string name="setup_step_profile_title">Profil anwenden</string>
+    <string name="setup_step_profile_description">Alltag, Reise oder Maximal schalten in einem Schritt einen abgestimmten Satz Safeguards ein. Einzeln gesetzte Safeguards sind gleichwertig — dieser Schritt ist nur der schnellere Weg dorthin.</string>
+    <string name="setup_step_profile_action">Zu den Safeguards</string>
+
+    <string name="setup_step_sentinel_title">Sentinel installieren</string>
+    <string name="setup_step_sentinel_description">Eigenständige App, deren PIN der einzige Weg aus dem Kiosk-Modus ist. Nur nötig, wenn der Kiosk-Modus genutzt werden soll. Die Installation läuft im Hintergrund; das Ergebnis erscheint nach „Status prüfen“.</string>
+    <string name="setup_step_sentinel_action">Jetzt installieren</string>
+
+    <string name="setup_step_drill_title">Notruf-Test bestätigen</string>
+    <string name="setup_step_drill_description">Vor der ersten Kiosk-Nutzung muss einmal geprüft werden, dass ein Notruf aus dem gesperrten Gerät heraus möglich bleibt. Bestätigt wird der tatsächlich durchgeführte Test — die Bestätigung erfolgt bewusst nur in den Safeguards, mit ausgeschriebenem Bestätigungstext.</string>
+    <string name="setup_step_drill_action">Zu den Safeguards</string>
 </resources>

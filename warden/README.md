@@ -174,6 +174,12 @@ adb shell dpm set-device-owner de.ble1st.warden/de.ble1st.warden.admin.WardenDev
 
 Alternativ läuft die Einrichtung über QR-Provisionierung.
 
+Nach der ersten Provisionierung führt der **Ersteinrichtungs-Assistent** durch PIN, Profil,
+Sentinel-Installation und Notruf-Drill. Er startet beim ersten Öffnen automatisch, bleibt danach
+über das Menü erreichbar und liest den Stand jedes Schritts bei jedem Öffnen frisch aus dem
+echten Systemzustand — Pflicht sind nur Device Owner und PIN, alles Weitere hängt davon ab, ob das
+Gerät den Kiosk-Modus überhaupt nutzen soll.
+
 `dpm remove-active-admin` funktioniert ohne Werksreset nur, wenn die *installierte* APK
 `android:testOnly="true"` trägt — und dieses Flag wird einmalig bei der Admin-Registrierung
 festgehalten, nicht durch ein späteres Update nachgezogen.

@@ -169,6 +169,8 @@ import de.ble1st.warden.netlock.FirewallMode
 import de.ble1st.warden.netlock.NetworkFirewallPolicyController
 import de.ble1st.warden.netlock.NetLockdownController
 import de.ble1st.warden.ui.NetworkScreen
+import de.ble1st.warden.domain.setup.SetupWizardState
+import de.ble1st.warden.setup.SetupWizardStore
 import de.ble1st.warden.ui.theme.WardenAccent
 import de.ble1st.warden.ui.theme.WardenTheme
 import de.ble1st.warden.ui.theme.WardenThemePrefs
@@ -726,6 +728,10 @@ private sealed class WardenScreen {
     data object ClipboardCrossApp : WardenScreen()
     /** Ideenliste-Vorschlag 5 ("Systemdiagnose-Bildschirm", 2026-09-03). */
     data object SystemDiagnostics : WardenScreen()
+
+    /** Ersteinrichtungs-Assistent (2026-09-03) — beim ersten Start der Einstiegsbildschirm,
+     * danach über das Menü erreichbar (s. [SetupWizardScreen]). */
+    data object Setup : WardenScreen()
 }
 
 /** Architektur-Review 2026-08-24 (F-3) — `WardenScreen` selbst ist keine der sonst über
@@ -751,6 +757,7 @@ private val WardenScreenSaver: Saver<WardenScreen, String> = Saver(
             "SecurityScore" -> WardenScreen.SecurityScore
             "ClipboardCrossApp" -> WardenScreen.ClipboardCrossApp
             "SystemDiagnostics" -> WardenScreen.SystemDiagnostics
+            "Setup" -> WardenScreen.Setup
             else -> WardenScreen.Status
         }
     },
@@ -805,8 +812,15 @@ private fun WardenRoot(
     // rememberSaveable statt remember (Architektur-Review 2026-08-24, F-3): ohne das landete man
     // nach jeder Konfigurationsänderung (Rotation, Falt-/Split-Screen-Vorgang) unabhängig vom
     // vorherigen Unterbildschirm wieder auf WardenScreen.Status — s. [WardenScreenSaver]-Doc.
+    // Beim allerersten Start nach der Provisionierung beginnt die App im Ersteinrichtungs-
+    // Assistenten statt auf dem Dashboard (2026-09-03, s. [SetupWizardScreen]-Klassendoc). Das
+    // Bit wird nur beim Aufbau der Composition gelesen — ein späteres "Einrichtung abschließen"
+    // wechselt den Bildschirm ohnehin selbst.
+    val setupContext = LocalContext.current.applicationContext
     var screen by rememberSaveable(stateSaver = WardenScreenSaver) {
-        mutableStateOf<WardenScreen>(WardenScreen.Status)
+        mutableStateOf<WardenScreen>(
+            if (SetupWizardStore.isCompleted(setupContext)) WardenScreen.Status else WardenScreen.Setup,
+        )
     }
 
     // Architektur-Review 2026-08-24 (F-1): ohne eigenen BackHandler ruft Android ab targetSdk 36
@@ -933,6 +947,7 @@ private fun WardenRoot(
                 onOpenSecurityScore = { screen = WardenScreen.SecurityScore },
                 onOpenClipboardCrossApp = { screen = WardenScreen.ClipboardCrossApp },
                 onOpenSystemDiagnostics = { screen = WardenScreen.SystemDiagnostics },
+                onOpenSetupWizard = { screen = WardenScreen.Setup },
             )
         }
         WardenScreen.AppManagement -> {
@@ -1584,6 +1599,54 @@ private fun WardenRoot(
                 onBack = { screen = WardenScreen.Status },
             )
         }
+        WardenScreen.Setup -> {
+            val appContext = LocalContext.current.applicationContext
+            // `generation` als Schlüssel statt eines Live-Abgleichs: PIN, Sentinel-Installation
+            // und Notruf-Drill werden in anderen Activities bzw. asynchron gesetzt, aus denen es
+            // keinen Rückkanal hierher gibt — "Status prüfen" liest deshalb neu (s.
+            // SetupWizardScreen-Klassendoc).
+            var generation by remember { mutableIntStateOf(0) }
+            var setupState by remember { mutableStateOf<SetupWizardState?>(null) }
+            LaunchedEffect(generation) {
+                setupState = withContext(Dispatchers.IO) {
+                    SetupWizardState(
+                        isDeviceOwner = isDeviceOwner,
+                        // `!= false` statt `== true`: loadPinConfiguredSafely liefert bei einem
+                        // Lesefehler null, und ein Lesefehler ist kein Beleg dafür, dass keine PIN
+                        // existiert — den Nutzer dann zum Neusetzen zu drängen wäre der
+                        // schlechtere Fehlerfall.
+                        pinConfigured = loadPinConfiguredSafely(appContext) != false,
+                        profileApplied = AutoProfileStorage.loadLastEffective(appContext) != null,
+                        sentinelInstalled = SentinelInstallStatusReader(appContext).currentStatus()
+                            is SentinelInstallStatus.Installed,
+                        emergencyDrillConfirmed = WardenLockTaskDrillStorage.isConfirmed(appContext),
+                    )
+                }
+            }
+            val loadedSetup = setupState
+            if (loadedSetup == null) {
+                LoadingScreen(title = stringResource(R.string.setup_title), onBack = { screen = WardenScreen.Status })
+            } else {
+                SetupWizardScreen(
+                    state = loadedSetup,
+                    onOpenPinSetup = onOpenPinManagement,
+                    onOpenSafeguards = { screen = WardenScreen.Safeguards },
+                    onInstallSentinel = {
+                        // Identisch zum Safeguards-Bildschirm: nur der synchrone Teil ist hier
+                        // sichtbar, das Ergebnis kommt asynchron über
+                        // SentinelInstallResultReceiver — deshalb der "Status prüfen"-Knopf.
+                        runCatching { SentinelSilentInstaller(appContext).install() }
+                            .onFailure { Log.e("WardenStatus", "Sentinel-Silent-Install nicht auslösbar", it) }
+                    },
+                    onRefresh = { generation++ },
+                    onFinish = {
+                        SetupWizardStore.markCompleted(appContext)
+                        screen = WardenScreen.Status
+                    },
+                    onBack = { screen = WardenScreen.Status },
+                )
+            }
+        }
         WardenScreen.ClipboardCrossApp -> {
             // Phase 2 (docs/design-clipboard-guard.md Abschnitt 3.2.6/3.2.7) — dasselbe
             // Lade-/Toggle-Muster wie der Status-Screen-Zweig oben für Phase 1, nur mit einem
@@ -1908,6 +1971,7 @@ private fun WardenStatusScreen(
     onOpenNetwork: () -> Unit,
     onOpenSecurityScore: () -> Unit,
     onOpenSystemDiagnostics: () -> Unit,
+    onOpenSetupWizard: () -> Unit,
 ) {
     // Punkt 4 ("weitere App-UI-Verschönerungen", 2026-08-22) — haptisches Feedback für die einzige
     // sofort (ohne Bestätigungsschritt) ausgeführte Dashboard-Aktion, s. NumpadButton-Kommentar in
@@ -1953,6 +2017,10 @@ private fun WardenStatusScreen(
 
             SectionLabel(stringResource(R.string.section_app_security))
             MenuRow(title = stringResource(R.string.menu_app_management_title), tag = "AV", onClick = onOpenAppManagement)
+            // Bleibt nach dem ersten Durchlauf erreichbar: Der Assistent ist zugleich die einzige
+            // Stelle, an der die Grundabsicherung (Device Owner, PIN, Profil, Sentinel, Drill) auf
+            // einen Blick nebeneinander steht.
+            MenuRow(title = stringResource(R.string.menu_setup_wizard_title), tag = "EE", onClick = onOpenSetupWizard)
             MenuRow(
                 title = stringResource(R.string.menu_security_scanner_title),
                 tag = "SC",
