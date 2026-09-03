@@ -2,7 +2,6 @@ package de.ble1st.camera.nav
 
 import android.net.Uri
 import androidx.core.net.toUri
-import java.net.URLDecoder
 import java.net.URLEncoder
 import kotlin.text.Charsets.UTF_8
 
@@ -11,7 +10,6 @@ import kotlin.text.Charsets.UTF_8
  * nicht selbst in mehrere Segmente aufsplittet (dasselbe Muster wie ConneXias Files' Routes.kt
  * für Dateipfade). */
 private fun encode(value: String) = URLEncoder.encode(value, UTF_8.name())
-private fun decode(value: String) = URLDecoder.decode(value, UTF_8.name())
 
 object Routes {
     const val ONBOARDING = "onboarding"
@@ -20,5 +18,13 @@ object Routes {
 
     fun reviewPattern() = REVIEW_PATTERN
     fun review(uri: Uri, isVideo: Boolean) = "review/$isVideo/${encode(uri.toString())}"
-    fun decodeUriArg(encoded: String): Uri = decode(encoded).toUri()
+
+    // analyse.md (2. Durchgang, Mittel): Compose Navigation dekodiert Pfad-Argumente beim
+    // Uri-Template-Matching bereits selbst (`NavDeepLink` ruft intern `Uri.decode()` auf jedes
+    // Segment) — ein zusätzlicher `URLDecoder.decode()`-Aufruf hier dekodierte ein zweites Mal.
+    // Für eine Uri mit z. B. codiertem "%2F" im Pfad (kommt in content://-Uris real vor) wurde so
+    // aus dem eigentlichen "%2F" ein "/", die rekonstruierte Uri war falsch; ein Rest-"%" am Ende
+    // ließ `URLDecoder` sogar mit `IllegalArgumentException` abstürzen. `backStackEntry.arguments`
+    // liefert den bereits einmal dekodierten Wert, hier reicht `.toUri()` direkt.
+    fun decodeUriArg(value: String): Uri = value.toUri()
 }

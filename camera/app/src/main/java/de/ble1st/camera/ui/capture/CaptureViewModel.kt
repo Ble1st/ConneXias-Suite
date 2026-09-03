@@ -329,7 +329,13 @@ class CaptureViewModel : ViewModel() {
     }
 
     private fun startVideoRecording(context: Context) {
-        controller?.startVideoRecording(MediaStoreSaver.videoOutputOptions(context)) { event ->
+        controller?.startVideoRecording(
+            outputOptions = MediaStoreSaver.videoOutputOptions(context),
+            // s. CameraController.startVideoRecording-Kommentar: videoCapture kann kurz nach
+            // einem Moduswechsel/ON_RESUME noch ungebunden sein — vorher gab es hier gar keine
+            // Rückmeldung, ein Tap auf den Auslöser blieb kommentarlos wirkungslos.
+            onError = { _uiState.update { it.copy(errorMessage = "Kamera ist gerade nicht aufnahmebereit (Rebind läuft noch)") } },
+        ) { event ->
             when (event) {
                 is VideoRecordEvent.Start -> {
                     _uiState.update { it.copy(isRecording = true, recordingElapsedSeconds = 0) }

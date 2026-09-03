@@ -132,8 +132,21 @@ object PhotoFilterSaver {
                 }
             }
             val outputUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext null
-            resolver.openOutputStream(outputUri)?.use { output ->
-                filtered.compress(Bitmap.CompressFormat.JPEG, 92, output)
+            // analyse.md (2. Durchgang, Mittel): vorher zwei getrennte Fehlerfälle, die beide einen
+            // kaputten MediaStore-Eintrag hinterließen — (a) eine Exception beim Komprimieren/
+            // Schreiben (z. B. Storage voll) verließ diese Funktion, bevor IS_PENDING je auf 0
+            // gesetzt wurde: der Eintrag blieb für immer unsichtbar liegen; (b) `openOutputStream
+            // == null` (seltener, aber möglich) ließ den `?.use`-Block einfach überspringen, wonach
+            // IS_PENDING trotzdem bedingungslos auf 0 gesetzt wurde: ein leerer, sichtbarer
+            // Galerie-Eintrag ohne Bilddaten. Jetzt wird bei jedem Fehlschlag der halbfertige
+            // Eintrag wieder gelöscht statt in einem der beiden kaputten Zwischenzustände liegen zu
+            // bleiben.
+            val written = runCatching {
+                resolver.openOutputStream(outputUri)?.use { output -> filtered.compress(Bitmap.CompressFormat.JPEG, 92, output) }
+            }.getOrNull() == true
+            if (!written) {
+                runCatching { resolver.delete(outputUri, null, null) }
+                return@withContext null
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 resolver.update(outputUri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)

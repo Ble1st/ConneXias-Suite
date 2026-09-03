@@ -1,6 +1,7 @@
 package de.ble1st.camera.util
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -20,6 +21,12 @@ object CaptureActions {
             putExtra(Intent.EXTRA_STREAM, uri)
             type = mimeType
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // analyse.md (2. Durchgang, Mittel): EXTRA_STREAM + FLAG_GRANT_READ_URI_PERMISSION
+            // allein reicht bei manchen Ziel-Apps nicht — einige lesen die zu gewährende Uri aus
+            // dem ClipData statt aus dem Extra (üblicher Weg für Mehrfach-Uris, von manchen Apps
+            // aber auch für Einzel-Uris erwartet). Ohne ClipData bekam so eine Ziel-App gelegentlich
+            // keinen Lesezugriff, obwohl der Chooser die App anbot.
+            clipData = ClipData.newUri(context.contentResolver, "capture", uri)
         }
         launchOrToast(context, Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }

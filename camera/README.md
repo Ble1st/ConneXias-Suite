@@ -114,6 +114,37 @@ ohne Play-Services-Laufzeitabhängigkeit); Material 3 (mit einer expressive-nahe
   `inSampleSize`-Downsampling- + `ExifInterface`-Rotationskorrektur wie ConneXias Galerie (max.
   4096 px Kantenlänge).
 
+**2. Durchgang (2026-09-03, s. `analyse.md`):**
+- **Auslöser konnte bei einem Rebind-Timing-Fenster dauerhaft tot bleiben.** `takePhoto`/
+  `startVideoRecording` kehrten bei einem noch ungebundenen `ImageCapture`/`VideoCapture` (Bind
+  läuft während Moduswechsel/`ON_RESUME` noch) still zurück, ohne Callback — `isCapturingPhoto`
+  blieb dadurch bis zum nächsten `releaseCamera()` auf `true` hängen. Beide melden einen solchen
+  Fehlschlag jetzt über einen Fehler-Callback, den die ViewModel zum Zurücksetzen nutzt.
+- **Bind-Race ohne Generation/Cancel.** `bind()` hängte zwei verschachtelte Future-Callbacks an,
+  ohne einen vorherigen, noch laufenden Bind abzubrechen — ein schneller Modus-/Objektivwechsel
+  konnte dazu führen, dass der zuletzt ANKOMMENDE statt der zuletzt ANGEFORDERTE Bind gewinnt.
+  Ein Generation-Zähler lässt jeden Callback eines inzwischen überholten `bind()`-Aufrufs
+  kommentarlos abbrechen.
+- **`EXTRA_OUTPUT`-Ziel bekam ein dauerhaftes Duplikat spendiert.** Eine per System-Kamera-Contract
+  angefragte Aufnahme landete zuerst wie gewohnt in `DCIM/ConneXias Kamera`, wurde beim "Verwenden"
+  zusätzlich zur `EXTRA_OUTPUT`-Ziel-Uri des Aufrufers kopiert — die interne Kopie blieb aber
+  zusätzlich für immer als unerwünschtes zweites Element in der Galerie stehen. Wird nach
+  erfolgreicher Übergabe jetzt gelöscht.
+- **Teilen ohne `ClipData`.** `CaptureActions.share` setzte die zu teilende Uri bisher nur als
+  `EXTRA_STREAM` — manche Ziel-Apps erwarten sie zusätzlich im `ClipData`, um den Lesezugriff zu
+  gewähren.
+- **Filter-Speichern konnte einen kaputten MediaStore-Eintrag hinterlassen.** Eine Exception beim
+  Schreiben ließ `IS_PENDING=1` für immer stehen (unsichtbarer Eintrag); ein `null`-`OutputStream`
+  setzte `IS_PENDING` trotzdem bedingungslos auf 0 (leerer, aber sichtbarer Eintrag). Beide Fälle
+  löschen den halbfertigen Eintrag jetzt wieder, statt ihn in einem kaputten Zustand zu belassen.
+- **Doppeltes URL-Decoding der Review-Route.** Compose Navigation dekodiert Pfad-Argumente beim
+  Uri-Template-Matching bereits selbst — ein zusätzlicher `URLDecoder.decode()`-Aufruf in
+  `Routes.decodeUriArg` dekodierte ein zweites Mal (falsch rekonstruierte Uri bei codierten
+  Schrägstrichen, möglicher Absturz bei einem Rest-`%`). Entfernt.
+- **Bildschirm ging während Countdown/Foto-Schreiben durch Auto-Lock aus.** `keepScreenOn` war nur
+  an `isRecording` geknüpft, nicht an die übrigen "beschäftigt"-Phasen. Jetzt an `state.isBusy`
+  geknüpft.
+
 ## Build
 
 ```

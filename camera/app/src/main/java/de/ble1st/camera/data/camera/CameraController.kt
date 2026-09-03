@@ -76,6 +76,18 @@ class CameraController(private val context: Context) {
     // unabhängig driftender Zoom-Werte.
     private var onZoomChanged: ((Float) -> Unit)? = null
 
+    // analyse.md (2. Durchgang, Hoch): bind() hängt zwei verschachtelte Future-Callbacks
+    // (ProcessCameraProvider, ExtensionsManager) an, ohne einen vorherigen, noch laufenden
+    // bind()-Aufruf abzubrechen. CaptureScreen ruft bindPreview sowohl aus einem
+    // LaunchedEffect(mode, lensFacing, hdrEnabled) als auch bei jedem ON_RESUME auf — ein
+    // schneller Foto/Video- oder Objektivwechsel konnte dadurch zwei sich überlappende Binds
+    // auslösen, von denen der zuletzt ANKOMMENDE (nicht der zuletzt ANGEFORDERTE) gewinnt: UI-
+    // Modus und tatsächlich gebundene Use-Cases liefen auseinander. Jeder bind()-Aufruf erhöht
+    // diesen Zähler und merkt sich seinen eigenen Stand; jeder Callback prüft vor dem Fortfahren,
+    // ob inzwischen ein neuerer bind()-Aufruf gestartet wurde, und bricht sonst kommentarlos ab
+    // (der neuere Aufruf bindet ohnehin frisch).
+    private var bindGeneration = 0
+
     val hasActiveRecording: Boolean get() = activeRecording != null
 
     fun bind(
@@ -91,9 +103,11 @@ class CameraController(private val context: Context) {
         onError: (Throwable) -> Unit,
     ) {
         this.onZoomChanged = onZoomChanged
+        val generation = ++bindGeneration
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener(
             {
+                if (generation != bindGeneration) return@addListener
                 try {
                     val provider = providerFuture.get().also { cameraProvider = it }
                     val baseSelector = CameraSelector.Builder()
@@ -108,6 +122,7 @@ class CameraController(private val context: Context) {
                     val extFuture = ExtensionsManager.getInstanceAsync(context, provider)
                     extFuture.addListener(
                         {
+                            if (generation != bindGeneration) return@addListener
                             try {
                                 val extManager = extFuture.get().also { extensionsManager = it }
                                 val hdrAvailable = extManager.isExtensionAvailable(baseSelector, ExtensionMode.HDR)
@@ -123,6 +138,7 @@ class CameraController(private val context: Context) {
                                     provider,
                                     selector,
                                     mode,
+                                    generation,
                                     onBound,
                                     onManualSensorSupport,
                                     onError,
@@ -147,10 +163,12 @@ class CameraController(private val context: Context) {
         provider: ProcessCameraProvider,
         selector: CameraSelector,
         mode: CaptureMode,
+        generation: Int,
         onBound: (Camera) -> Unit,
         onManualSensorSupport: (ManualSensorRanges?) -> Unit,
         onError: (Throwable) -> Unit,
     ) {
+        if (generation != bindGeneration) return
         try {
             val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
             val useCases = mutableListOf<UseCase>(preview)
@@ -267,7 +285,21 @@ class CameraController(private val context: Context) {
         onSaved: (Uri?) -> Unit,
         onError: (ImageCaptureException) -> Unit,
     ) {
-        val capture = imageCapture ?: return
+        // analyse.md (2. Durchgang, Hoch): kehrte hier vorher still zurück, wenn ein Tap auf den
+        // Auslöser genau in das Fenster eines noch laufenden Rebinds fiel (Moduswechsel, ON_RESUME)
+        // — CaptureViewModel hatte isCapturingPhoto bereits auf true gesetzt, bekam aber nie einen
+        // onSaved/onError-Callback, der es zurücksetzt: der Auslöser blieb bis zum nächsten
+        // releaseCamera() (App-Hintergrund/-Verlassen) tot. Jetzt über onError sichtbar.
+        val capture = imageCapture ?: run {
+            onError(
+                ImageCaptureException(
+                    ImageCapture.ERROR_CAPTURE_FAILED,
+                    "Kamera ist gerade nicht aufnahmebereit (Rebind läuft noch)",
+                    null,
+                ),
+            )
+            return
+        }
         capture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(context),
@@ -283,8 +315,16 @@ class CameraController(private val context: Context) {
     // — withAudioEnabled() kann diesen Screen nie ohne bereits erteilte Berechtigung erreichen,
     // eine erneute Laufzeitprüfung hier wäre totes Code-Duplikat.
     @SuppressLint("MissingPermission")
-    fun startVideoRecording(outputOptions: MediaStoreOutputOptions, onEvent: (VideoRecordEvent) -> Unit) {
-        val capture = videoCapture ?: return
+    fun startVideoRecording(
+        outputOptions: MediaStoreOutputOptions,
+        onError: () -> Unit = {},
+        onEvent: (VideoRecordEvent) -> Unit,
+    ) {
+        // Derselbe stille No-Op wie takePhoto vorher (s. dortiger Kommentar) — hier harmloser,
+        // weil isRecording erst in VideoRecordEvent.Start gesetzt wird (kein dauerhaft blockierter
+        // Auslöser), aber immer noch ein Tap ohne jede Rückmeldung. onError erlaubt der ViewModel,
+        // wenigstens eine Fehlermeldung zu zeigen statt kommentarlos nichts zu tun.
+        val capture = videoCapture ?: run { onError(); return }
         activeRecording = capture.output
             .prepareRecording(context, outputOptions)
             .withAudioEnabled()

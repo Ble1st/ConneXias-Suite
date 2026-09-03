@@ -123,9 +123,11 @@ fun CaptureScreen(
         onDispose { viewModel.releaseCamera() }
     }
 
-    // Bildschirm bleibt während einer laufenden Videoaufnahme an — vorher konnte der Screen mitten
-    // in der Aufnahme durch den normalen Auto-Lock ausgehen.
-    SideEffect { previewView.keepScreenOn = state.isRecording }
+    // Bildschirm bleibt während jeder "beschäftigten" Phase an (Countdown, Foto wird geschrieben,
+    // laufende Videoaufnahme) — vorher nur an `state.isRecording` geknüpft: ein Selbstauslöser-
+    // Countdown oder ein spürbar langsames Foto-Schreiben (analyse.md, Mittel) konnten durch den
+    // normalen Auto-Lock unterbrochen werden, mitten im Vorgang.
+    SideEffect { previewView.keepScreenOn = state.isBusy }
 
     // Die Compose-UI bleibt bewusst im festen Hochformat-Layout (s. AndroidManifest.xml-Kommentar
     // zu `configChanges`) — trotzdem sollen Fotos/Videos unabhängig von der tatsächlichen

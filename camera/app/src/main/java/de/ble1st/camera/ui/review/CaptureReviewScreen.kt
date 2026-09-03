@@ -276,6 +276,14 @@ private suspend fun deliverCapture(context: Context, uri: Uri, captureRequestInf
                 }
             } ?: false
             check(copied) { "Konnte Aufnahme nicht in EXTRA_OUTPUT-Ziel kopieren" }
+            // analyse.md (2. Durchgang, Mittel): die Aufnahme lag vorher immer zuerst dauerhaft in
+            // MediaStore (DCIM/ConneXias Kamera, s. CaptureViewModel.takePhoto) — der Aufrufer
+            // bekam über `outputUri` seine eigene Kopie, die interne blieb aber zusätzlich für
+            // immer als unerwünschtes Duplikat in der Galerie des Nutzers stehen. Der Aufrufer hat
+            // seine Kopie an dieser Stelle bereits sicher (check() oben wäre sonst schon
+            // fehlgeschlagen), das interne Duplikat wird jetzt aufgeräumt. Ein Löschfehler hier
+            // (z. B. Berechtigungsrand fall) ist kein Abbruchgrund für die Übergabe selbst.
+            runCatching { context.contentResolver.delete(uri, null, null) }
             null
         }
     }
