@@ -13,6 +13,7 @@ coil = "3.6.1"
 media3 = "1.11.0"
 camerax = "1.5.1"
 exifinterface = "1.4.1"
+zxingEmbedded = "4.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -56,6 +57,10 @@ androidx-camera-extensions = { group = "androidx.camera", name = "camera-extensi
 # EXIF-Rotation vor dem Filtern auslesen/anwenden (PhotoFilterSaver) — dieselbe Bibliothek/
 # Begründung wie in ConneXias Galerie (util/PhotoEditor.kt).
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
+# QR-/Barcode-Scanner (Ideenliste-Folgegespräch 3, 2026-09-03) — dieselbe Bibliothek/Version wie
+# Wardens ChildVPN-QR-Import (dortiges libs.versions.toml): reines `com.google.zxing:core` als
+# einzige transitive Abhängigkeit (per POM verifiziert), kein Play-Services/ML-Kit.
+zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxingEmbedded" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

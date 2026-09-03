@@ -50,6 +50,14 @@ ohne Play-Services-Laufzeitabhängigkeit); Material 3 (mit einer expressive-nahe
   "Verwenden"-Knopf, der die Aufnahme entweder in die vom Aufrufer übergebene `EXTRA_OUTPUT`-Uri
   kopiert oder — falls keine gesetzt ist — die eigene MediaStore-Uri als Ergebnis liefert; ein
   Zurück-Antippen im Sucher vor der ersten Aufnahme beendet die App mit `RESULT_CANCELED`.
+- **QR-/Barcode-Scanner** (2026-09-03, `data/scan/`, `ui/scan/ScanResultScreen.kt`): eigenes
+  Sucher-Symbol startet `zxing-android-embedded` (dieselbe Bibliothek/Version wie Wardens
+  ChildVPN-QR-Import), erkennt alle von ZXing unterstützten Formate (nicht nur QR). Das
+  Ergebnis landet auf einem eigenen Bildschirm mit dem rohen dekodierten Text plus
+  Öffnen (nur bei einer erkannten `http(s)://`-URL)/Kopieren/Teilen — kein automatisches Öffnen
+  eines erkannten Links, derselbe "erst sichtbar machen, dann bewusst bestätigen"-Grundsatz wie bei
+  Wardens QR-Scan. Nur im normalen App-Gebrauch sichtbar, nicht während ein Aufrufer diese App per
+  System-Kamera-Contract als Aufnahmeziel nutzt.
 
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte, mit Begründung):
 - **RAW-Aufnahme (DNG)**: CameraX bietet dafür keine Standard-`ImageCapture`-Ausgabeoption; eine

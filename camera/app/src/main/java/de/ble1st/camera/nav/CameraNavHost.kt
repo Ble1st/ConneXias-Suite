@@ -24,6 +24,7 @@ import de.ble1st.camera.permission.CameraPermission
 import de.ble1st.camera.ui.capture.CaptureScreen
 import de.ble1st.camera.ui.onboarding.CameraPermissionScreen
 import de.ble1st.camera.ui.review.CaptureReviewScreen
+import de.ble1st.camera.ui.scan.ScanResultScreen
 
 /** `captureRequestInfo` != null, `onCaptureDelivered`/`onCaptureCanceled` != No-Op nur, wenn
  * [de.ble1st.camera.MainActivity] per `ACTION_IMAGE_CAPTURE`/`ACTION_VIDEO_CAPTURE` gestartet
@@ -85,7 +86,12 @@ fun CameraNavHost(
             CaptureScreen(
                 captureRequestInfo = captureRequestInfo,
                 onOpenReview = { uri, isVideo -> navController.navigate(Routes.review(uri, isVideo)) },
+                onOpenScanResult = { navController.navigate(Routes.SCAN_RESULT) },
             )
+        }
+
+        composable(Routes.SCAN_RESULT) {
+            ScanResultScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

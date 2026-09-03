@@ -82,6 +82,8 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     // EXIF-Rotation beim Filtern (util/PhotoFilters.kt) — s. Kommentar in libs.versions.toml.
     implementation(libs.androidx.exifinterface)
+    // QR-/Barcode-Scanner (data/scan/, ui/scan/) — s. Kommentar in libs.versions.toml.
+    implementation(libs.zxing.android.embedded)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -14,6 +14,9 @@ private fun encode(value: String) = URLEncoder.encode(value, UTF_8.name())
 object Routes {
     const val ONBOARDING = "onboarding"
     const val CAPTURE = "capture"
+    // Kein Argument in der Route selbst — der gescannte Rohtext läuft über ScanResultHolder
+    // (s. dortiges Klassendoc), nicht als Navigations-Argument.
+    const val SCAN_RESULT = "scan_result"
     private const val REVIEW_PATTERN = "review/{isVideo}/{uri}"
 
     fun reviewPattern() = REVIEW_PATTERN

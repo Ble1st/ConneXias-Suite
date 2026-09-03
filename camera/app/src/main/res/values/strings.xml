@@ -49,4 +49,14 @@
     <string name="content_desc_back">Zurück</string>
     <string name="error_no_app_found">Keine App gefunden, die das öffnen kann</string>
     <string name="error_camera_disabled_by_policy">Kamera durch Warden gesperrt</string>
+
+    <string name="capture_action_scan">QR-/Barcode scannen</string>
+    <string name="scan_prompt">Code im Rahmen positionieren</string>
+    <string name="scan_permission_denied">Kamerazugriff verweigert</string>
+    <string name="scan_result_title">Scan-Ergebnis</string>
+    <string name="scan_result_action_open">Öffnen</string>
+    <string name="scan_result_action_copy">Kopieren</string>
+    <string name="scan_result_action_share">Teilen</string>
+    <string name="scan_result_copied">Kopiert</string>
+    <string name="scan_result_content_desc_label">Rohtext</string>
 </resources>

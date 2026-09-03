@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.HdrOff
 import androidx.compose.material.icons.filled.HdrOn
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Timer10
 import androidx.compose.material.icons.filled.Timer3
 import androidx.compose.material.icons.filled.TimerOff
@@ -70,8 +71,11 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import de.ble1st.camera.R
 import de.ble1st.camera.data.camera.CaptureMode
+import de.ble1st.camera.data.scan.ScanResultHolder
 import de.ble1st.camera.nav.CaptureRequestInfo
 import de.ble1st.camera.permission.CameraPermission
 import de.ble1st.camera.util.SecureScreenEffect
@@ -85,6 +89,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun CaptureScreen(
     onOpenReview: (Uri, Boolean) -> Unit,
+    onOpenScanResult: () -> Unit = {},
     captureRequestInfo: CaptureRequestInfo? = null,
     viewModel: CaptureViewModel = viewModel(),
 ) {
@@ -109,6 +114,45 @@ fun CaptureScreen(
             audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
         }
         viewModel.setMode(mode)
+    }
+
+    // QR-/Barcode-Scanner (Ideenliste-Folgegespräch 3) — dasselbe zxing-android-embedded-Muster wie
+    // Wardens ChildVPN-QR-Import (NetworkScreen.kt), hier ohne eigene erneute CAMERA-Laufzeitanfrage
+    // im Regelfall: wer diesen Bildschirm überhaupt erreicht, hat CAMERA bereits im Onboarding-Gate
+    // erteilt (s. CameraNavHost). Der Permission-Check bleibt trotzdem als Absicherung gegen den
+    // Rand-Fall "Berechtigung nachträglich in den System-Einstellungen entzogen". Kein automatisches
+    // Handeln nach dem Scan (URL öffnen o. Ä.) — das entscheidet erst ScanResultScreen.
+    val scanPrompt = stringResource(R.string.scan_prompt)
+    val scanPermissionDeniedMessage = stringResource(R.string.scan_permission_denied)
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { text ->
+            ScanResultHolder.set(text)
+            onOpenScanResult()
+        }
+    }
+    fun launchScan() {
+        scanLauncher.launch(
+            ScanOptions()
+                .setPrompt(scanPrompt)
+                .setBeepEnabled(false)
+                .setOrientationLocked(true),
+        )
+    }
+    val scanCameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            launchScan()
+        } else {
+            android.widget.Toast.makeText(context, scanPermissionDeniedMessage, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    val onScanClick: () -> Unit = {
+        if (CameraPermission.hasAccess(context)) {
+            launchScan()
+        } else {
+            scanCameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+        }
     }
 
     // Sperrt den Foto-/Video-Umschalter auf den vom Aufrufer angeforderten Modus (System-Kamera-
@@ -209,6 +253,11 @@ fun CaptureScreen(
             onCycleTimer = viewModel::cycleTimer,
             onToggleHdr = viewModel::toggleHdr,
             onToggleManual = viewModel::toggleManualControls,
+            // Ausgeblendet, solange ein Aufrufer per System-Kamera-Contract diese App als
+            // Aufnahmeziel nutzt (s. modeSwitchVisible-Kommentar in BottomControls) — der Aufrufer
+            // erwartet ein Foto/Video zurück, kein Scan-Ergebnis-Umweg.
+            scanVisible = captureRequestInfo == null,
+            onScan = onScanClick,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.systemBars)
@@ -323,7 +372,9 @@ private fun TopControls(
     onCycleTimer: () -> Unit,
     onToggleHdr: () -> Unit,
     onToggleManual: () -> Unit,
+    onScan: () -> Unit,
     modifier: Modifier = Modifier,
+    scanVisible: Boolean = true,
 ) {
     Column(
         modifier = modifier
@@ -377,6 +428,11 @@ private fun TopControls(
                     contentDescription = stringResource(R.string.capture_action_manual),
                     tint = if (state.manualControlsEnabled) MaterialTheme.colorScheme.primary else Color.White,
                 )
+            }
+        }
+        if (scanVisible) {
+            IconButton(onClick = onScan) {
+                Icon(Icons.Filled.QrCodeScanner, contentDescription = stringResource(R.string.capture_action_scan), tint = Color.White)
             }
         }
     }
