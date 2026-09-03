@@ -23,6 +23,8 @@ object Routes {
     const val ALBUMS = "albums"
     const val TRASH = "trash"
     const val CLOUD_SYNC = "cloud_sync"
+    const val ABOUT = "about"
+    const val LICENSES = "licenses"
 
     /** Zwischenstopp für ACTION_SEND/ACTION_SEND_MULTIPLE (s. ExternalIntent.Send) — der Import
      * über [de.ble1st.gallery.data.media.SharedMediaImporter] ist asynchroner IO, kann also anders

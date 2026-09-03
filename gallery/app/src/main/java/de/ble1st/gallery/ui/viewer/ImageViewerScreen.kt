@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,7 +54,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import de.ble1st.gallery.R
-import de.ble1st.gallery.data.media.ALL_BUCKET_ID
 import de.ble1st.gallery.data.media.MediaType
 import de.ble1st.gallery.ui.GalleryViewModel
 import de.ble1st.gallery.util.DeleteOutcome
@@ -83,11 +84,18 @@ fun ImageViewerScreen(
     val context = LocalContext.current
     val allItems by viewModel.allItems.collectAsState()
     val customAlbums by viewModel.customAlbums.collectAsState()
-    val siblings = remember(allItems, bucketId, customAlbumId, customAlbums) {
-        val scoped = when {
-            customAlbumId != null -> viewModel.itemsForCustomAlbum(customAlbumId)
-            bucketId == ALL_BUCKET_ID -> allItems
-            else -> allItems.filter { it.bucketId == bucketId }
+    val favorites by viewModel.favorites.collectAsState()
+    // Die Bucket-Auflösung läuft über itemsForBucket statt über ein eigenes Filter hier: sonst
+    // müsste jedes virtuelle Album (ALL_BUCKET_ID, seit 2026-09-03 auch FAVORITES_BUCKET_ID) an
+    // zwei Stellen bekannt sein — beim Öffnen des Favoriten-Albums lieferte ein reines
+    // `bucketId ==`-Filter eine leere Geschwisterliste, der Betrachter wäre sofort wieder
+    // zugegangen. Die dortige Sortierung nach Nutzerwahl ist hier egal, weil unten ohnehin nach
+    // Datum sortiert wird (der Wischreihenfolge im Betrachter).
+    val siblings = remember(allItems, bucketId, customAlbumId, customAlbums, favorites) {
+        val scoped = if (customAlbumId != null) {
+            viewModel.itemsForCustomAlbum(customAlbumId)
+        } else {
+            viewModel.itemsForBucket(bucketId)
         }
         scoped.filter { it.type == MediaType.IMAGE }.sortedByDescending { it.dateSortMillis }
     }
@@ -127,6 +135,15 @@ fun ImageViewerScreen(
                     }
                 },
                 actions = {
+                    val isFavorite = currentItem.id in favorites
+                    IconButton(onClick = { viewModel.toggleFavorite(currentItem.id) }) {
+                        Icon(
+                            if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = stringResource(
+                                if (isFavorite) R.string.favorite_remove else R.string.favorite_add,
+                            ),
+                        )
+                    }
                     IconButton(onClick = { onEdit(currentItem.uri) }) {
                         Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.editor_title))
                     }

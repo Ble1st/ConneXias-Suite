@@ -1,18 +1,12 @@
 package de.ble1st.gallery.data.sync
 
 import android.content.Context
-import de.ble1st.gallery.data.media.MediaItem
-import de.ble1st.gallery.data.webdav.WebDavAccount
-import de.ble1st.gallery.data.webdav.WebDavClient
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.util.UUID
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 data class SyncProgress(
     val total: Int = 0,
@@ -21,99 +15,71 @@ data class SyncProgress(
     val currentName: String? = null,
     val running: Boolean = false,
     val done: Boolean = false,
+    /** Gesetzt, wenn der Auftrag ohne Upload endete — s. [CloudSyncWorker.SyncFailure]. */
+    val failure: CloudSyncWorker.SyncFailure? = null,
 )
 
 /**
  * Ein-Wege-Sicherung: lädt jedes MediaStore-Element, das laut [CloudSyncState] noch nicht
  * hochgeladen wurde, in einen festen Zielordner auf dem konfigurierten WebDAV-Server hoch — kein
  * Download/keine Konfliktauflösung in Gegenrichtung (echtes bidirektionales Sync wäre ein
- * eigenständiger, deutlich größerer Ausbauschritt mit Versions-/Konflikterkennung, s. README). Ein
- * einziger globaler [progress]-Zustand statt pro-Aufruf-Rückgabewert, weil nur ein Sync-Lauf
- * gleichzeitig sinnvoll ist (ausgelöst von genau einem Screen).
+ * eigenständiger, deutlich größerer Ausbauschritt mit Versions-/Konflikterkennung, s. README).
+ *
+ * Diese Klasse ist seit 2026-09-03 nur noch die Fassade davor; die Arbeit macht
+ * [CloudSyncWorker] (Begründung für den Umstieg auf WorkManager s. dort). Der Zustand wird
+ * deshalb auch nicht mehr hier gehalten, sondern aus WorkManager gelesen — ein eigener
+ * `StateFlow` daneben wäre eine zweite Wahrheit, die nach einem Prozess-Tod als Erste falsch
+ * würde.
+ *
+ * [ExistingWorkPolicy.KEEP] statt REPLACE: Ein zweites Tippen auf "Jetzt sichern" soll den
+ * laufenden Upload nicht von vorn beginnen lassen.
  */
 object CloudSyncManager {
-    private const val REMOTE_FOLDER = "ConneXias Galerie Backup"
 
-    private val _progress = MutableStateFlow(SyncProgress())
-    val progress: StateFlow<SyncProgress> = _progress
+    private const val WORK_NAME = "cloud_sync"
 
-    // Eigener, prozessweiter SupervisorJob-Scope statt eines von CloudSyncScreen übergebenen
-    // rememberCoroutineScope() — der wird beim Verlassen des Screens (Zurück-Navigation,
-    // Konfigurationsänderung) gecancelt, ein laufender Sync brach dadurch schon bei einem simplen
-    // "Zurück" ab, nicht erst bei echtem Process-Tod. Volle Process-Tod-Sicherheit bräuchte
-    // WorkManager (eigenständiger, deutlich größerer Ausbauschritt, s. README) — dieser Scope löst
-    // den häufigeren Fall (Navigation weg vom Screen, Rotation), solange der Prozess am Leben
-    // bleibt.
-    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    /** Startet den Sync losgelöst vom aufrufenden Compose-Scope — s. [managerScope]-Doc. Der Aufrufer
-     * beobachtet den Fortschritt über [progress] statt auf eine Coroutine zu warten. */
-    fun startSync(context: Context, account: WebDavAccount, items: List<MediaItem>) {
-        if (_progress.value.running) return
-        managerScope.launch { sync(context, account, items) }
+    fun startSync(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<CloudSyncWorker>().build(),
+        )
     }
 
-    private suspend fun sync(context: Context, account: WebDavAccount, items: List<MediaItem>) {
-        val alreadySynced = CloudSyncState.syncedIds(context)
-        val pending = items.filter { it.id !in alreadySynced }
-        _progress.value = SyncProgress(total = pending.size, running = true)
-
-        // Fehlschlag hier ist kein Abbruchgrund — der Ordner existiert nach dem ersten Sync-Lauf
-        // bereits, ein zweites MKCOL meldet dann typischerweise 405/409 statt Erfolg.
-        WebDavClient.mkdir(account, REMOTE_FOLDER)
-
-        var uploaded = 0
-        var failed = 0
-        for (item in pending) {
-            _progress.value = _progress.value.copy(currentName = item.displayName)
-            // analyse.md (2. Durchgang, Hoch): `openInputStream` kann `null` liefern (Element
-            // zwischenzeitlich gelöscht, Berechtigung entzogen) — vorher wurde der `?.use`-Block
-            // dann einfach übersprungen, `tempFile` blieb ein reines File-Objekt ohne Datei auf der
-            // Platte. `WebDavClient.upload` konnte darauf trotzdem `asRequestBody` aufrufen
-            // (Content-Length 0 für eine nicht existierende Datei), der Server antwortete auf ein
-            // leeres PUT oft trotzdem mit 2xx — der Upload galt dann als erfolgreich abgeschlossen
-            // (`markSynced`), obwohl der Server nichts oder nur eine leere Datei erhalten hat. Jetzt
-            // wird ein nicht lesbares Quellelement explizit als Fehlschlag gewertet, bevor überhaupt
-            // hochgeladen wird.
-            val readable = withContext(Dispatchers.IO) {
-                val temp = File(context.cacheDir, "cloud_sync_${UUID.randomUUID()}")
-                val ok = context.contentResolver.openInputStream(item.uri)?.use { input ->
-                    temp.outputStream().use { output -> input.copyTo(output) }
-                    temp.length() > 0
-                } ?: false
-                if (ok) temp else { temp.delete(); null }
-            }
-            if (readable == null) {
-                failed += 1
-                _progress.value = _progress.value.copy(uploaded = uploaded, failed = failed)
-                continue
-            }
-            val tempFile = readable
-            val mimeType = context.contentResolver.getType(item.uri) ?: "application/octet-stream"
-            // Der bloße Dateiname als Remote-Pfad kollidiert leicht — zwei unabhängige "IMG_0001.jpg"
-            // (unterschiedliches Album/Datum, selber Name) würden sich auf dem Server sonst
-            // gegenseitig überschreiben. Die MediaStore-ID als Präfix macht den Pfad eindeutig,
-            // ohne den ursprünglichen Namen für den Menschen am anderen Ende unlesbar zu machen.
-            // analyse.md (2. Durchgang, Hoch): `displayName` kann ein "/" enthalten (MediaStore
-            // erzwingt das nicht) — `WebDavClient.urlFor` splittet den Remote-Pfad an jedem "/" in
-            // eigene Segmente, ein Name wie "a/b.jpg" hätte den Upload also in einen zusätzlichen,
-            // ungewollten Unterordner "a" gelenkt. "/" wird hier durch "_" ersetzt.
-            val safeDisplayName = item.displayName.replace('/', '_')
-            val remotePath = "$REMOTE_FOLDER/${item.id}_$safeDisplayName"
-            val result = WebDavClient.upload(account, remotePath, tempFile, mimeType)
-            withContext(Dispatchers.IO) { tempFile.delete() }
-
-            result.onSuccess {
-                CloudSyncState.markSynced(context, item.id)
-                uploaded += 1
-            }
-            result.onFailure { failed += 1 }
-            _progress.value = _progress.value.copy(uploaded = uploaded, failed = failed)
-        }
-        _progress.value = _progress.value.copy(running = false, done = true, currentName = null)
+    fun cancel(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
     }
 
-    fun resetProgress() {
-        _progress.value = SyncProgress()
+    /**
+     * Fortschritt des aktuellen bzw. zuletzt gelaufenen Auftrags. Liefert auch nach einem
+     * Neustart der App noch das Ergebnis des letzten Laufs — anders als der frühere prozessweite
+     * `StateFlow`, der dabei auf den Anfangswert zurückfiel.
+     */
+    fun progress(context: Context): Flow<SyncProgress> =
+        WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWorkFlow(WORK_NAME)
+            .map { infos -> infos.firstOrNull()?.let(::toProgress) ?: SyncProgress() }
+
+    private fun toProgress(info: WorkInfo): SyncProgress {
+        // Bei einem beendeten Auftrag steht der Endstand in outputData, bei einem laufenden in
+        // progress — outputData ist bei laufenden Aufträgen leer und umgekehrt.
+        val data = if (info.state.isFinished) info.outputData else info.progress
+        val failure = data.getString(CloudSyncWorker.KEY_FAILURE)
+            ?.let { name -> runCatching { CloudSyncWorker.SyncFailure.valueOf(name) }.getOrNull() }
+        return SyncProgress(
+            total = data.getInt(CloudSyncWorker.KEY_TOTAL, 0),
+            uploaded = data.getInt(CloudSyncWorker.KEY_UPLOADED, 0),
+            failed = data.getInt(CloudSyncWorker.KEY_FAILED, 0),
+            currentName = data.getString(CloudSyncWorker.KEY_CURRENT_NAME),
+            running = info.state == WorkInfo.State.RUNNING || info.state == WorkInfo.State.ENQUEUED,
+            done = info.state == WorkInfo.State.SUCCEEDED,
+            failure = failure,
+        )
+    }
+
+    /** Löscht den Auftragsverlauf, damit der Bildschirm nach "Konto entfernen" nicht weiter das
+     * Ergebnis eines Laufs anzeigt, der zu einem nicht mehr existierenden Konto gehört. */
+    fun resetProgress(context: Context) {
+        WorkManager.getInstance(context).pruneWork()
     }
 }

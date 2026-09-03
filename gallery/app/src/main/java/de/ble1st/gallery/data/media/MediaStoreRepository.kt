@@ -77,6 +77,15 @@ object MediaStoreRepository {
         awaitClose { context.contentResolver.unregisterContentObserver(observer) }
     }.flowOn(Dispatchers.IO)
 
+    /**
+     * Einmalige, blockierende Abfrage des aktuellen Medienbestands — für Aufrufer außerhalb der
+     * UI, die keinen dauerhaft beobachteten Flow brauchen (der Cloud-Sync-Worker, s.
+     * [de.ble1st.gallery.data.sync.CloudSyncWorker]). Der Worker startet unter Umständen erst
+     * Minuten nach dem Tippen auf "Jetzt sichern" und muss deshalb den dann gültigen Bestand
+     * lesen, nicht eine beim Tippen mitgegebene Liste.
+     */
+    fun loadMedia(context: Context): List<MediaItem> = queryMedia(context, matchTrashed = false)
+
     private fun queryMedia(context: Context, matchTrashed: Boolean): List<MediaItem> {
         val useRelativePath = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
         val projection = buildList {

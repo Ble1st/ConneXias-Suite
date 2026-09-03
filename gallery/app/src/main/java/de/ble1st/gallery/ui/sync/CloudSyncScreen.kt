@@ -1,5 +1,11 @@
 package de.ble1st.gallery.ui.sync
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,8 +42,9 @@ import de.ble1st.gallery.data.sync.CloudSyncManager
 import de.ble1st.gallery.data.sync.CloudSyncState
 import de.ble1st.gallery.data.webdav.WebDavAccount
 import de.ble1st.gallery.data.webdav.WebDavAccountStore
+import de.ble1st.gallery.data.sync.CloudSyncWorker
+import de.ble1st.gallery.data.sync.SyncProgress
 import de.ble1st.gallery.data.webdav.WebDavClient
-import de.ble1st.gallery.ui.GalleryViewModel
 import kotlinx.coroutines.launch
 
 /**
@@ -45,12 +53,14 @@ import kotlinx.coroutines.launch
  * [de.ble1st.gallery.data.sync.CloudSyncManager]-Klassendoc zur bewussten Ein-Wege-Beschränkung).
  */
 @Composable
-fun CloudSyncScreen(viewModel: GalleryViewModel, onBack: () -> Unit) {
+fun CloudSyncScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val allItems by viewModel.allItems.collectAsState()
-    val progress by CloudSyncManager.progress.collectAsState()
-    val storedAccount = remember { WebDavAccountStore.get(context) }
+    val progress by CloudSyncManager.progress(context).collectAsState(SyncProgress())
+    // Als Zustand und nicht als einmalig gelesener Wert: nach einem erfolgreichen
+    // "Verbindung testen" muss der Sicherungs-Knopf sofort freigegeben werden (er hängt jetzt am
+    // gespeicherten Konto, s. Kommentar dort).
+    var storedAccount by remember { mutableStateOf(WebDavAccountStore.get(context)) }
 
     var baseUrl by remember { mutableStateOf(storedAccount?.baseUrl.orEmpty()) }
     var username by remember { mutableStateOf(storedAccount?.username.orEmpty()) }
@@ -64,6 +74,22 @@ fun CloudSyncScreen(viewModel: GalleryViewModel, onBack: () -> Unit) {
 
     val connectionOkMessage = stringResource(R.string.cloud_sync_test_ok)
     val connectionFailedMessage = stringResource(R.string.cloud_sync_test_failed)
+
+    // Der Sicherungs-Auftrag läuft als Foreground-Worker mit Fortschritts-Benachrichtigung
+    // (s. CloudSyncWorker). Ohne POST_NOTIFICATIONS (ab API 33) liefe er zwar weiter, aber
+    // unsichtbar — bei einem Vorgang, der Minuten bis Stunden dauern kann, ist das genau die
+    // Anzeige, die der Nutzer braucht. Einmalige, nicht blockierende Anfrage beim Öffnen dieses
+    // Bildschirms; ein Ablehnen verhindert die Sicherung nicht.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {}
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -128,7 +154,10 @@ fun CloudSyncScreen(viewModel: GalleryViewModel, onBack: () -> Unit) {
                             // Zugangsdaten sofort beim Tippen auf den Button gespeichert, unabhängig
                             // vom Testergebnis — ein Tippfehler im Passwort landete so unbemerkt
                             // dauerhaft im verschlüsselten Storage).
-                            if (result.isSuccess) WebDavAccountStore.save(context, account)
+                            if (result.isSuccess) {
+                                WebDavAccountStore.save(context, account)
+                                storedAccount = account
+                            }
                             statusMessage = if (result.isSuccess) connectionOkMessage else connectionFailedMessage
                         }
                     },
@@ -139,23 +168,27 @@ fun CloudSyncScreen(viewModel: GalleryViewModel, onBack: () -> Unit) {
                 }
                 statusMessage?.let { Text(it, modifier = Modifier.padding(top = 8.dp)) }
 
+                // analyse.md (2. Durchgang, Mittel): "Jetzt sichern" persistierte die aktuellen
+                // Feldwerte früher immer, ungeachtet eines Tests — ein Tippfehler im Passwort
+                // landete so unbemerkt dauerhaft im verschlüsselten Storage. Persistiert wird
+                // ausschließlich über einen erfolgreichen "Verbindung testen"-Lauf.
+                //
+                // Seit die Sicherung als WorkManager-Auftrag läuft (2026-09-03), ist ein
+                // gespeichertes Konto zusätzlich Voraussetzung: Zugangsdaten dürfen nicht als
+                // Worker-Eingabedaten in die WorkManager-Datenbank wandern, der Worker liest sie
+                // deshalb selbst aus dem verschlüsselten Speicher (s. CloudSyncWorker-Klassendoc).
                 Button(
-                    enabled = isValid && !progress.running,
-                    onClick = {
-                        // analyse.md (2. Durchgang, Mittel): "Jetzt sichern" persistierte die
-                        // aktuellen Feldwerte bisher immer, ungeachtet eines Tests — derselbe Fehler,
-                        // der beim "Verbindung testen"-Knopf schon behoben wurde (s. dessen
-                        // Kommentar), war hier stehen geblieben. Ein Tippfehler im Passwort landete
-                        // so weiterhin unbemerkt dauerhaft im verschlüsselten Storage, nur eben über
-                        // diesen Knopf statt über den Test-Knopf. Persistiert wird jetzt
-                        // ausschließlich über einen erfolgreichen "Verbindung testen"-Lauf; der Sync
-                        // selbst läuft mit den aktuellen Feldwerten, auch wenn sie (noch) nicht
-                        // gespeichert sind.
-                        val account = WebDavAccount(baseUrl.trim(), username.trim(), password)
-                        CloudSyncManager.startSync(context, account, allItems)
-                    },
+                    enabled = storedAccount != null && !progress.running,
+                    onClick = { CloudSyncManager.startSync(context) },
                     modifier = Modifier.padding(top = 16.dp),
                 ) { Text(stringResource(R.string.cloud_sync_start)) }
+                if (storedAccount == null) {
+                    Text(
+                        stringResource(R.string.cloud_sync_requires_saved_account),
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
 
                 if (progress.running || progress.done) {
                     val fraction = if (progress.total == 0) 1f else (progress.uploaded + progress.failed) / progress.total.toFloat()
@@ -166,12 +199,36 @@ fun CloudSyncScreen(viewModel: GalleryViewModel, onBack: () -> Unit) {
                     )
                     progress.currentName?.let { Text(it, modifier = Modifier.padding(top = 4.dp)) }
                 }
+                if (progress.running) {
+                    OutlinedButton(
+                        onClick = { CloudSyncManager.cancel(context) },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text(stringResource(R.string.action_cancel)) }
+                }
+                // Der Auftrag lief, hat aber nichts hochgeladen — der Nutzer muss erfahren,
+                // warum, sonst wirkt "Jetzt sichern" schlicht wirkungslos.
+                when (progress.failure) {
+                    CloudSyncWorker.SyncFailure.NO_ACCOUNT ->
+                        Text(
+                            stringResource(R.string.cloud_sync_requires_saved_account),
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    CloudSyncWorker.SyncFailure.CANCELLED ->
+                        Text(
+                            stringResource(R.string.cloud_sync_cancelled),
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    null -> Unit
+                }
 
                 OutlinedButton(
                     onClick = {
+                        CloudSyncManager.cancel(context)
                         WebDavAccountStore.clear(context)
                         CloudSyncState.reset(context)
-                        CloudSyncManager.resetProgress()
+                        CloudSyncManager.resetProgress(context)
+                        storedAccount = null
                         baseUrl = ""; username = ""; password = ""; statusMessage = null
                     },
                     modifier = Modifier.padding(top = 24.dp),

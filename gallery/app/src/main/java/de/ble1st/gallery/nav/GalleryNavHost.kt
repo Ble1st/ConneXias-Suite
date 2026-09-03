@@ -39,6 +39,8 @@ import de.ble1st.gallery.ui.albums.CustomAlbumScreen
 import de.ble1st.gallery.ui.editor.PhotoEditorScreen
 import de.ble1st.gallery.ui.grid.MediaGridScreen
 import de.ble1st.gallery.ui.onboarding.MediaPermissionScreen
+import de.ble1st.gallery.ui.about.AboutScreen
+import de.ble1st.gallery.ui.about.LicensesScreen
 import de.ble1st.gallery.ui.sync.CloudSyncScreen
 import de.ble1st.gallery.ui.trash.TrashScreen
 import de.ble1st.gallery.ui.viewer.ImageViewerScreen
@@ -129,6 +131,7 @@ fun GalleryNavHost(
                 onOpenCustomAlbum = { albumId, albumName -> navController.navigate(Routes.customAlbum(albumId, albumName)) },
                 onOpenTrash = { navController.navigate(Routes.TRASH) },
                 onOpenCloudSync = { navController.navigate(Routes.CLOUD_SYNC) },
+                onOpenAbout = { navController.navigate(Routes.ABOUT) },
             )
         }
 
@@ -291,7 +294,18 @@ fun GalleryNavHost(
         }
 
         composable(Routes.CLOUD_SYNC) {
-            CloudSyncScreen(viewModel = galleryViewModel, onBack = { navController.popBackStack() })
+            CloudSyncScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.ABOUT) {
+            AboutScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLicenses = { navController.navigate(Routes.LICENSES) },
+            )
+        }
+
+        composable(Routes.LICENSES) {
+            LicensesScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.TRASH) {

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.ble1st.gallery.data.album.CustomAlbum
 import de.ble1st.gallery.data.album.CustomAlbumStore
+import de.ble1st.gallery.data.favorite.FavoritesStore
 import de.ble1st.gallery.data.media.Bucket
 import de.ble1st.gallery.data.media.MediaItem
 import de.ble1st.gallery.data.media.MediaStoreRepository
@@ -44,21 +45,32 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     val customAlbums: StateFlow<List<CustomAlbum>> = CustomAlbumStore.albums
 
+    val favorites: StateFlow<Set<Long>> = FavoritesStore.favorites
+
     init {
         viewModelScope.launch {
             MediaStoreRepository.observeMedia(application).collect { items -> _allItems.value = items }
         }
         CustomAlbumStore.list(application) // löst das einmalige Laden aus SharedPreferences aus
+        FavoritesStore.load(application)
     }
 
     fun itemsForBucket(bucketId: Long): List<MediaItem> {
-        val items = if (bucketId == de.ble1st.gallery.data.media.ALL_BUCKET_ID) {
-            _allItems.value
-        } else {
-            _allItems.value.filter { it.bucketId == bucketId }
+        val items = when (bucketId) {
+            de.ble1st.gallery.data.media.ALL_BUCKET_ID -> _allItems.value
+            de.ble1st.gallery.data.media.FAVORITES_BUCKET_ID ->
+                _allItems.value.filter { it.id in favorites.value }
+            else -> _allItems.value.filter { it.bucketId == bucketId }
         }
         return sortedItems(items, _sortOrder.value)
     }
+
+    fun toggleFavorite(id: Long) = FavoritesStore.toggle(getApplication(), id)
+
+    /** [favorite] wird ausdrücklich mitgegeben statt je Element umzuschalten — Begründung s.
+     * [FavoritesStore.setAll]. */
+    fun setFavorites(ids: Set<Long>, favorite: Boolean) =
+        FavoritesStore.setAll(getApplication(), ids, favorite)
 
     fun setSortOrder(order: SortOrder) {
         _sortOrder.value = order

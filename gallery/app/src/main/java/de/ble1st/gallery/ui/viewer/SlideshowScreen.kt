@@ -42,7 +42,10 @@ private const val SLIDE_DURATION_MS = 4000L
 @Composable
 fun SlideshowScreen(bucketId: Long, viewModel: GalleryViewModel, onBack: () -> Unit) {
     val allItems by viewModel.allItems.collectAsState()
-    val images = remember(allItems, bucketId) { viewModel.itemsForBucket(bucketId).filter { it.type == MediaType.IMAGE } }
+    // favorites mit als Schlüssel — das Favoriten-Album ändert seinen Inhalt, ohne dass sich
+    // allItems ändert (s. GalleryViewModel.itemsForBucket).
+    val favorites by viewModel.favorites.collectAsState()
+    val images = remember(allItems, bucketId, favorites) { viewModel.itemsForBucket(bucketId).filter { it.type == MediaType.IMAGE } }
     var playing by remember { mutableStateOf(true) }
 
     if (images.isEmpty()) {

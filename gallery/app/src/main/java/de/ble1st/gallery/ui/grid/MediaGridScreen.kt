@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
@@ -59,6 +62,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import de.ble1st.gallery.R
@@ -66,10 +70,15 @@ import de.ble1st.gallery.data.album.CustomAlbum
 import de.ble1st.gallery.data.media.MediaItem
 import de.ble1st.gallery.data.media.MediaType
 import de.ble1st.gallery.data.media.SortOrder
+import de.ble1st.gallery.data.media.groupByTime
 import de.ble1st.gallery.ui.GalleryViewModel
 import de.ble1st.gallery.ui.viewer.MediaInfoDialog
 import de.ble1st.gallery.util.DeleteOutcome
 import de.ble1st.gallery.util.MediaActions
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 /**
  * Thumbnail-Grid für "Alle" oder ein einzelnes Album — Mehrfachauswahl per Long-Press
@@ -90,7 +99,10 @@ fun MediaGridScreen(
     val sortOrder by viewModel.sortOrder.collectAsState()
     val selection by viewModel.selection.collectAsState()
     val customAlbums by viewModel.customAlbums.collectAsState()
-    val bucketItems = remember(allItems, sortOrder, bucketId) { viewModel.itemsForBucket(bucketId) }
+    val favorites by viewModel.favorites.collectAsState()
+    // favorites gehört mit in die Schlüssel: das Favoriten-Album (FAVORITES_BUCKET_ID) ändert
+    // seinen Inhalt, ohne dass sich allItems oder sortOrder ändern.
+    val bucketItems = remember(allItems, sortOrder, bucketId, favorites) { viewModel.itemsForBucket(bucketId) }
 
     // analyse.md ("weiterhin gültig" — "Selection leckt über Alben"): [GalleryViewModel.selection]
     // ist ein einziges, geteiltes StateFlow über alle Grid-/Album-Ansichten hinweg (bewusst, s.
@@ -115,6 +127,10 @@ fun MediaGridScreen(
     // zusätzliche Abfrage-/Indexierungsschicht für v1 einzuführen.
     val items = remember(bucketItems, searchQuery) {
         if (searchQuery.isBlank()) bucketItems else bucketItems.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
+    }
+    // null = keine Zeitleiste, flaches Raster (s. Kommentar an der Grid-Verwendung unten).
+    val sections = remember(items, sortOrder) {
+        if (sortOrder == SortOrder.DATE) groupByTime(items) else null
     }
 
     // Für API 30+ (createDeleteRequest) führt das System das Löschen bei Bestätigung selbst aus;
@@ -153,6 +169,19 @@ fun MediaGridScreen(
                             }
                             IconButton(onClick = { showAddToAlbum = true }) {
                                 Icon(Icons.Filled.PhotoAlbum, contentDescription = stringResource(R.string.album_add_to))
+                            }
+                            // Eine gemischte Auswahl (teils markiert, teils nicht) wird als
+                            // "noch nicht markiert" behandelt und der Tipp markiert alles —
+                            // umschalten je Element wäre für den Nutzer nicht vorhersehbar
+                            // (s. FavoritesStore.setAll).
+                            val allFavorite = selection.all { it in favorites }
+                            IconButton(onClick = { viewModel.setFavorites(selection, !allFavorite) }) {
+                                Icon(
+                                    if (allFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                    contentDescription = stringResource(
+                                        if (allFavorite) R.string.favorite_remove else R.string.favorite_add,
+                                    ),
+                                )
                             }
                             IconButton(onClick = { MediaActions.share(context, selectedUris(items, selection)) }) {
                                 Icon(Icons.Filled.Share, contentDescription = stringResource(R.string.action_share))
@@ -216,14 +245,39 @@ fun MediaGridScreen(
                 contentPadding = padding,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(items, key = { it.id }) { item ->
-                    MediaThumbnail(
-                        item = item,
-                        selected = item.id in selection,
-                        selectionActive = selectionActive,
-                        onClick = { if (selectionActive) viewModel.toggleSelection(item.id) else onOpenViewer(item) },
-                        onLongClick = { viewModel.toggleSelection(item.id) },
-                    )
+                // Datums-Überschriften nur bei Sortierung nach Datum: bei Name/Größe stünde über
+                // fast jeder Kachel eine eigene Überschrift, weil aufeinanderfolgende Einträge
+                // dann nichts mehr miteinander zu tun haben.
+                if (sections != null) {
+                    sections.forEach { section ->
+                        item(
+                            key = "section_${section.startMillis}_${section.monthOnly}",
+                            span = { GridItemSpan(maxLineSpan) },
+                        ) {
+                            SectionHeader(startMillis = section.startMillis, monthOnly = section.monthOnly)
+                        }
+                        items(section.items, key = { it.id }) { item ->
+                            MediaThumbnail(
+                                item = item,
+                                selected = item.id in selection,
+                                selectionActive = selectionActive,
+                                favorite = item.id in favorites,
+                                onClick = { if (selectionActive) viewModel.toggleSelection(item.id) else onOpenViewer(item) },
+                                onLongClick = { viewModel.toggleSelection(item.id) },
+                            )
+                        }
+                    }
+                } else {
+                    items(items, key = { it.id }) { item ->
+                        MediaThumbnail(
+                            item = item,
+                            selected = item.id in selection,
+                            selectionActive = selectionActive,
+                            favorite = item.id in favorites,
+                            onClick = { if (selectionActive) viewModel.toggleSelection(item.id) else onOpenViewer(item) },
+                            onLongClick = { viewModel.toggleSelection(item.id) },
+                        )
+                    }
                 }
             }
         }
@@ -317,11 +371,40 @@ private fun AddToAlbumDialog(
 private fun selectedUris(items: List<MediaItem>, selection: Set<Long>): List<Uri> =
     items.filter { it.id in selection }.map { it.uri }
 
+/**
+ * Überschrift eines Zeitabschnitts. Die Formatierung sitzt hier und nicht in [groupByTime], weil
+ * sie `Locale`-abhängig ist — die Gruppierung selbst bleibt dadurch framework-frei und testbar.
+ *
+ * [FormatStyle.LONG] für Tage ("3. September 2026") statt eines Kurzformats: die Überschrift ist
+ * der einzige Ort, an dem das Datum überhaupt ausgeschrieben steht.
+ */
+@Composable
+private fun SectionHeader(startMillis: Long, monthOnly: Boolean) {
+    val date = remember(startMillis) {
+        Instant.ofEpochMilli(startMillis).atZone(ZoneId.systemDefault()).toLocalDate()
+    }
+    val label = remember(date, monthOnly) {
+        val pattern = if (monthOnly) {
+            DateTimeFormatter.ofPattern("LLLL yyyy")
+        } else {
+            DateTimeFormatter.ofLocalizedDate(FormatStyle.LONG)
+        }
+        date.format(pattern)
+    }
+    Text(
+        text = label,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 4.dp),
+    )
+}
+
 @Composable
 private fun MediaThumbnail(
     item: MediaItem,
     selected: Boolean,
     selectionActive: Boolean,
+    favorite: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -343,6 +426,16 @@ private fun MediaThumbnail(
                 contentDescription = null,
                 tint = Color.White,
                 modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+            )
+        }
+        // Markierung auch außerhalb des Favoriten-Albums sichtbar — sonst wäre nach dem Setzen
+        // nirgends zu erkennen, welche Aufnahme markiert ist, ohne das Album zu wechseln.
+        if (favorite && !selectionActive) {
+            Icon(
+                Icons.Filled.Star,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
             )
         }
         if (selected) {

@@ -24,6 +24,15 @@
     <!-- Ausschließlich für Cloud-Sync (data/webdav/) — Backup auf einen vom Nutzer eingetragenen
          WebDAV-Server. Keine andere Funktion dieser App braucht Netzwerkzugriff. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Die Cloud-Sicherung läuft als WorkManager-Foreground-Auftrag (data/sync/CloudSyncWorker.kt):
+         ein gewöhnlicher Worker wird nach zehn Minuten gestoppt, was für den Upload einer ganzen
+         Mediathek zu kurz ist. FOREGROUND_SERVICE_DATA_SYNC ist ab API 34 zusätzlich Pflicht und
+         benennt den Zweck (Upload eigener Daten auf einen Server); POST_NOTIFICATIONS wird ab
+         API 33 für die dazugehörige Fortschritts-Benachrichtigung gebraucht — ohne sie läuft der
+         Auftrag weiter, nur unsichtbar. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".GalleryApplication"
@@ -86,6 +95,16 @@
                 <data android:mimeType="video/*" />
             </intent-filter>
         </activity>
+
+        <!-- WorkManager führt Foreground-Worker über seinen eigenen, in der Bibliothek
+             deklarierten Service aus. Dessen `foregroundServiceType` muss die App hier ergänzen
+             (tools:node="merge" überschreibt nur dieses eine Attribut) — ab API 34 verweigert
+             Android sonst den Start des Dienstes, und der Cloud-Sicherungs-Auftrag
+             (data/sync/CloudSyncWorker.kt) käme gar nicht erst zum Laufen. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
     </application>
 

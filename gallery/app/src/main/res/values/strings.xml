@@ -98,4 +98,21 @@
     <string name="filter_vintage">Vintage</string>
     <string name="filter_cool">Kühl</string>
     <string name="filter_warm">Warm</string>
+    <!-- ui/albums/AlbumsScreen.kt, ui/grid/MediaGridScreen.kt — Favoriten -->
+    <string name="album_favorites">Favoriten</string>
+    <string name="favorite_add">Zu Favoriten hinzufügen</string>
+    <string name="favorite_remove">Aus Favoriten entfernen</string>
+    <!-- data/sync/CloudSyncWorker.kt, ui/sync/CloudSyncScreen.kt -->
+    <string name="cloud_sync_notification_channel">Cloud-Sicherung</string>
+    <string name="cloud_sync_notification_title">Mediathek wird gesichert …</string>
+    <string name="cloud_sync_requires_saved_account">Erst „Verbindung testen“ — gesichert wird mit dem gespeicherten Konto.</string>
+    <string name="cloud_sync_cancelled">Sicherung abgebrochen.</string>
+    <!-- ui/about/AboutScreen.kt -->
+    <string name="about_title">Über die App</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_description">Freie Galerie ohne Google Play Services und ohne proprietäre Google-Dienste. Alles läuft lokal auf dem Gerät; Aufnahmen verlassen es nur, wenn Sie selbst eine Cloud-Sicherung auf einen eigenen WebDAV-Server einrichten.</string>
+    <string name="about_suite">Teil der ConneXias Suite — vier eigenständige Apps (Warden, Files, Kamera, Galerie), die über Android-Intents zusammenarbeiten, aber jede für sich allein voll funktionsfähig bleiben.</string>
+    <string name="about_license_title">Lizenz</string>
+    <string name="about_license_body">Apache License 2.0</string>
+    <string name="about_licenses_third_party">Fremdbibliotheken</string>
 </resources>

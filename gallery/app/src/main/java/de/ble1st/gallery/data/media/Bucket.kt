@@ -6,6 +6,13 @@ import android.net.Uri
  * und Videos, album-übergreifend" auf [de.ble1st.gallery.ui.albums.AlbumsScreen]. */
 const val ALL_BUCKET_ID = -1L
 
+/** Zweites virtuelles Album: die mit einem Stern markierten Aufnahmen (s.
+ * [de.ble1st.gallery.data.favorite.FavoritesStore]). Als Bucket-ID modelliert und nicht als
+ * eigener Bildschirm, damit die Favoriten dieselbe Grid-Ansicht samt Sortierung, Suche,
+ * Mehrfachauswahl und Diashow bekommen wie jedes andere Album — ein zweiter, fast identischer
+ * Bildschirm wäre reine Verdopplung. */
+const val FAVORITES_BUCKET_ID = -2L
+
 data class Bucket(
     val id: Long,
     val name: String,

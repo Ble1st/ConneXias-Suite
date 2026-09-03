@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PhotoAlbum
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +46,7 @@ import coil3.compose.AsyncImage
 import de.ble1st.gallery.R
 import de.ble1st.gallery.data.album.CustomAlbum
 import de.ble1st.gallery.data.media.ALL_BUCKET_ID
+import de.ble1st.gallery.data.media.FAVORITES_BUCKET_ID
 import de.ble1st.gallery.data.media.Bucket
 import de.ble1st.gallery.ui.GalleryViewModel
 
@@ -58,11 +60,15 @@ fun AlbumsScreen(
     onOpenCustomAlbum: (String, String) -> Unit,
     onOpenTrash: () -> Unit,
     onOpenCloudSync: () -> Unit,
+    onOpenAbout: () -> Unit,
 ) {
     val buckets by viewModel.buckets.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
     val customAlbums by viewModel.customAlbums.collectAsState()
+    val favorites by viewModel.favorites.collectAsState()
     val allLabel = stringResource(R.string.album_all)
+    val favoritesLabel = stringResource(R.string.album_favorites)
+    val favoriteItems = remember(allItems, favorites) { allItems.filter { it.id in favorites } }
     var showCreateDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -81,6 +87,9 @@ fun AlbumsScreen(
                     IconButton(onClick = onOpenCloudSync) {
                         Icon(Icons.Filled.CloudSync, contentDescription = stringResource(R.string.cloud_sync_title))
                     }
+                    IconButton(onClick = onOpenAbout) {
+                        Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.about_title))
+                    }
                 },
             )
         },
@@ -97,6 +106,18 @@ fun AlbumsScreen(
                         coverUri = allItems.first().uri,
                         itemCount = allItems.size,
                         onClick = { onOpenBucket(ALL_BUCKET_ID, allLabel) },
+                    )
+                }
+            }
+            // Nur wenn tatsächlich etwas markiert ist — eine dauerhaft leere Kachel an prominenter
+            // Stelle wäre für jeden, der die Funktion nicht nutzt, reiner Platzverbrauch.
+            if (favoriteItems.isNotEmpty()) {
+                item(key = "favorites") {
+                    AlbumTile(
+                        name = favoritesLabel,
+                        coverUri = favoriteItems.first().uri,
+                        itemCount = favoriteItems.size,
+                        onClick = { onOpenBucket(FAVORITES_BUCKET_ID, favoritesLabel) },
                     )
                 }
             }

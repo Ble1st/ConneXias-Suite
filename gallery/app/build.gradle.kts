@@ -116,6 +116,7 @@ dependencies {
     // Cloud-Sync — s. data/webdav/.
     implementation(libs.okhttp)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.work.runtime.ktx)
     // PhotoEditor — s. gradle/libs.versions.toml-Kommentar.
     implementation(libs.androidx.exifinterface)
 
