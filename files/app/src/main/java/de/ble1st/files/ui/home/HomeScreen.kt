@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
@@ -63,7 +64,11 @@ private sealed interface HomeWebDavDialog {
  * Einstiegspunkte in [de.ble1st.files.ui.browser.FileBrowserScreen].
  */
 @Composable
-fun HomeScreen(onOpenFolder: (File) -> Unit, onOpenWebDavAccount: (WebDavAccount) -> Unit) {
+fun HomeScreen(
+    onOpenFolder: (File) -> Unit,
+    onOpenWebDavAccount: (WebDavAccount) -> Unit,
+    onOpenTrash: () -> Unit,
+) {
     val context = LocalContext.current
     val storageRoots = remember { StorageRoots.list(context) }
     val primaryRoot = storageRoots.firstOrNull()?.path
@@ -78,7 +83,16 @@ fun HomeScreen(onOpenFolder: (File) -> Unit, onOpenWebDavAccount: (WebDavAccount
     val pendingShare by IncomingShare.pending.collectAsState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(id = R.string.app_name)) }) },
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(id = R.string.app_name)) },
+                actions = {
+                    IconButton(onClick = onOpenTrash) {
+                        Icon(Icons.Filled.Delete, contentDescription = stringResource(id = R.string.trash_title))
+                    }
+                },
+            )
+        },
     ) { padding ->
         LazyColumn(contentPadding = padding) {
             pendingShare?.let { uris ->

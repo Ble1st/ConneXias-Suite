@@ -27,6 +27,7 @@ private fun encode(path: String) = Uri.encode(path)
 object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
+    const val TRASH = "trash"
     private const val BROWSER_PATTERN = "browser/{path}"
     private const val VIEWER_PATTERN = "viewer/{category}/{path}"
     private const val WEBDAV_PATTERN = "webdav/{accountId}/{path}"

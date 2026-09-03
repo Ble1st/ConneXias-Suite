@@ -19,8 +19,16 @@ object FileOperationRequestBuilder {
         return OperationRequest(type, clipboard.paths, destinationDir.path, conflictPolicy = conflictPolicy)
     }
 
+    /** Endgültiges Löschen — nur noch für den Papierkorb-Bildschirm selbst gedacht (Einträge, die
+     * bereits unter `.crx-trash` liegen), s. [forTrash] für den normalen "Löschen"-Pfad im
+     * Datei-Browser. */
     fun forDelete(entries: List<FileEntry>): OperationRequest =
         OperationRequest(OperationType.DELETE, entries.map { it.file.path }, destinationDirPath = "")
+
+    /** Normales "Löschen" im Datei-Browser (Papierkorb, s. `analyse.md`/README "Noch nicht
+     * enthalten" — nachgereicht) verschiebt jetzt statt sofort endgültig zu löschen. */
+    fun forTrash(entries: List<FileEntry>): OperationRequest =
+        OperationRequest(OperationType.TRASH, entries.map { it.file.path }, destinationDirPath = "")
 
     /** analyse.md (2. Durchgang, Hoch — "ZIP-Name und WebDAV-Download ohne sanitizeName"): anders
      * als Create/Rename/Import/Upload lief der Dialogname hier bislang ungefiltert bis zu

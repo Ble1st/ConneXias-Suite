@@ -36,6 +36,28 @@ object StorageRoots {
         }
     }
 
+    /** Ordnername für den Papierkorb (s. [de.ble1st.files.data.fileops.FileOperations
+     * .moveToTrash]) — führender Punkt, damit er in der normalen Ordneransicht wie jede andere
+     * versteckte Datei/jeder andere versteckte Ordner (`FileEntry.isHidden`) unauffällig bleibt,
+     * statt als scheinbar normaler Nutzerordner zwischen den echten Inhalten aufzutauchen. */
+    private const val TRASH_DIR_NAME = ".crx-trash"
+
+    /**
+     * Liefert den `.crx-trash`-Ordner auf demselben Speichervolume wie [file] — oder `null`, wenn
+     * [file] unter keinem der über [list] erkannten Volumes liegt (sollte für einen über den
+     * eigenen Datei-Browser erreichten Pfad praktisch nie vorkommen). Kanonische Pfade, damit
+     * `..`/ein Symlink die Volume-Zuordnung nicht verfälschen kann (dasselbe Muster wie
+     * `FileOperations.isSameOrDescendant`).
+     */
+    fun trashDirFor(context: Context, file: File): File? {
+        val fileCanonical = runCatching { file.canonicalFile }.getOrDefault(file.absoluteFile)
+        val root = list(context).firstOrNull { root ->
+            val rootCanonical = runCatching { root.path.canonicalFile }.getOrDefault(root.path.absoluteFile)
+            fileCanonical == rootCanonical || fileCanonical.path.startsWith(rootCanonical.path + File.separator)
+        } ?: return null
+        return File(root.path, TRASH_DIR_NAME)
+    }
+
     /** Direkte Verknüpfungen auf dem Home-Bildschirm — alle relativ zum internen Speicher. */
     fun quickAccessFolders(primaryRoot: File): List<QuickAccessFolder> = listOf(
         QuickAccessFolder("Downloads", File(primaryRoot, Environment.DIRECTORY_DOWNLOADS)),

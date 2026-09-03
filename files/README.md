@@ -34,6 +34,13 @@ expressive-nahen Formsprache, s. `ui/theme/Theme.kt`), Jetpack Compose.
 - Empfängt "Teilen mit ConneXias Files" von fremden Apps (`data/share/IncomingShare.kt`,
   `ACTION_SEND`/`ACTION_SEND_MULTIPLE`): Home zeigt einen Hinweis-Banner, der nächste geöffnete
   Ordner wird zum Zielordner und importiert die geteilten Dateien automatisch dorthin.
+- Papierkorb (2026-09-03, `data/trash/`, `ui/trash/TrashScreen.kt`): "Löschen" im Datei-Browser
+  verschiebt jetzt in einen pro Speichervolume angelegten `.crx-trash`-Ordner statt sofort endgültig
+  zu löschen (`FileOperations.moveToTrash`), erreichbar über das neue Papierkorb-Symbol auf Home.
+  Wiederherstellen setzt den ursprünglichen Namen und Ordner wieder ein (legt ihn bei Bedarf neu an),
+  "Endgültig löschen"/"Papierkorb leeren" nutzen denselben rekursiven Lösch-Pfad wie überall sonst.
+  Automatische endgültige Löschung nach 30 Tagen, opportunistisch beim Öffnen des Bildschirms statt
+  über einen eigenen periodischen Worker (`TrashStore.purgeExpired`).
 
 **Sicherheits-/Robustheitsfixes (2026-09-02, s. `analyse.md`):** `file_paths.xml` deckt nur noch
 `/storage` statt des echten Filesystem-Roots ab; Namen bei Neu-Anlegen/Umbenennen/SAF-Import/
@@ -83,8 +90,8 @@ normale Verschieben/Kopieren-Funktion. `ACTION_GET_CONTENT` schaltet den bestehe
 in einen Auswahlmodus (`data/share/PickRequest.kt`) — ein Tap auf eine Datei gibt ihre
 `content://`-Uri an die anfragende App zurück, statt sie zu öffnen.
 
-**Noch nicht enthalten** (mögliche weitere Ausbauschritte): Papierkorb/Undo für
-Löschvorgänge, rekursive/globale Suche, weitere Archivformate (RAR/7z/TAR) — echte
+**Noch nicht enthalten** (mögliche weitere Ausbauschritte): rekursive/globale Suche,
+weitere Archivformate (RAR/7z/TAR) — echte
 Entpack-Implementierungen dafür, nicht nur das UI-Ausblenden von oben —, weitere
 Netzwerkprotokolle (SMB/FTP), Digest-Auth für WebDAV, Grid-/Thumbnail-Ansicht, Settings-Screen,
 `GET_CONTENT` mit angefragtem Mime-Typ-Filter (jeder Dateityp wird aktuell zurückgegeben,

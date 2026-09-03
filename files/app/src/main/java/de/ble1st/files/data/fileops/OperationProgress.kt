@@ -1,6 +1,6 @@
 package de.ble1st.files.data.fileops
 
-enum class OperationType { COPY, MOVE, DELETE, COMPRESS, EXTRACT }
+enum class OperationType { COPY, MOVE, DELETE, COMPRESS, EXTRACT, TRASH }
 
 /**
  * Entscheidet, was mit COPY/MOVE-Zielen passiert, die im Zielordner bereits existieren
@@ -45,4 +45,18 @@ sealed interface OperationState {
 /** Ergebnis eines einzelnen Datei-/Ordner-Vorgangs — Sammlung davon ergibt Completed.failedCount. */
 data class OperationOutcome(val source: String, val error: Throwable? = null, val skipped: Boolean = false) {
     val succeeded: Boolean get() = error == null && !skipped
+}
+
+/** Ergebnis eines einzelnen [FileOperations.moveToTrash]-Eintrags — [trashPath] ist `null` bei
+ * [error] != null, sonst der tatsächliche Pfad im `.crx-trash`-Ordner (für
+ * [de.ble1st.files.data.trash.TrashStore.add] durch den Aufrufer, s. dortiges Klassendoc, warum
+ * das Persistieren nicht in [FileOperations] selbst passiert — das bräuchte einen `Context`, den
+ * diese Klasse bewusst nicht hat). */
+data class TrashMoveOutcome(
+    val originalPath: String,
+    val trashPath: String?,
+    val isDirectory: Boolean,
+    val error: Throwable? = null,
+) {
+    val succeeded: Boolean get() = error == null && trashPath != null
 }

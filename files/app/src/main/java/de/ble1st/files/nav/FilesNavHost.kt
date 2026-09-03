@@ -38,6 +38,7 @@ import de.ble1st.files.permission.StoragePermission
 import de.ble1st.files.ui.browser.FileBrowserScreen
 import de.ble1st.files.ui.home.HomeScreen
 import de.ble1st.files.ui.onboarding.StoragePermissionScreen
+import de.ble1st.files.ui.trash.TrashScreen
 import de.ble1st.files.ui.viewer.ImageViewerScreen
 import de.ble1st.files.ui.viewer.TextEditorScreen
 import de.ble1st.files.ui.viewer.VideoPlayerScreen
@@ -142,8 +143,13 @@ fun FilesNavHost(onPicked: (Uri) -> Unit = {}) {
                 HomeScreen(
                     onOpenFolder = { file -> navController.navigate(Routes.browser(file.path)) },
                     onOpenWebDavAccount = { account -> navController.navigate(Routes.webdav(account.id, "/")) },
+                    onOpenTrash = { navController.navigate(Routes.TRASH) },
                 )
             }
+        }
+
+        composable(Routes.TRASH) {
+            TrashScreen(onNavigateUp = { navController.popBackStack() })
         }
 
         composable(

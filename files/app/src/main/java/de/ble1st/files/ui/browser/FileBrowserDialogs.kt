@@ -43,18 +43,23 @@ fun NameInputDialog(
     )
 }
 
+/** Seit Einführung des Papierkorbs (s. `data/trash/TrashEntry.kt`) verschiebt "Löschen" im
+ * normalen Datei-Browser nur noch — der Text macht das explizit, sonst wäre die Bestätigung
+ * irreführend ("endgültig", obwohl es das nicht mehr ist). Endgültiges Löschen gibt es weiterhin,
+ * aber nur noch im Papierkorb-Bildschirm selbst (`ui/trash/TrashScreen.kt`), auf bereits dorthin
+ * verschobenen Einträgen. */
 @Composable
 fun ConfirmDeleteDialog(entries: List<FileEntry>, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     val message = if (entries.size == 1) {
-        "„${entries.first().name}“ endgültig löschen?"
+        "„${entries.first().name}“ in den Papierkorb verschieben?"
     } else {
-        "${entries.size} Einträge endgültig löschen?"
+        "${entries.size} Einträge in den Papierkorb verschieben?"
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Löschen") },
+        title = { Text("In den Papierkorb") },
         text = { Text(message) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Löschen") } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Verschieben") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
     )
 }

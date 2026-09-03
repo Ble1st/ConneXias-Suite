@@ -3,6 +3,7 @@ package de.ble1st.files.data.fileops
 import de.ble1st.files.data.fs.LocalFileSystem
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 
 /**
  * Die eigentlichen Datei-Operationen — reine, blockierende java.io-Funktionen ohne
@@ -381,6 +382,69 @@ object FileOperations {
         for (target in targets) {
             if (isCancelled()) break
             processed = deleteRecursiveCounting(target, processed, total, isCancelled, onProgress, outcomes)
+        }
+        return outcomes
+    }
+
+    /**
+     * Verschiebt [targets] top-level (kein rekursiver Abstieg — ein ganzer Ordner wandert als ein
+     * Rename in den Papierkorb, genau wie [move] das für ein normales Verschieben auch tut) in den
+     * von [trashDirFor] gelieferten Papierkorb-Ordner. Ein `null`-Rückgabewert von [trashDirFor]
+     * (kein passendes Speichervolume gefunden, s. [de.ble1st.files.data.fs.StorageRoots]) zählt als
+     * Fehlschlag für genau diesen Eintrag, nicht für den ganzen Batch.
+     *
+     * Papierkorb ist pro Speichervolume (`<volume-root>/.crx-trash`), nicht ein einzelner globaler
+     * Ordner — ein `renameTo` über Mountpoint-Grenzen hinweg (z. B. SD-Karte → interner Speicher)
+     * darf laut java.io.File-Doku fehlschlagen; ein Papierkorb auf demselben Volume wie die Quelle
+     * hält das Verschieben immer billig. Der Zielname bekommt ein `UUID`-Präfix, damit zwei
+     * gleichnamige, aus unterschiedlichen Ordnern gelöschte Dateien im Papierkorb nicht
+     * kollidieren (anders als [uniqueName], das nur *einen* Zielordner kennt).
+     *
+     * Fällt auf Kopieren+Löschen zurück, falls das direkte `renameTo` trotz gleichen Volumes aus
+     * einem anderen Grund scheitert (dieselbe Fallback-Haltung wie [move]) — in der Praxis sollte
+     * das hier nicht vorkommen, ist aber billig genug, um es nicht stillschweigend als endgültigen
+     * Fehlschlag zu werten.
+     */
+    fun moveToTrash(
+        targets: List<File>,
+        trashDirFor: (File) -> File?,
+        isCancelled: () -> Boolean,
+        onProgress: (fileName: String, processed: Int, total: Int) -> Unit,
+    ): List<TrashMoveOutcome> {
+        val total = targets.size
+        var processed = 0
+        val outcomes = mutableListOf<TrashMoveOutcome>()
+        for (target in targets) {
+            if (isCancelled()) break
+            val wasDirectory = target.isDirectory
+            val result = runCatching {
+                val trashDir = trashDirFor(target)
+                    ?: throw IOException("Kein Papierkorb-Ziel gefunden (unbekanntes Speichervolume): ${target.path}")
+                if (!trashDir.isDirectory && !trashDir.mkdirs() && !trashDir.isDirectory) {
+                    throw IOException("Papierkorb-Ordner konnte nicht angelegt werden: ${trashDir.path}")
+                }
+                val trashTarget = File(trashDir, "${UUID.randomUUID()}_${target.name}")
+                if (!target.renameTo(trashTarget)) {
+                    val tempOutcomes = mutableListOf<OperationOutcome>()
+                    copyRecursive(target, trashTarget, 0, 1, isCancelled, { _, _, _ -> }, tempOutcomes)
+                    if (tempOutcomes.any { !it.succeeded }) {
+                        deleteRecursive(trashTarget, isCancelled)
+                        throw IOException("In den Papierkorb verschieben fehlgeschlagen: ${target.path}")
+                    }
+                    deleteRecursive(target, isCancelled)
+                }
+                trashTarget
+            }
+            processed++
+            onProgress(target.name, processed, total)
+            outcomes += result.fold(
+                onSuccess = { trashTarget ->
+                    TrashMoveOutcome(originalPath = target.path, trashPath = trashTarget.path, isDirectory = wasDirectory)
+                },
+                onFailure = { error ->
+                    TrashMoveOutcome(originalPath = target.path, trashPath = null, isDirectory = wasDirectory, error = error)
+                },
+            )
         }
         return outcomes
     }

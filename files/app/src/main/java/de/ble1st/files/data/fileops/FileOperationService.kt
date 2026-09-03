@@ -9,6 +9,9 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import de.ble1st.files.R
+import de.ble1st.files.data.fs.StorageRoots
+import de.ble1st.files.data.trash.TrashEntry
+import de.ble1st.files.data.trash.TrashStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -91,6 +94,35 @@ class FileOperationService : Service() {
                 OperationType.MOVE ->
                     FileOperations.move(sources, destination, request.conflictPolicy, isCancelled, onProgress)
                 OperationType.DELETE -> FileOperations.delete(sources, isCancelled, onProgress)
+                OperationType.TRASH -> {
+                    val trashOutcomes = FileOperations.moveToTrash(
+                        targets = sources,
+                        trashDirFor = { file -> StorageRoots.trashDirFor(applicationContext, file) },
+                        isCancelled = isCancelled,
+                        onProgress = onProgress,
+                    )
+                    // TrashStore braucht einen Context (SharedPreferences) — deshalb hier statt in
+                    // FileOperations selbst persistiert, s. TrashMoveOutcome-Klassendoc. Nur
+                    // erfolgreiche Verschiebungen bekommen einen Papierkorb-Eintrag; ein
+                    // Fehlschlag (kein passendes Volume, IO-Fehler) landet trotzdem korrekt als
+                    // fehlgeschlagenes OperationOutcome unten, ohne einen Papierkorb-Eintrag ohne
+                    // echte Datei dahinter zu hinterlassen.
+                    val now = System.currentTimeMillis()
+                    trashOutcomes.filter { it.succeeded }.forEach { outcome ->
+                        TrashStore.add(
+                            applicationContext,
+                            TrashEntry(
+                                id = java.util.UUID.randomUUID().toString(),
+                                trashPath = outcome.trashPath!!,
+                                originalPath = outcome.originalPath,
+                                originalParentPath = File(outcome.originalPath).parent ?: outcome.originalPath,
+                                deletedAtMillis = now,
+                                isDirectory = outcome.isDirectory,
+                            ),
+                        )
+                    }
+                    trashOutcomes.map { outcome -> OperationOutcome(outcome.originalPath, outcome.error) }
+                }
                 OperationType.COMPRESS -> {
                     val zipFile = File(destination, request.archiveName ?: "Archiv.zip")
                     ZipOperations.compress(sources, zipFile, isCancelled, onProgress)
@@ -126,6 +158,7 @@ class FileOperationService : Service() {
             OperationType.COPY -> getString(R.string.notification_title_copy)
             OperationType.MOVE -> getString(R.string.notification_title_move)
             OperationType.DELETE -> getString(R.string.notification_title_delete)
+            OperationType.TRASH -> getString(R.string.notification_title_trash)
             OperationType.COMPRESS -> getString(R.string.notification_title_compress)
             OperationType.EXTRACT -> getString(R.string.notification_title_extract)
         }

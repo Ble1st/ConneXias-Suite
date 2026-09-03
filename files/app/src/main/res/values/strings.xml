@@ -23,6 +23,18 @@
     <string name="notification_title_copy">Kopieren …</string>
     <string name="notification_title_move">Verschieben …</string>
     <string name="notification_title_delete">Löschen …</string>
+    <string name="notification_title_trash">In den Papierkorb verschieben …</string>
     <string name="notification_title_compress">Komprimieren …</string>
     <string name="notification_title_extract">Entpacken …</string>
+
+    <string name="trash_title">Papierkorb</string>
+    <string name="trash_empty">Der Papierkorb ist leer.</string>
+    <string name="trash_action_restore">Wiederherstellen</string>
+    <string name="trash_action_delete_forever">Endgültig löschen</string>
+    <string name="trash_action_empty">Papierkorb leeren</string>
+    <string name="trash_deleted_on">Gelöscht am %1$s</string>
+    <string name="trash_confirm_delete_forever_title">Endgültig löschen?</string>
+    <string name="trash_confirm_delete_forever_message">„%1$s“ kann danach nicht mehr wiederhergestellt werden.</string>
+    <string name="trash_confirm_empty_title">Papierkorb leeren?</string>
+    <string name="trash_confirm_empty_message">Alle %1$d Einträge werden endgültig gelöscht und können danach nicht mehr wiederhergestellt werden.</string>
 </resources>

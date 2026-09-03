@@ -161,8 +161,10 @@ class FileBrowserViewModel(application: Application, private val directory: File
         if (clip.mode == ClipboardMode.CUT) ClipboardHolder.clear()
     }
 
+    /** Verschiebt in den Papierkorb (s. `data/trash/TrashEntry.kt`) statt endgültig zu löschen —
+     * seit Einführung des Papierkorbs der normale "Löschen"-Pfad im Datei-Browser. */
     fun deleteEntries(entries: List<FileEntry>) {
-        val request = FileOperationRequestBuilder.forDelete(entries)
+        val request = FileOperationRequestBuilder.forTrash(entries)
         FileOperationService.enqueue(getApplication(), request)
         clearSelection()
         showDialog(null)
