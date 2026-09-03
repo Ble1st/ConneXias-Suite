@@ -8,6 +8,10 @@ import de.ble1st.warden.appmanagement.AppManagementController
 import de.ble1st.warden.appmanagement.AppManagementInfo
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.appmanagement.SuspiciousAppScanController
+import de.ble1st.warden.clipboard.ClipboardAccessController
+import de.ble1st.warden.clipboard.ClipboardGuardController
+import de.ble1st.warden.clipboard.ClipboardGuardStorage
+import de.ble1st.warden.domain.clipboard.ClipboardAccessEvent
 import de.ble1st.warden.domain.bus.BusCommand
 import de.ble1st.warden.presence.LogViewerActivity
 import de.ble1st.warden.domain.bus.CapabilityMatrix
@@ -262,6 +266,80 @@ class ConcordBus(
         authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "setUsbAutoLockEnabled") {
             UsbAutoLockStorage.setEnabled(context, enabled)
             UsbLockStateReceiver.syncRegistration(context)
+            true
+        }
+
+    /**
+     * "Zwischenablage-Wächter" (`docs/design-clipboard-guard.md`, Phase 1) — genau wie
+     * [isUsbAutoLockEnabled]/[setUsbAutoLockEnabled] eine reine lokale Präferenz
+     * ([ClipboardGuardStorage]), kein `Safeguard`/registry-Eintrag: Android hat keine
+     * `DevicePolicyManager`-API für die Zwischenablage (s. Konzept Abschnitt 1), also gibt es
+     * keinen Ist-Zustand gegen die Plattform abzugleichen. Der tatsächliche Abgleich läuft in
+     * [de.ble1st.warden.clipboard.ClipboardGuardController.checkAndClearIfStale], aufgerufen von
+     * `WardenStatusActivity.onWindowFocusChanged` — nur dort ist Fensterfokus (und damit
+     * funktionierender Zwischenablage-Zugriff) tatsächlich garantiert, s. Konzept Abschnitt 2.1.
+     */
+    fun isClipboardGuardEnabled(): Boolean =
+        authorize(BusCommand.READ, "isClipboardGuardEnabled") { ClipboardGuardStorage.isEnabled(context) }
+
+    fun setClipboardGuardEnabled(enabled: Boolean): Boolean =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "setClipboardGuardEnabled") {
+            ClipboardGuardStorage.setEnabled(context, enabled)
+            true
+        }
+
+    /** Letzter Leer-Zeitpunkt für die Dashboard-Anzeige, `null` = noch nie geleert. Reines Lesen,
+     * keine Nebenwirkung — [BusCommand.READ]. */
+    fun clipboardLastClearedAt(): Long? =
+        authorize(BusCommand.READ, "clipboardLastClearedAt") { ClipboardGuardStorage.lastClearAt(context) }
+
+    /**
+     * Ungegateter manueller Pfad (Dashboard-Button "Zwischenablage jetzt leeren"), analog
+     * [lockNow]: reversibel/harmlos, der Nutzer löst es selbst auf einem bereits entsperrten
+     * Gerät aus, kein Presence-Nachweis nötig. Leert unabhängig vom Auto-Clear-Toggle — anders
+     * als [de.ble1st.warden.clipboard.ClipboardGuardController.checkAndClearIfStale] respektiert
+     * dieser Pfad weder [isClipboardGuardEnabled] noch die Alters-Schwelle. Gibt zurück, ob
+     * tatsächlich Inhalt vorhanden war (reine Anzeige-Info, kein Fehlerzustand bei `false`).
+     */
+    fun clearClipboardNow(): Boolean =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "clearClipboardNow") {
+            ClipboardGuardController(context).clearNow()
+        }
+
+    /**
+     * Phase 2 (`docs/design-clipboard-guard.md` Abschnitt 3.2.7) — Wardens App-seitige Präferenz
+     * für den Cross-App-`AccessibilityService`, unabhängig von der tatsächlichen Systemfreigabe
+     * (s. `de.ble1st.warden.clipboard.ClipboardAccessibilityStatus`, in der UI getrennt angezeigt).
+     * Bewusst [BusCommand.NON_DESTRUCTIVE_SWITCH] statt einer eigenen Kategorie — dieselbe
+     * Semantik wie [setClipboardGuardEnabled], entsprechend immer im Audit-Log sichtbar (anders
+     * als ein reiner [BusCommand.READ]), was hier besonders passend ist: das Ein-/Ausschalten
+     * dieser konkreten Fähigkeit gehört selbst zu den Vorgängen, die nachvollziehbar bleiben
+     * sollen.
+     */
+    fun isClipboardCrossAppMonitoringEnabled(): Boolean =
+        authorize(BusCommand.READ, "isClipboardCrossAppMonitoringEnabled") {
+            ClipboardGuardStorage.isCrossAppMonitoringEnabled(context)
+        }
+
+    fun setClipboardCrossAppMonitoringEnabled(enabled: Boolean): Boolean =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "setClipboardCrossAppMonitoringEnabled") {
+            ClipboardGuardStorage.setCrossAppMonitoringEnabled(context, enabled)
+            true
+        }
+
+    /** Beobachtete Cross-App-Zugriffe für die Dashboard-Liste, neueste zuerst — reines Lesen,
+     * [BusCommand.READ]. */
+    fun recentClipboardAccessEvents(limit: Int = 100): List<ClipboardAccessEvent> =
+        authorize(BusCommand.READ, "recentClipboardAccessEvents") {
+            ClipboardAccessController(context).recentEvents(limit).asReversed()
+        }
+
+    /** "Verlauf löschen" im ClipboardGuard-Screen — löscht nur die dedizierte Ereignisliste, nicht
+     * den `HashChainLogStore`-Metadaten-Eintrag ("Zwischenablage-naher Zugriff erkannt: …"), der
+     * absichtlich manipulationssicher bleibt (s. `ClipboardAccessController`-Klassendoc). */
+    fun clearClipboardAccessHistory(): Boolean =
+        authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "clearClipboardAccessHistory") {
+            ClipboardAccessController(context).clearHistory()
             true
         }
 

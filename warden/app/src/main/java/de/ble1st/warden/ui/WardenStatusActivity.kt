@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -33,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -54,6 +56,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import de.ble1st.warden.BuildConfig
 import de.ble1st.warden.R
 import de.ble1st.warden.WardenApplication
@@ -81,6 +87,9 @@ import de.ble1st.warden.cellsecurity.CellSecurityStorage
 import de.ble1st.warden.sim.SimChangeController
 import de.ble1st.warden.sim.SimChangeStorage
 import de.ble1st.warden.bus.ConcordBus
+import de.ble1st.warden.clipboard.ClipboardAccessibilityStatus
+import de.ble1st.warden.clipboard.ClipboardGuardController
+import de.ble1st.warden.domain.clipboard.ClipboardAccessEvent
 import de.ble1st.warden.domain.frp.FactoryResetProtectionAccounts
 import de.ble1st.warden.domain.frp.FactoryResetProtectionDecision
 import de.ble1st.warden.domain.performance.BatteryDrainDecision
@@ -206,6 +215,22 @@ class WardenStatusActivity : ComponentActivity() {
     // bis der Ja/Nein-Dialog unten in setContent { } beantwortet ist. `null` = kein offener
     // Dialog.
     private val pendingKioskConfirmation = mutableStateOf<String?>(null)
+
+    /** "Zwischenablage-Wächter" (`docs/design-clipboard-guard.md`, Phase 1) — bewusst
+     * [onWindowFocusChanged], nicht [onResume]: Android garantiert Zwischenablage-Zugriff (seit
+     * API 29) nur der App im tatsächlichen Fensterfokus, und der ist bei `onResume()` empirisch
+     * noch nicht zuverlässig gegeben (s. Konzept-Recherche zu Abschnitt 2.1) —
+     * `onWindowFocusChanged(true)` ist der Zeitpunkt, an dem das wirklich zutrifft. `IO`, weil
+     * [ClipboardGuardController] das Audit-Log schreibt (Keystore-Unwrap + AES-GCM, s.
+     * [de.ble1st.warden.logging.HashChainLogStore]), keine Main-Thread-Operation. */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { ClipboardGuardController(applicationContext).checkAndClearIfStale() }
+                .onFailure { Log.w(TAG, "Zwischenablage-Auto-Clear (Fokus) fehlgeschlagen", it) }
+        }
+    }
 
     private val lockLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         lockRequestInFlight = false
@@ -597,6 +622,8 @@ private sealed class WardenScreen {
     data object PerformanceMonitor : WardenScreen()
     data object Network : WardenScreen()
     data object SecurityScore : WardenScreen()
+    /** Phase 2 ("Signal 2", docs/design-clipboard-guard.md Abschnitt 3.2.6/3.2.7). */
+    data object ClipboardCrossApp : WardenScreen()
 }
 
 /** Architektur-Review 2026-08-24 (F-3) — `WardenScreen` selbst ist keine der sonst über
@@ -620,6 +647,7 @@ private val WardenScreenSaver: Saver<WardenScreen, String> = Saver(
             // auf dem Netzwerk-Bildschirm fälschlich auf WardenScreen.Status zurück.
             "Network" -> WardenScreen.Network
             "SecurityScore" -> WardenScreen.SecurityScore
+            "ClipboardCrossApp" -> WardenScreen.ClipboardCrossApp
             else -> WardenScreen.Status
         }
     },
@@ -710,6 +738,22 @@ private fun WardenRoot(
             LaunchedEffect(Unit) {
                 loadPinConfiguredSafely(statusContext)?.let { pinConfigured = it }
             }
+            // "Zwischenablage-Wächter" (docs/design-clipboard-guard.md, Phase 1) — dasselbe
+            // Lade-/Toggle-Muster wie usbAutoLockToggle im Safeguards-Zweig, hier eigenständig
+            // (kein SafeguardsSnapshot nötig, nur zwei ConcordBus-Reads). `null` = noch nicht
+            // geladen/Lesefehler, s. loadPinConfiguredSafely-Konvention.
+            var clipboardGuardEnabled by remember { mutableStateOf<Boolean?>(null) }
+            var clipboardLastClearAt by remember { mutableStateOf<Long?>(null) }
+            LaunchedEffect(Unit) {
+                withContext(Dispatchers.IO) {
+                    runCatching { concordBus.isClipboardGuardEnabled() }
+                        .onSuccess { clipboardGuardEnabled = it }
+                        .onFailure { Log.e("WardenStatus", "Zwischenablage-Wächter-Status nicht ladbar", it) }
+                    runCatching { concordBus.clipboardLastClearedAt() }
+                        .onSuccess { clipboardLastClearAt = it }
+                }
+            }
+            val clipboardScope = rememberCoroutineScope()
             val lockdownTriggerProfile = remember { LockdownTriggerProfileStore.load(statusContext) }
             val kioskQuickTriggerVisible = remember(lockdownTriggerProfile) {
                 LockdownTriggerProfilePolicy.quickTriggerEntryPointsEnabled(lockdownTriggerProfile) &&
@@ -729,6 +773,28 @@ private fun WardenRoot(
                 highestFindingSeverity = findingsResult?.maxByOrNull { it.severity.ordinal }?.severity,
                 activeProfile = activeProfile,
                 pinConfigured = pinConfigured,
+                clipboardGuardEnabled = clipboardGuardEnabled,
+                clipboardLastClearAt = clipboardLastClearAt,
+                onClipboardGuardToggle = { requested ->
+                    clipboardScope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching { concordBus.setClipboardGuardEnabled(requested) }
+                                .onFailure { Log.e("WardenStatus", "Zwischenablage-Wächter-Schalter fehlgeschlagen", it) }
+                        }
+                        clipboardGuardEnabled = requested
+                    }
+                },
+                onClearClipboardNow = {
+                    clipboardScope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching { concordBus.clearClipboardNow() }
+                                .onFailure { Log.e("WardenStatus", "Zwischenablage jetzt leeren fehlgeschlagen", it) }
+                        }
+                        clipboardLastClearAt = withContext(Dispatchers.IO) {
+                            runCatching { concordBus.clipboardLastClearedAt() }.getOrNull()
+                        }
+                    }
+                },
                 onOpenFailsafe = onOpenFailsafe,
                 onOpenSensitiveAction = onOpenSensitiveAction,
                 onOpenPinManagement = onOpenPinManagement,
@@ -748,6 +814,7 @@ private fun WardenRoot(
                 onOpenPerformanceMonitor = { screen = WardenScreen.PerformanceMonitor },
                 onOpenNetwork = { screen = WardenScreen.Network },
                 onOpenSecurityScore = { screen = WardenScreen.SecurityScore },
+                onOpenClipboardCrossApp = { screen = WardenScreen.ClipboardCrossApp },
             )
         }
         WardenScreen.AppManagement -> {
@@ -1363,6 +1430,66 @@ private fun WardenRoot(
                 },
             )
         }
+        WardenScreen.ClipboardCrossApp -> {
+            // Phase 2 (docs/design-clipboard-guard.md Abschnitt 3.2.6/3.2.7) — dasselbe
+            // Lade-/Toggle-Muster wie der Status-Screen-Zweig oben für Phase 1, nur mit einem
+            // dritten geladenen Wert (die Ereignisliste) und einer zusätzlichen, nicht über
+            // ConcordBus laufenden Systemstatus-Abfrage (ClipboardAccessibilityStatus liest nur
+            // den AccessibilityManager, keine App-eigene Präferenz — kein Autorisierungsbedarf).
+            val appContext = LocalContext.current.applicationContext
+            val crossAppScope = rememberCoroutineScope()
+            var monitoringEnabled by remember { mutableStateOf<Boolean?>(null) }
+            var systemServiceEnabled by remember { mutableStateOf(false) }
+            var crossAppEvents by remember { mutableStateOf<List<ClipboardAccessEvent>?>(null) }
+
+            fun refreshCrossApp() {
+                crossAppScope.launch {
+                    val snapshot = withContext(Dispatchers.IO) {
+                        Triple(
+                            runCatching { concordBus.isClipboardCrossAppMonitoringEnabled() }.getOrNull(),
+                            runCatching { ClipboardAccessibilityStatus.isServiceEnabled(appContext) }.getOrDefault(false),
+                            runCatching { concordBus.recentClipboardAccessEvents() }.getOrNull(),
+                        )
+                    }
+                    monitoringEnabled = snapshot.first
+                    systemServiceEnabled = snapshot.second
+                    crossAppEvents = snapshot.third
+                }
+            }
+            LaunchedEffect(Unit) { refreshCrossApp() }
+
+            ClipboardCrossAppScreen(
+                monitoringEnabled = monitoringEnabled,
+                systemServiceEnabled = systemServiceEnabled,
+                events = crossAppEvents,
+                onBack = { screen = WardenScreen.Status },
+                onToggleMonitoring = { requested ->
+                    crossAppScope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching { concordBus.setClipboardCrossAppMonitoringEnabled(requested) }
+                                .onFailure { Log.e("WardenStatus", "Cross-App-Erkennung-Schalter fehlgeschlagen", it) }
+                        }
+                        monitoringEnabled = requested
+                    }
+                },
+                onOpenAccessibilitySettings = {
+                    runCatching { appContext.startActivity(ClipboardAccessibilityStatus.accessibilitySettingsIntent()) }
+                        .onFailure { Log.e("WardenStatus", "Bedienungshilfen-Einstellungen nicht erreichbar", it) }
+                },
+                onClearHistory = {
+                    crossAppScope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching { concordBus.clearClipboardAccessHistory() }
+                                .onFailure { Log.e("WardenStatus", "Cross-App-Verlauf löschen fehlgeschlagen", it) }
+                        }
+                        crossAppEvents = withContext(Dispatchers.IO) {
+                            runCatching { concordBus.recentClipboardAccessEvents() }.getOrNull()
+                        }
+                    }
+                },
+                onRefresh = { refreshCrossApp() },
+            )
+        }
     }
 }
 
@@ -1578,6 +1705,15 @@ private fun describeChildVpnParseError(e: Throwable): String {
     }
 }
 
+/** Gleiches Format wie [de.ble1st.warden.ui.SecurityScoreScreen]s `HISTORY_TIMESTAMP_FORMAT`
+ * (dort nicht wiederverwendbar, `private`) — absolut statt relativ, dieselbe Begründung wie
+ * dort: bewusst kein "vor X Minuten", das bei jeder Recomposition neu berechnet werden müsste. */
+private val CLIPBOARD_CLEAR_TIMESTAMP_FORMAT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm").withZone(ZoneId.systemDefault())
+
+private fun formatClipboardClearTimestamp(epochMillis: Long): String =
+    CLIPBOARD_CLEAR_TIMESTAMP_FORMAT.format(Instant.ofEpochMilli(epochMillis))
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WardenStatusScreen(
@@ -1594,6 +1730,13 @@ private fun WardenStatusScreen(
     activeProfile: WardenProfile?,
     /** analyse.md (2. Durchgang, Mittel — "WardenLock ist dauerhaft ein No-Op ohne PIN"). */
     pinConfigured: Boolean,
+    /** "Zwischenablage-Wächter" (docs/design-clipboard-guard.md) — `null` = noch nicht
+     * geladen/Lesefehler, s. Aufrufer. */
+    clipboardGuardEnabled: Boolean?,
+    clipboardLastClearAt: Long?,
+    onClipboardGuardToggle: (Boolean) -> Unit,
+    onClearClipboardNow: () -> Unit,
+    onOpenClipboardCrossApp: () -> Unit,
     onOpenFailsafe: () -> Unit,
     onOpenSensitiveAction: () -> Unit,
     onOpenPinManagement: () -> Unit,
@@ -1781,6 +1924,60 @@ private fun WardenStatusScreen(
             }
             MenuRow(title = stringResource(R.string.menu_sensitive_action_title), tag = "SA", onClick = onOpenSensitiveAction)
             MenuRow(title = stringResource(R.string.menu_log_viewer_title), tag = "LOG", onClick = onOpenLog)
+            HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
+
+            // "Zwischenablage-Wächter" (docs/design-clipboard-guard.md, Phase 1) — kein
+            // Safeguard-Katalogeintrag (keine DPM-Operation dahinter, s. Konzept Abschnitt 2.4),
+            // eigene kleine Sektion statt Verbau in SafeguardsScreen/SafeguardUiCatalog. Der
+            // Auto-Clear-Schalter wirkt nur, wenn Warden selbst Fokus hat (s.
+            // WardenStatusActivity.onWindowFocusChanged) — die Subtitle sagt das explizit, damit
+            // "an" nicht als "überwacht andere Apps" missverstanden wird (genau die Erwartung,
+            // die Abschnitt 0 des Konzepts als nicht erreichbar benennt).
+            SectionLabel(stringResource(R.string.section_clipboard_guard))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = stringResource(R.string.clipboard_guard_toggle_title), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = stringResource(R.string.clipboard_guard_toggle_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = clipboardGuardEnabled == true,
+                    enabled = clipboardGuardEnabled != null,
+                    onCheckedChange = onClipboardGuardToggle,
+                )
+            }
+            MenuRow(
+                title = stringResource(R.string.menu_clipboard_clear_now_title),
+                tag = "CB",
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onClearClipboardNow()
+                },
+            )
+            clipboardLastClearAt?.let { lastClearAt ->
+                Text(
+                    text = stringResource(R.string.clipboard_guard_last_cleared, formatClipboardClearTimestamp(lastClearAt)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+            // Phase 2 (docs/design-clipboard-guard.md Abschnitt 3.2.7) — eigener Menüpunkt statt
+            // Verbau in dieser Sektion: eigener Bildschirm mit eigener Aufklärungskarte, s.
+            // ClipboardCrossAppScreen-Klassendoc.
+            MenuRow(
+                title = stringResource(R.string.menu_clipboard_cross_app_title),
+                subtitle = stringResource(R.string.menu_clipboard_cross_app_subtitle),
+                tag = "CBX",
+                onClick = onOpenClipboardCrossApp,
+            )
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
 
             SectionLabel(stringResource(R.string.section_recovery))

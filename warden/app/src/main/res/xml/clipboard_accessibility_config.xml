@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- docs/design-clipboard-guard.md Abschnitt 3.2.6/3.2.7 — bewusst nur die zwei Ereignistypen,
+     die für die Paste-Burst-Heuristik gebraucht werden (ClipboardAccessDecision), kein
+     typeWindowStateChanged/typeNotificationStateChanged-Fallback wie noch im Spike: der
+     Toast-Pfad ist auf dem Testgerät bereits als nicht nutzbar widerlegt (Abschnitt 3.2.5), ihn
+     hier trotzdem zu abonnieren würde den Bedienungshilfen-Berechtigungsdialog ohne Nutzen
+     verbreitern. canRetrieveWindowContent="true" ist für den Text-Inhaltszugriff zwingend nötig —
+     genau die Berechtigung, deren Tragweite Abschnitt 3.2.7/die Dashboard-UI dem Nutzer explizit
+     erklärt, keine versteckte Zusatzberechtigung. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeViewTextChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="0"
+    android:description="@string/clipboard_accessibility_service_description" />

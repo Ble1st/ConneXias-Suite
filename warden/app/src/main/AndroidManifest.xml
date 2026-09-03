@@ -381,6 +381,30 @@
             </intent-filter>
         </service>
 
+        <!-- "Zwischenablage-Wächter" Phase 2 (docs/design-clipboard-guard.md Abschnitt 3.2.6/3.2.7),
+             auf Nutzerentscheidung 2026-09-03 gebaut ("volle Funktionalität, mit expliziter
+             UI-Aufklärung"). android:exported="true" ist für AccessibilityService-Deklarationen
+             OS-vorgeschrieben (dasselbe Muster wie WardenDeviceAdminReceiver/die beiden
+             QR-Provisionierungs-Activities, s. CLAUDE.md "Manifest component exposure") —
+             android:permission="…BIND_ACCESSIBILITY_SERVICE" ist der eigentliche Zugriffsschutz,
+             systemseitig durchgesetzt: nur system_server darf diesen Dienst binden, keine andere
+             App. Aktivierung selbst läuft ausschließlich über die manuelle Bedienungshilfen-
+             Freigabe des Nutzers (Settings.ACTION_ACCESSIBILITY_SETTINGS,
+             ClipboardAccessibilityStatus) — es gibt keinen DPM-Silent-Grant-Pfad hierfür. -->
+        <service
+            android:name=".clipboard.ClipboardAccessibilityService"
+            android:exported="true"
+            android:label="@string/clipboard_accessibility_service_label"
+            android:description="@string/clipboard_accessibility_service_description"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/clipboard_accessibility_config" />
+        </service>
+
     </application>
 
 </manifest>
