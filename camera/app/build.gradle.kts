@@ -9,6 +9,23 @@ android {
         version = release(37)
     }
 
+    // Release-Signing: nur gesetzt, wenn die Release-Pipeline (.github/workflows/release-apps.yml)
+    // den Keystore-Pfad per Env-Var bereitstellt (dort aus dem Secret RELEASE_KEYSTORE_BASE64
+    // dekodiert — derselbe Keystore wie bei Warden, s. dortige build.gradle.kts). Ein lokaler
+    // `./gradlew assembleRelease` ohne diese Env-Vars liefert weiterhin eine unsignierte
+    // Release-APK; kein Secret-Material nötig für einen lokalen Testbau.
+    val releaseStoreFilePath = System.getenv("CONNEXIAS_RELEASE_STORE_FILE")
+    signingConfigs {
+        if (releaseStoreFilePath != null) {
+            create("release") {
+                storeFile = file(releaseStoreFilePath)
+                storePassword = System.getenv("CONNEXIAS_RELEASE_STORE_PASSWORD")
+                keyAlias = System.getenv("CONNEXIAS_RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("CONNEXIAS_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "de.ble1st.camera"
         // API 26 (Android 8.0): erste Version mit Adaptive Icons, dieselbe Untergrenze wie
@@ -16,14 +33,27 @@ android {
         // Warden (dort minSdk 35), soll möglichst viele noch aktive Geräte erreichen.
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // Von der Release-Pipeline per -PconnexiasVersionCode/-PconnexiasVersionName aus dem
+        // Git-Tag gesetzt (s. .github/workflows/release-apps.yml); ohne diese Properties (lokaler
+        // Build) bleiben die Default-Werte stehen.
+        versionCode = (project.findProperty("connexiasVersionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("connexiasVersionName") as String?) ?: "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
+            if (releaseStoreFilePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            // R8 bleibt hier bewusst aus — anders als bei Warden (dort seit 2026-08-25 aktiv, mit
+            // eigenen Keep-Regeln für JNA/UniFFI). Diese App bündelt mit CameraX (inkl. Extensions/Camera2-Interop), Coil, Media3 und
+            // ZXing mehrere reflektions- bzw. serviceloader-lastige Bibliotheken,
+            // und R8s Umbenennung bricht so etwas typischerweise erst zur Laufzeit, nicht beim
+            // Bauen. Ohne Testgerät in dieser Umgebung wäre das ungeprüft ausgeliefert — dieselbe
+            // Abwägung wie bei den nicht umgesetzten Kamera-Features. Einschaltbar, sobald ein
+            // Gerätetest gegen eine minifizierte Release-APK laufen kann.
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -52,6 +82,22 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 // Markierung statt Kotlins kotlin.RequiresOptIn — das Opt-in dafür sitzt deshalb direkt als
 // `@file:androidx.annotation.OptIn(...)` in CameraController.kt, kein Kotlin-Compiler-Flag hier
 // (dieses würde vom UnsafeOptInUsageError-Lint-Check nicht erkannt, s. dortiger Kommentar).
+
+// Ausgabedatei "ConneXias-Kamera-release-1.2.3.apk" statt des generischen "app-release.apk" —
+// vier Apks aus vier Ordnern landen als Anhänge auf derselben GitHub-Release-Seite und müssen
+// dort auch ohne Ordnerkontext unterscheidbar sein (dieselbe Begründung wie in Wardens
+// build.gradle.kts).
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set(
+                output.versionName.map { versionName ->
+                    "ConneXias-Kamera-${variant.name}-$versionName.apk"
+                }
+            )
+        }
+    }
+}
 
 dependencies {
     implementation(platform(libs.androidx.compose.bom))

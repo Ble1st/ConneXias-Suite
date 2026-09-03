@@ -55,6 +55,33 @@ CI (`.github/workflows/ci.yml`) baut und testet alle vier Apps parallel (Matrix-
 Push/PR gegen `main`, plus einen separaten Job für Wardens Rust-Engine (`cargo fmt`/`clippy`/
 `test`).
 
+## Release
+
+Jede App wird **unabhängig** versioniert und veröffentlicht — vier APKs, vier Versionsstände, vier
+Release-Seiten. Zwei Pipelines, beide mit den vollständigen CI-Checks als vorgeschaltetem
+Quality-Gate:
+
+| Pipeline | Apps | Tag-Schema |
+|---|---|---|
+| `.github/workflows/release.yml` | Warden (+ Sentinel) | `v1.2.3` |
+| `.github/workflows/release-apps.yml` | Files, Kamera, Galerie | `files-v1.2.3`, `camera-v1.2.3`, `gallery-v1.2.3` |
+
+Warden hat eine eigene Pipeline, weil dort zusätzlich die komplette Rust-Kette (Krypto-Engine für
+vier ABIs frisch aus der Quelle) und die Sentinel-APK mitgebaut werden, die zwingend dasselbe
+Zertifikat tragen muss. Beide Pipelines lassen sich per Git-Tag oder manuell über „Run workflow"
+auslösen; im manuellen Fall berechnet die Pipeline die nächste Version aus dem letzten passenden
+Tag, setzt den Tag selbst und legt einen Release-**Entwurf** an, damit vor dem Veröffentlichen noch
+ein Changelog eingetragen werden kann.
+
+Alle vier Apps werden mit demselben Keystore signiert (Secrets `RELEASE_KEYSTORE_BASE64`,
+`RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`). Ein lokaler
+`./gradlew assembleRelease` ohne die entsprechenden Env-Vars liefert weiterhin eine unsignierte
+APK — für einen lokalen Testbau ist kein Secret-Material nötig.
+
+R8 ist nur bei Warden aktiv. Für die drei Compose-Apps bleibt es bewusst aus, solange kein
+Gerätetest gegen eine minifizierte Release-APK laufen kann — die Begründung steht in der jeweiligen
+`app/build.gradle.kts`.
+
 ## Herkunft / Änderungsverlauf
 
 `analyse.md` im Repo-Root ist das laufende Sicherheits-/Robustheits-Audit der Suite (mehrere

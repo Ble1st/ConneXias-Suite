@@ -1,0 +1,187 @@
+name: Release (Files/Kamera/Galerie)
+
+# Release-Pipeline für die drei Compose-Apps der Suite. Warden hat eine eigene
+# (.github/workflows/release.yml) und bleibt hier bewusst außen vor: dort hängt am Release-Bau
+# zusätzlich die komplette Rust-Kette (Engine für vier ABIs frisch aus der Quelle) und die
+# Sentinel-APK, die zwingend mit demselben Zertifikat signiert sein muss wie :app. Diese drei
+# Apps sind reine Gradle-/Compose-Projekte ohne native Anteile — eine gemeinsame, deutlich
+# einfachere Pipeline reicht.
+#
+# Jede App wird unabhängig versioniert; der Tag trägt deshalb den App-Namen als Präfix
+# (files-v1.2.3, camera-v1.2.3, gallery-v1.2.3). Manuell über "Run workflow" lässt sich eine
+# einzelne App oder alle drei auf einmal bumpen — die nächste Version wird dann je App aus deren
+# letztem eigenen Tag berechnet und der neue Tag von der Pipeline selbst gesetzt und gepusht.
+on:
+  push:
+    tags:
+      - "files-v*.*.*"
+      - "camera-v*.*.*"
+      - "gallery-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Welche App veröffentlichen?"
+        required: true
+        type: choice
+        options: [files, camera, gallery, alle]
+        default: alle
+      bump:
+        description: "Versions-Bump ab dem jeweils letzten <app>-vX.Y.Z-Tag"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+jobs:
+  # Dasselbe Quality-Gate wie bei Warden: exakt die CI-Checks (Rust fmt/clippy/test, Android
+  # lint/Unit-Tests/assembleDebug für alle vier Module) müssen grün sein, bevor überhaupt ein
+  # Release-Bau — und im manuellen Fall: eine Tag-Erstellung — stattfindet.
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  # Ermittelt, welche Apps in welcher Version gebaut werden, und legt bei manuellem Trigger die
+  # neuen Tags an. Ein eigener Job, weil der Build danach als Matrix über potenziell drei Apps
+  # läuft und die Tag-Erstellung genau einmal passieren muss, nicht je Matrix-Eintrag.
+  prepare:
+    name: Versionen bestimmen (und ggf. taggen)
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Release-Plan aufstellen
+        id: plan
+        env:
+          APP: ${{ inputs.app }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          # Ein Matrix-Eintrag je zu bauender App: Ordner, Anzeigename, Tag, versionName,
+          # versionCode. versionCode nach demselben Schema wie bei Warden
+          # (MAJOR*1000000 + MINOR*1000 + PATCH) — monoton steigend und aus dem Tag ableitbar.
+          entries=""
+
+          add_entry() {
+            local app="$1" version="$2" tag="$3"
+            local major minor patch code label
+            IFS='.' read -r major minor patch <<< "$version"
+            code=$((major * 1000000 + minor * 1000 + patch))
+            case "$app" in
+              files)   label="ConneXias Files" ;;
+              camera)  label="ConneXias Kamera" ;;
+              gallery) label="ConneXias Galerie" ;;
+              *) echo "::error::Unbekannte App '$app'"; exit 1 ;;
+            esac
+            entries="${entries}{\"app\":\"$app\",\"label\":\"$label\",\"tag\":\"$tag\",\"name\":\"$version\",\"code\":$code},"
+          }
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${{ github.ref_name }}"
+            if [[ ! "$TAG" =~ ^(files|camera|gallery)-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Tag '$TAG' entspricht nicht dem Schema <files|camera|gallery>-vMAJOR.MINOR.PATCH"
+              exit 1
+            fi
+            APP_NAME="${TAG%%-v*}"
+            VERSION="${TAG#*-v}"
+            add_entry "$APP_NAME" "$VERSION" "$TAG"
+          else
+            if [ "$APP" = "alle" ]; then
+              TARGETS="files camera gallery"
+            else
+              TARGETS="$APP"
+            fi
+            for app in $TARGETS; do
+              LATEST_TAG="$(git tag --list "${app}-v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n1)"
+              LATEST_TAG="${LATEST_TAG:-${app}-v0.0.0}"
+              VERSION="${LATEST_TAG#*-v}"
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+              case "$BUMP" in
+                major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+                minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+                patch) PATCH=$((PATCH + 1)) ;;
+                *) echo "::error::Unbekannte Bump-Stufe '$BUMP'"; exit 1 ;;
+              esac
+              NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+              NEW_TAG="${app}-v${NEW_VERSION}"
+              echo "$app: letzter Tag $LATEST_TAG, Bump $BUMP -> $NEW_TAG"
+              git tag "$NEW_TAG"
+              git push origin "$NEW_TAG"
+              add_entry "$app" "$NEW_VERSION" "$NEW_TAG"
+            done
+          fi
+
+          echo "matrix={\"include\":[${entries%,}]}" >> "$GITHUB_OUTPUT"
+
+  build-release:
+    name: ${{ matrix.label }} ${{ matrix.name }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    strategy:
+      # Kein fail-fast: bei einem "alle"-Release soll ein Fehlschlag in einer App die anderen
+      # beiden nicht mit abbrechen — ihre Tags sind bereits gesetzt und gepusht.
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Derselbe Keystore wie bei Warden (dasselbe Secret) — die drei Apps koppeln zwar nicht über
+      # signature-Permissions aneinander (das tun nur Warden und Sentinel), aber ein einheitliches
+      # Signaturzertifikat über die ganze Suite macht sie für den Nutzer als eine Herkunft
+      # erkennbar und erlaubt später ein Update, ohne die App deinstallieren zu müssen.
+      - name: Decode signing keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Assemble release APK
+        env:
+          CONNEXIAS_RELEASE_STORE_FILE: ${{ runner.temp }}/release.keystore
+          CONNEXIAS_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          CONNEXIAS_RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          CONNEXIAS_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        working-directory: ${{ matrix.app }}
+        run: |
+          ./gradlew assembleRelease --stacktrace \
+            -PconnexiasVersionName=${{ matrix.name }} \
+            -PconnexiasVersionCode=${{ matrix.code }}
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-${{ matrix.name }}
+          path: ${{ matrix.app }}/app/build/outputs/apk/release/*.apk
+          retention-days: 90
+
+      # Eigene Release-Seite je App statt einer gemeinsamen: die drei Apps werden unabhängig
+      # versioniert (eigener Tag-Präfix), eine gemeinsame Seite müsste sich auf eine der drei
+      # Versionsnummern festlegen. Entwurf (draft), damit vor dem Veröffentlichen noch ein
+      # Changelog eingetragen werden kann — wie bei Warden.
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ matrix.tag }}
+          name: ${{ matrix.label }} ${{ matrix.name }}
+          draft: true
+          files: ${{ matrix.app }}/app/build/outputs/apk/release/*.apk
