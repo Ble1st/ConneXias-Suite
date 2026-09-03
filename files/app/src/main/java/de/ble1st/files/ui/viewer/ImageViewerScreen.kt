@@ -43,6 +43,8 @@ import coil3.compose.AsyncImage
 import de.ble1st.files.data.fs.LocalFileSystem
 import de.ble1st.files.util.FileActions
 import de.ble1st.files.util.FileCategory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -57,17 +59,30 @@ fun ImageViewerScreen(file: File, onBack: () -> Unit) {
     val context = LocalContext.current
     // Geschwister-Bilder im selben Ordner für den Wisch-durch-die-Galerie-Effekt — ohne sie wäre
     // jedes Bild eine isolierte Sackgasse, wie es MaterialFiles & Co. nicht machen.
-    val siblings = remember(file) {
-        val parent = file.parentFile
-        val images = parent?.let { LocalFileSystem.list(it) }
-            ?.filter { it.category == FileCategory.IMAGE }
-            ?.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
-            ?.map { it.file }
-            .orEmpty()
-        images.ifEmpty { listOf(file) }
+    //
+    // analyse.md (2. Durchgang, Mittel — "Bildbetrachter listet Geschwister auf dem Main-Thread"):
+    // `remember(file) { ... }` lief bisher synchron im Composition-Body — LocalFileSystem.list
+    // ruft `listFiles()` auf und kategorisiert/sortiert jeden Treffer, bei einem großen DCIM-Ordner
+    // (tausende Dateien) ein potenziell spürbarer Main-Thread-Block bis hin zum ANR. Jetzt: sofort
+    // mit nur [file] selbst starten (das angeforderte Bild ist damit ab dem ersten Frame sichtbar),
+    // die echte Geschwisterliste per LaunchedEffect auf Dispatchers.IO nachladen und den Pager erst
+    // dann — falls nötig — auf den tatsächlichen Index von [file] springen lassen.
+    var siblings by remember(file) { mutableStateOf(listOf(file)) }
+    val pagerState = rememberPagerState(initialPage = 0) { siblings.size }
+    LaunchedEffect(file) {
+        val loaded = withContext(Dispatchers.IO) {
+            val parent = file.parentFile
+            val images = parent?.let { LocalFileSystem.list(it) }
+                ?.filter { it.category == FileCategory.IMAGE }
+                ?.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+                ?.map { it.file }
+                .orEmpty()
+            images.ifEmpty { listOf(file) }
+        }
+        siblings = loaded
+        val targetPage = loaded.indexOf(file).coerceAtLeast(0)
+        if (targetPage != pagerState.currentPage) pagerState.scrollToPage(targetPage)
     }
-    val initialPage = remember(file, siblings) { siblings.indexOf(file).coerceAtLeast(0) }
-    val pagerState = rememberPagerState(initialPage = initialPage) { siblings.size }
     val currentFile = siblings.getOrElse(pagerState.currentPage) { file }
 
     // Solange ein Bild gezoomt ist, muss der Pager selbst nicht mehr auf horizontale Wischgesten

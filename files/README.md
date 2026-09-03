@@ -53,6 +53,25 @@ einem kryptischen Fehler gescheitert wären; `POST_NOTIFICATIONS` wird jetzt tat
 Zugangsdaten unverschlüsselt übertragen werden (Cleartext bleibt erlaubt, s.
 `network_security_config.xml`-Kommentar — Begründung unverändert).
 
+**Sicherheits-/Robustheitsfixes, 2. Durchgang (2026-09-03, s. `analyse.md`):** Symlinks auf
+Verzeichnisse werden beim Löschen/Kopieren/Größe-Ermitteln/Zählen nicht mehr verfolgt (verhinderte
+sowohl versehentliches Leeren eines fremden Zielordners über einen Lösch-Link als auch
+endloses/riesiges Kopieren über einen Ringlink); OVERWRITE löscht die frisch verifizierte
+Kopie nicht mehr, wenn nur noch das abschließende Umbenennen fehlschlägt (vorheriges Verhalten
+verlor bei diesem seltenen Fehlerfall sowohl Original als auch Kopie); ZIP-Archivnamen und
+WebDAV-Downloadnamen laufen jetzt ebenfalls durch `sanitizeName`; Compose-Navigation dekodierte
+Pfad-Parameter doppelt (intern bereits durch Navigation selbst, zusätzlich noch einmal in der
+App) — behoben, dabei auch ein latenter Kodierungs-Mismatch (`URLEncoder` vs. `Uri.decode`)
+mitkorrigiert; der Texteditor schreibt jetzt atomar über eine temporäre Datei plus Rename statt
+direkt in die Zieldatei (kein abgeschnittener Dateiinhalt mehr bei einem Absturz mitten im
+Schreiben); der Bildbetrachter baut seine Geschwister-Liste asynchron statt auf dem Hauptthread
+(kein ANR-Risiko mehr bei sehr großen Ordnern); WebDAV-Downloads sind jetzt größenbegrenzt (10 GiB,
+analog zum bestehenden Zip-Bomben-Schutz); ein WebDAV-Upload mit nicht lesbarem Quell-Stream
+scheitert jetzt sichtbar statt eine leere Datei als Erfolg zu melden; ein abgebrochener
+Kopiervorgang meldet den noch unvollständigen Ordner nicht mehr als Erfolg; ZIP-Extraktion
+begrenzt jetzt zusätzlich zur Gesamtgröße auch die Eintragsanzahl (Schutz vor
+Viele-winzige-Einträge-Zip-Bomben).
+
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte): Papierkorb/Undo für
 Löschvorgänge, rekursive/globale Suche, weitere Archivformate (RAR/7z/TAR) — echte
 Entpack-Implementierungen dafür, nicht nur das UI-Ausblenden von oben —, weitere

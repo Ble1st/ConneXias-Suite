@@ -1,5 +1,6 @@
 package de.ble1st.files.data.fileops
 
+import de.ble1st.files.data.fs.LocalFileSystem
 import java.io.File
 import java.io.IOException
 
@@ -151,7 +152,16 @@ object FileOperations {
      * [existing], löscht die vorhandene Zieldatei/den Zielordner erst *nach* einer vollständig
      * erfolgreichen Kopie und benennt dann um. Vorher wurde [existing] sofort gelöscht und erst
      * danach kopiert — schlug der Kopiervorgang fehl (Speicher voll, Abbruch, IO-Fehler), war die
-     * ursprüngliche Datei bereits weg, ohne dass eine funktionierende Kopie an ihrer Stelle stand. */
+     * ursprüngliche Datei bereits weg, ohne dass eine funktionierende Kopie an ihrer Stelle stand.
+     *
+     * analyse.md (2. Durchgang, Hoch — "OVERWRITE: Restloch nach Temp-first"): dasselbe Loch gab es
+     * eine Ebene tiefer: schlug ausgerechnet das abschließende `renameTo` fehl — NACHDEM [existing]
+     * bereits gelöscht und die Temporärkopie vollständig verifiziert war —, wurde [tempTarget]
+     * anschließend ebenfalls gelöscht. Ergebnis: `existing` weg, keine funktionierende Kopie an
+     * ihrer Stelle, obwohl eine vollständige gerade eben noch existierte. [tempTarget] bleibt bei
+     * einem Rename-Fehlschlag jetzt liegen (verifiziert vollständige Daten, nur unter dem
+     * Temp-Namen) statt vernichtet zu werden — ein Fehlschlag mit wiederauffindbaren Daten ist
+     * immer besser als derselbe Fehlschlag mit Totalverlust. */
     private fun copyWithOverwrite(
         source: File,
         existing: File,
@@ -171,8 +181,10 @@ object FileOperations {
             if (tempTarget.renameTo(finalTarget)) {
                 outcomes += tempOutcomes
             } else {
-                deleteRecursive(tempTarget, isCancelled)
-                outcomes += OperationOutcome(source.path, IOException("Ersetzen fehlgeschlagen: ${source.path}"))
+                outcomes += OperationOutcome(
+                    source.path,
+                    IOException("Ersetzen fehlgeschlagen — vollständige Kopie liegt unter „${tempTarget.name}“: ${source.path}"),
+                )
             }
         } else {
             deleteRecursive(tempTarget, isCancelled)
@@ -193,12 +205,27 @@ object FileOperations {
         if (isCancelled()) return processed
         var nextProcessed = processed
         runCatching {
+            if (source.isDirectory && LocalFileSystem.isSymlink(source)) {
+                // analyse.md (2. Durchgang, Hoch — "Symlinks werden als Verzeichnisse behandelt"):
+                // ein Symlink zurück auf einen Vorfahren der Quelle (oder ein anderer, beliebig
+                // großer Baum) würde hier sonst transparent verfolgt und endlos/riesig kopiert —
+                // s. LocalFileSystem.isSymlink-Klassendoc. Ein Symlink auf eine reguläre Datei
+                // fällt in den else-Zweig unten und wird ganz normal (als Dateiinhalt) kopiert,
+                // das ist unkritisch und bleibt erlaubt.
+                throw IOException("Symlink auf Verzeichnis wird nicht kopiert: ${source.path}")
+            }
             if (source.isDirectory) {
                 if (!destination.mkdirs() && !destination.isDirectory) {
                     throw IOException("Ordner konnte nicht angelegt werden: ${destination.path}")
                 }
                 source.listFiles()?.forEach { child ->
-                    if (isCancelled()) return@forEach
+                    // analyse.md (2. Durchgang, Mittel — "Abbruch eines Copy-Jobs zählt den Ordner
+                    // trotzdem als Erfolg"): `return@forEach` übersprang hier bislang nur das
+                    // jeweils EINE Kind, ließ die Schleife aber bis zum Ende durchlaufen — das
+                    // `runCatching` unten warf dabei nie, also landete der Ordner selbst immer in
+                    // `.onSuccess`, auch wenn ein Abbruch mitten in seinem Inhalt lag. Jetzt wirft
+                    // die Prüfung explizit, sobald ein Abbruch echte Kinder ausließ.
+                    if (isCancelled()) throw IOException("Abgebrochen: ${source.path}")
                     nextProcessed = copyRecursive(
                         child,
                         File(destination, child.name),
@@ -304,7 +331,13 @@ object FileOperations {
     /** OVERWRITE-Konfliktauflösung für [move], wenn ein direktes `renameTo` über [existing] nicht
      * möglich war (Ordner-Ziel oder unterschiedliche Mountpoints): kopiert [source] zuerst unter
      * einem temporären Namen, löscht [existing] erst nach vollständigem Kopiererfolg und löscht die
-     * Quelle erst, nachdem das Ersetzen tatsächlich geklappt hat. */
+     * Quelle erst, nachdem das Ersetzen tatsächlich geklappt hat.
+     *
+     * analyse.md (2. Durchgang, Hoch — "OVERWRITE: Restloch nach Temp-first"): dasselbe Restloch
+     * wie bei [copyWithOverwrite] — schlägt das abschließende `renameTo` fehl, bleibt [tempTarget]
+     * (die verifiziert vollständige Kopie) jetzt liegen statt gelöscht zu werden, s. dortiger
+     * Kommentar. Die Quelle wurde auch vorher schon in diesem Fehlerfall korrekt nicht gelöscht —
+     * das war nicht Teil des Funds, bleibt aber unverändert richtig. */
     private fun moveWithOverwrite(
         source: File,
         existing: File,
@@ -325,8 +358,10 @@ object FileOperations {
                 deleteRecursive(source, isCancelled)
                 outcomes += tempOutcomes
             } else {
-                deleteRecursive(tempTarget, isCancelled)
-                outcomes += OperationOutcome(source.path, IOException("Ersetzen fehlgeschlagen: ${source.path}"))
+                outcomes += OperationOutcome(
+                    source.path,
+                    IOException("Ersetzen fehlgeschlagen — vollständige Kopie liegt unter „${tempTarget.name}“: ${source.path}"),
+                )
             }
         } else {
             deleteRecursive(tempTarget, isCancelled)
@@ -352,7 +387,9 @@ object FileOperations {
 
     private fun deleteRecursive(file: File, isCancelled: () -> Boolean) {
         if (isCancelled()) return
-        if (file.isDirectory) {
+        // s. copyRecursive-Kommentar: ein Symlink auf ein Verzeichnis darf nicht verfolgt werden —
+        // sonst löscht dies den Inhalt des Ziel-Verzeichnisses statt nur den Link selbst.
+        if (file.isDirectory && !LocalFileSystem.isSymlink(file)) {
             file.listFiles()?.forEach { deleteRecursive(it, isCancelled) }
         }
         file.delete()
@@ -368,7 +405,7 @@ object FileOperations {
     ): Int {
         if (isCancelled()) return processed
         var nextProcessed = processed
-        if (file.isDirectory) {
+        if (file.isDirectory && !LocalFileSystem.isSymlink(file)) {
             file.listFiles()?.forEach { child ->
                 if (isCancelled()) return@forEach
                 nextProcessed = deleteRecursiveCounting(child, nextProcessed, total, isCancelled, onProgress, outcomes)
@@ -387,7 +424,7 @@ object FileOperations {
     }
 
     private fun countEntries(file: File): Int {
-        if (!file.isDirectory) return 1
+        if (!file.isDirectory || LocalFileSystem.isSymlink(file)) return 1
         var count = 1 // der Ordner selbst zählt als ein Fortschritts-Schritt (mkdirs/delete).
         file.listFiles()?.forEach { count += countEntries(it) }
         return count

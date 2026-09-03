@@ -31,6 +31,14 @@ import java.util.concurrent.TimeUnit
  */
 object WebDavClient {
 
+    /** analyse.md (2. Durchgang, Mittel — "WebDAV-GET ohne Größenlimit"): [download] kopierte den
+     * Antwort-Body bislang uneingeschränkt (`input.copyTo(output)`) — ein bösartiger oder defekter
+     * Server könnte eine beliebig lange Antwort streamen und den lokalen Speicher füllen, bevor
+     * jemand eingreifen kann. Dieselbe Obergrenze wie [ZipOperations.MAX_EXTRACTED_BYTES] (10 GiB,
+     * dortiges Klassendoc), aus demselben Grund: weit über jeder realistischen Datei, weit unter
+     * dem, was eine unbegrenzte Antwort anrichten könnte. */
+    private const val MAX_DOWNLOAD_BYTES = 10L * 1024 * 1024 * 1024
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -70,7 +78,7 @@ object WebDavClient {
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                     val body = response.body ?: throw IOException("Leere Antwort")
                     destination.parentFile?.mkdirs()
-                    body.byteStream().use { input -> destination.outputStream().use { output -> input.copyTo(output) } }
+                    body.byteStream().use { input -> destination.outputStream().use { output -> copyLimited(input, output, MAX_DOWNLOAD_BYTES) } }
                     Unit
                 }
             }
@@ -238,6 +246,22 @@ object WebDavClient {
         val trimmed = rawHref.trim()
         val isAbsoluteUrl = trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)
         return if (isAbsoluteUrl) Uri.parse(trimmed).encodedPath.orEmpty() else trimmed
+    }
+
+    /** Dasselbe Muster wie `ZipOperations.copyLimited` (laufender Budget-Abzug statt eines simplen
+     * `copyTo`), hier auf einen HTTP-Response-Body statt einen Zip-Eintrag angewendet. */
+    private fun copyLimited(input: java.io.InputStream, output: java.io.OutputStream, remainingBudget: Long) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var copied = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            copied += read
+            if (copied > remainingBudget) {
+                throw IOException("Antwort überschreitet die maximale Downloadgröße")
+            }
+            output.write(buffer, 0, read)
+        }
     }
 
     private fun parseHttpDate(text: String): Long =

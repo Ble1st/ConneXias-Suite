@@ -41,6 +41,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /** Größer wird nicht mehr in den Editor geladen — eine simple `TextField`-Bearbeitung hält den
  * kompletten Inhalt als String im Speicher, ein Mehrfaches davon während des Tippens (Undo-Stack
@@ -88,7 +91,25 @@ fun TextEditorScreen(file: File, onBack: () -> Unit) {
     fun save() {
         scope.launch {
             isSaving = true
-            val result = withContext(Dispatchers.IO) { runCatching { file.writeText(text, Charsets.UTF_8) } }
+            // analyse.md (2. Durchgang, Mittel — "Texteditor schreibt nicht atomar"): file
+            // .writeText öffnet die Zieldatei direkt und überschreibt sie Byte für Byte — ein
+            // Abbruch mitten im Schreiben (App gekillt, Speicher voll, Absturz) hinterlässt eine
+            // abgeschnittene/leere Datei, die vorherige Version ist dann unwiederbringlich weg.
+            // Jetzt: erst vollständig in eine Temp-Datei im selben Verzeichnis schreiben, dann
+            // atomar über die Zieldatei umbenennen — bis zum letzten Moment bleibt entweder die
+            // alte oder die neue vollständige Version sichtbar, nie ein Zwischenzustand.
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val parent = file.parentFile ?: throw IOException("Kein übergeordneter Ordner: ${file.path}")
+                    val temp = File.createTempFile(".crx-edit-", null, parent)
+                    runCatching { temp.writeText(text, Charsets.UTF_8) }
+                        .onFailure { temp.delete() }
+                        .getOrThrow()
+                    runCatching {
+                        Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+                    }.onFailure { temp.delete() }.getOrThrow()
+                }
+            }
             isSaving = false
             result.onSuccess {
                 originalText = text

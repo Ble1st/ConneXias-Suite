@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 data class WebDavUiState(
@@ -129,12 +130,26 @@ class WebDavBrowserViewModel(
             // displayName kommt aus einer fremden ContentProvider-DISPLAY_NAME-Spalte — nicht
             // vertrauenswürdig, s. FileOperations.sanitizeName-Doc.
             val safeName = runCatching { FileOperations.sanitizeName(displayName) }.getOrNull() ?: return@launch
+            // analyse.md (2. Durchgang, Mittel — "WebDAV-Upload bei openInputStream == null PUTet
+            // eine leere Datei als Erfolg"): ein `null`-Stream (Provider abgestürzt, Berechtigung
+            // zwischenzeitlich entzogen, Uri ungültig geworden) ließ `temp` unangetastet — je nach
+            // WebDavClient.upload()-Verhalten für eine fehlende/leere Datei sah das wie ein
+            // erfolgreicher Upload einer leeren Datei aus, obwohl gar nichts Sinnvolles kopiert
+            // wurde. Jetzt explizit geprüft und mit einer sichtbaren Fehlermeldung abgebrochen,
+            // statt stillschweigend weiterzumachen.
             val tempFile = withContext(Dispatchers.IO) {
                 val temp = File(application.cacheDir, "webdav_upload_${UUID.randomUUID()}")
-                application.contentResolver.openInputStream(sourceUri)?.use { input ->
-                    temp.outputStream().use { output -> input.copyTo(output) }
+                val input = application.contentResolver.openInputStream(sourceUri)
+                if (input == null) {
+                    null
+                } else {
+                    input.use { stream -> temp.outputStream().use { output -> stream.copyTo(output) } }
+                    temp
                 }
-                temp
+            }
+            if (tempFile == null) {
+                setError(IOException("Datei konnte nicht gelesen werden: $sourceUri"))
+                return@launch
             }
             val result = WebDavClient.upload(state.account, childPath(state.path, safeName), tempFile)
             withContext(Dispatchers.IO) { tempFile.delete() }
@@ -162,7 +177,13 @@ class WebDavBrowserViewModel(
         val state = _uiState.value
         val application = getApplication<Application>()
         viewModelScope.launch {
-            val destination = File(application.cacheDir, "webdav/${state.account.id}/${UUID.randomUUID()}/${entry.name}")
+            // analyse.md (2. Durchgang, Hoch — "ZIP-Name und WebDAV-Download ohne sanitizeName"):
+            // entry.name kommt aus einem WebDAV-Href (hrefToEncodedPath) — ein präparierter Server
+            // könnte ein "../../"-Segment darin unterbringen. Create/Rename/Import/Upload sind
+            // schon bereinigt, dieser Pfad war es nicht.
+            val safeName = runCatching { FileOperations.sanitizeName(entry.name) }
+                .getOrElse { error -> setError(error); return@launch }
+            val destination = File(application.cacheDir, "webdav/${state.account.id}/${UUID.randomUUID()}/$safeName")
             WebDavClient.download(state.account, entry.path, destination).fold(
                 onSuccess = { onReady(destination) },
                 onFailure = { error -> setError(error) },
@@ -183,9 +204,13 @@ class WebDavBrowserViewModel(
                 return@launch
             }
             val downloadsDir = File(primaryRoot, Environment.DIRECTORY_DOWNLOADS)
+            // s. downloadToCache-Kommentar — dieselbe Href-Traversal-Lücke, hier sogar der von
+            // analyse.md konkret genannte Fall ("../../DCIM/pwned" relativ zu Downloads).
+            val safeName = runCatching { FileOperations.sanitizeName(entry.name) }
+                .getOrElse { error -> setError(error); return@launch }
             val targetName = withContext(Dispatchers.IO) {
                 downloadsDir.mkdirs()
-                FileOperations.uniqueName(downloadsDir, entry.name)
+                FileOperations.uniqueName(downloadsDir, safeName)
             }
             val destination = File(downloadsDir, targetName)
             WebDavClient.download(state.account, entry.path, destination).fold(

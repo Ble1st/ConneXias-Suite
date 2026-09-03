@@ -168,8 +168,15 @@ class FileBrowserViewModel(application: Application, private val directory: File
         showDialog(null)
     }
 
+    /** `forCompress` wirft jetzt über `sanitizeName` (analyse.md-Fix, s. dortiger Kommentar), z. B.
+     * bei einem Archivnamen, der nach Entfernen der Pfadanteile leer/"."/".." wäre — `NameInputDialog`
+     * verhindert nur eine komplett leere Eingabe, nicht diese Fälle. `runCatching` statt eines
+     * ungefangenen Absturzes, `errorMessage` dasselbe Feld wie bei jedem anderen fehlgeschlagenen
+     * Namens-Dialog (s. `runFileOpAndRefresh`). */
     fun compress(entries: List<FileEntry>, archiveName: String) {
-        val request = FileOperationRequestBuilder.forCompress(entries, directory, archiveName)
+        val request = runCatching { FileOperationRequestBuilder.forCompress(entries, directory, archiveName) }
+            .onFailure { _uiState.update { state -> state.copy(pendingDialog = null, errorMessage = it.message) } }
+            .getOrNull() ?: return
         FileOperationService.enqueue(getApplication(), request)
         clearSelection()
         showDialog(null)

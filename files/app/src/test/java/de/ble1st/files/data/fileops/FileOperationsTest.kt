@@ -2,10 +2,12 @@ package de.ble1st.files.data.fileops
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 
 /**
  * Reine JVM-Unit-Tests (kein Robolectric/Instrumentation nötig) — FileOperations ist bewusst frei
@@ -157,5 +159,61 @@ class FileOperationsTest {
         FileOperations.delete(listOf(target), isCancelled = { false }) { _, _, _ -> }
 
         assertTrue(!target.exists())
+    }
+
+    /** analyse.md (2. Durchgang, Hoch — "Symlinks werden als Verzeichnisse behandelt"): vorher
+     * folgte `deleteRecursiveCounting` dem Link, listete den Inhalt des ZIELS auf und löschte ihn
+     * — der eigentliche Zielordner (außerhalb der Löschauswahl) verlor seinen kompletten Inhalt,
+     * bevor am Ende nur noch der Link selbst entfernt wurde. */
+    @Test
+    fun `delete of a symlinked directory removes only the link, not the target contents`() {
+        val target = File(tempDir, "ziel").apply { mkdirs() }
+        val untouched = File(target, "wichtig.txt").apply { writeText("nicht löschen") }
+        val link = File(tempDir, "link")
+        Files.createSymbolicLink(link.toPath(), target.toPath())
+
+        FileOperations.delete(listOf(link), isCancelled = { false }) { _, _, _ -> }
+
+        assertFalse(link.exists())
+        assertTrue(target.exists())
+        assertTrue(untouched.exists())
+    }
+
+    /** Symmetrisches Kopier-Gegenstück: ein Symlink auf ein Verzeichnis im Quellbaum darf nicht
+     * verfolgt werden — sonst könnte ein Link zurück auf einen Vorfahren der Quelle (oder einen
+     * beliebig großen fremden Baum) den Kopiervorgang endlos/riesig werden lassen. */
+    @Test
+    fun `copy refuses to follow a directory symlink and reports failure`() {
+        val target = File(tempDir, "ziel").apply { mkdirs() }
+        File(target, "datei.txt").writeText("x")
+        val source = File(tempDir, "quelle").apply { mkdirs() }
+        Files.createSymbolicLink(File(source, "link").toPath(), target.toPath())
+        val destination = File(tempDir, "kopie").apply { mkdirs() }
+
+        val outcomes = FileOperations.copy(listOf(source), destination, isCancelled = { false }) { _, _, _ -> }
+
+        assertTrue(outcomes.any { !it.succeeded })
+        assertFalse(File(destination, "quelle/link/datei.txt").exists())
+    }
+
+    /** analyse.md (2. Durchgang, Mittel — "Abbruch eines Copy-Jobs zählt den Ordner trotzdem als
+     * Erfolg"): ein Abbruch, der mitten in einem Ordner mit mehreren Kindern eintrifft, durfte
+     * diesen Ordner selbst nicht mehr als erfolgreich kopiert melden. */
+    @Test
+    fun `cancelling mid-directory reports the directory itself as failed, not succeeded`() {
+        val source = File(tempDir, "quelle").apply { mkdirs() }
+        File(source, "a.txt").writeText("A")
+        File(source, "b.txt").writeText("B")
+        val destination = File(tempDir, "ziel").apply { mkdirs() }
+
+        var processedCount = 0
+        val outcomes = FileOperations.copy(
+            listOf(source),
+            destination,
+            isCancelled = { processedCount >= 1 },
+        ) { _, processed, _ -> processedCount = processed }
+
+        val sourceOutcome = outcomes.first { it.source == source.path }
+        assertFalse(sourceOutcome.succeeded)
     }
 }

@@ -14,6 +14,13 @@ object ZipOperations {
      * App (Fotos/Dokumente/Backups), aber weit unter dem, was eine Bombe typischerweise anrichtet. */
     private const val MAX_EXTRACTED_BYTES = 10L * 1024 * 1024 * 1024
 
+    /** analyse.md (2. Durchgang, Mittel — "Zip-Bombe über Eintragsanzahl"): [MAX_EXTRACTED_BYTES]
+     * deckelt nur die Gesamt-Byte-Summe, nicht die Anzahl der Einträge — ein Archiv aus Millionen
+     * winziger (oder sogar leerer) Einträge bliebe unterhalb des Byte-Limits, würde aber genauso
+     * Speicher/Dateisystem-Ressourcen erschöpfen (jeder Eintrag ein eigenes `mkdirs()`/
+     * `outputStream()`). 1 Million liegt weit über jeder realistischen legitimen Nutzung. */
+    private const val MAX_ENTRY_COUNT = 1_000_000
+
     fun compress(
         sources: List<File>,
         destinationZip: File,
@@ -104,6 +111,13 @@ object ZipOperations {
             var entry: ZipEntry? = zipIn.nextEntry
             while (entry != null) {
                 if (isCancelled()) break
+                if (processed >= MAX_ENTRY_COUNT) {
+                    outcomes += OperationOutcome(
+                        zipFile.path,
+                        IOException("Archiv überschreitet die maximale Eintragsanzahl ($MAX_ENTRY_COUNT) — möglicherweise eine Zip-Bombe"),
+                    )
+                    break
+                }
                 val currentEntry = entry
                 val outcome = runCatching {
                     val target = File(destinationDir, currentEntry.name)
@@ -162,7 +176,9 @@ object ZipOperations {
         var count = 0
         runCatching {
             ZipInputStream(zipFile.inputStream().buffered()).use { zipIn ->
-                while (zipIn.nextEntry != null) count++
+                // s. MAX_ENTRY_COUNT-Klassendoc: bricht den reinen Zähl-Durchlauf selbst ebenfalls
+                // ab, statt bei einer absurden Eintragsanzahl trotzdem bis zum Ende durchzuzählen.
+                while (count < MAX_ENTRY_COUNT && zipIn.nextEntry != null) count++
             }
         }
         return count.coerceAtLeast(1)
