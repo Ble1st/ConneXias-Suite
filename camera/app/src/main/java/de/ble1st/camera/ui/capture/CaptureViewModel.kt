@@ -335,6 +335,12 @@ class CaptureViewModel : ViewModel() {
             // einem Moduswechsel/ON_RESUME noch ungebunden sein — vorher gab es hier gar keine
             // Rückmeldung, ein Tap auf den Auslöser blieb kommentarlos wirkungslos.
             onError = { _uiState.update { it.copy(errorMessage = "Kamera ist gerade nicht aufnahmebereit (Rebind läuft noch)") } },
+            // analyse.md ("RECORD_AUDIO Pflicht für Foto"): Mikrofonzugriff ist jetzt optional
+            // (s. CameraPermission.kt) — fehlt er, nimmt CameraController stumm auf statt
+            // abzustürzen oder den Aufnahmestart zu verweigern. Kurzer Hinweis statt einer
+            // stillen, verwirrenden Funktionslücke (dieselbe Begründung, die vorher für die
+            // Pflicht-Anfrage stand — hier jetzt als sichtbarer Hinweis statt als Blockade).
+            onAudioUnavailable = { _uiState.update { it.copy(errorMessage = "Kein Mikrofonzugriff — Video wird ohne Ton aufgenommen") } },
         ) { event ->
             when (event) {
                 is VideoRecordEvent.Start -> {

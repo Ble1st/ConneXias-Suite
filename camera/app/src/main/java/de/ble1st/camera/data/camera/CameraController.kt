@@ -38,6 +38,7 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import de.ble1st.camera.permission.CameraPermission
 
 enum class LensFacing { BACK, FRONT }
 enum class CaptureMode { PHOTO, VIDEO }
@@ -310,14 +311,19 @@ class CameraController(private val context: Context) {
         )
     }
 
-    // Lint kann nicht sehen, dass CameraPermission.hasAccess() (CAMERA + RECORD_AUDIO) bereits
-    // Voraussetzung für das Erreichen des Capture-Screens ist (s. CameraNavHost' Onboarding-Route)
-    // — withAudioEnabled() kann diesen Screen nie ohne bereits erteilte Berechtigung erreichen,
-    // eine erneute Laufzeitprüfung hier wäre totes Code-Duplikat.
+    // analyse.md ("weiterhin gültig" — "RECORD_AUDIO Pflicht für Foto"): RECORD_AUDIO ist seit
+    // diesem Fix nicht mehr Teil von CameraPermission.required — der Sucher/Fotomodus ist auch
+    // ohne Mikrofonzugriff nutzbar (s. CameraPermission.kt-Klassendoc). withAudioEnabled() darf
+    // deshalb nicht mehr blind aufgerufen werden; die Berechtigung wird hier bei jedem
+    // Aufnahmestart real geprüft (CameraPermission.hasAudioAccess ist selbst nur ein
+    // ContextCompat.checkSelfPermission-Wrapper, für Lint aber nicht als Guard erkennbar — der
+    // SuppressLint bleibt deshalb nötig, ist jetzt aber sachlich korrekt statt auf eine Erreichbar-
+    // keitsannahme gestützt).
     @SuppressLint("MissingPermission")
     fun startVideoRecording(
         outputOptions: MediaStoreOutputOptions,
         onError: () -> Unit = {},
+        onAudioUnavailable: () -> Unit = {},
         onEvent: (VideoRecordEvent) -> Unit,
     ) {
         // Derselbe stille No-Op wie takePhoto vorher (s. dortiger Kommentar) — hier harmloser,
@@ -325,9 +331,10 @@ class CameraController(private val context: Context) {
         // Auslöser), aber immer noch ein Tap ohne jede Rückmeldung. onError erlaubt der ViewModel,
         // wenigstens eine Fehlermeldung zu zeigen statt kommentarlos nichts zu tun.
         val capture = videoCapture ?: run { onError(); return }
-        activeRecording = capture.output
-            .prepareRecording(context, outputOptions)
-            .withAudioEnabled()
+        val hasAudio = CameraPermission.hasAudioAccess(context)
+        if (!hasAudio) onAudioUnavailable()
+        val pending = capture.output.prepareRecording(context, outputOptions)
+        activeRecording = (if (hasAudio) pending.withAudioEnabled() else pending)
             .start(ContextCompat.getMainExecutor(context), onEvent)
     }
 

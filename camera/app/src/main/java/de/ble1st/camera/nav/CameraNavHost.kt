@@ -42,9 +42,15 @@ fun CameraNavHost(
         composable(Routes.ONBOARDING) {
             val lifecycleOwner = LocalLifecycleOwner.current
             var hasAccess by remember { mutableStateOf(CameraPermission.hasAccess(context)) }
+            // analyse.md ("RECORD_AUDIO Pflicht für Foto"): der Dialog fragt weiterhin auch
+            // RECORD_AUDIO mit an (initialRequestSet, s. dortiges Klassendoc), aber ob das
+            // Onboarding abgeschlossen ist, wird jetzt gegen CameraPermission.hasAccess()
+            // (nur noch CAMERA + ggf. Storage) neu geprüft statt gegen "results.values.all { it }"
+            // — sonst hätte eine abgelehnte Mikrofon-Berechtigung weiterhin den gesamten Sucher
+            // blockiert, obwohl [required] selbst RECORD_AUDIO gar nicht mehr enthält.
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions(),
-            ) { results -> hasAccess = results.values.all { it } }
+            ) { hasAccess = CameraPermission.hasAccess(context) }
 
             // CAMERA/RECORD_AUDIO können auch über die System-Einstellungen (statt den Dialog
             // oben) nachträglich gewährt werden, z. B. nach einem vorherigen "Nicht mehr
@@ -67,7 +73,7 @@ fun CameraNavHost(
             }
 
             if (!hasAccess) {
-                CameraPermissionScreen(onRequestAccess = { permissionLauncher.launch(CameraPermission.required) })
+                CameraPermissionScreen(onRequestAccess = { permissionLauncher.launch(CameraPermission.initialRequestSet) })
             }
         }
 

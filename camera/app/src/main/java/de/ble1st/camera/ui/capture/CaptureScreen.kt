@@ -3,6 +3,8 @@ package de.ble1st.camera.ui.capture
 import android.net.Uri
 import android.view.OrientationEventListener
 import android.view.Surface
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
@@ -71,6 +73,7 @@ import coil3.compose.AsyncImage
 import de.ble1st.camera.R
 import de.ble1st.camera.data.camera.CaptureMode
 import de.ble1st.camera.nav.CaptureRequestInfo
+import de.ble1st.camera.permission.CameraPermission
 import de.ble1st.camera.util.SecureScreenEffect
 import kotlinx.coroutines.delay
 
@@ -91,6 +94,22 @@ fun CaptureScreen(
     val previewView = remember { PreviewView(context) }
 
     SecureScreenEffect()
+
+    // analyse.md ("RECORD_AUDIO Pflicht für Foto"): RECORD_AUDIO ist beim Onboarding jetzt
+    // optional (s. CameraPermission.kt) — wer sie dort abgelehnt hat, aber später doch den
+    // Videomodus wählt, bekommt hier eine zweite Chance, statt für immer auf stumme Aufnahmen
+    // festzusitzen. Kein Blockieren des Moduswechsels selbst: ohne Mikrofon nimmt
+    // CameraController stumm auf (s. CaptureViewModel.onAudioUnavailable), der Wechsel gelingt so
+    // oder so.
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {}
+    val onSelectModeWithAudioPrompt: (CaptureMode) -> Unit = { mode ->
+        if (mode == CaptureMode.VIDEO && !CameraPermission.hasAudioAccess(context)) {
+            audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+        viewModel.setMode(mode)
+    }
 
     // Sperrt den Foto-/Video-Umschalter auf den vom Aufrufer angeforderten Modus (System-Kamera-
     // Contract, s. CaptureRequestInfo-Klassendoc) — nur einmalig beim Eintritt, nicht bei jedem
@@ -221,7 +240,7 @@ fun CaptureScreen(
             state = state,
             modeSwitchVisible = captureRequestInfo == null,
             onZoomChanged = viewModel::onZoomSliderChanged,
-            onSelectMode = viewModel::setMode,
+            onSelectMode = onSelectModeWithAudioPrompt,
             onSwitchLens = viewModel::switchLens,
             onShutter = { viewModel.onShutterPressed(context) },
             onOpenReview = onOpenReview,
