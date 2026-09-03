@@ -1,18 +1,22 @@
 package de.ble1st.camera.ui.capture
 
+import android.app.Application
 import android.content.Context
 import android.net.Uri
 import androidx.camera.core.Camera
 import androidx.camera.core.ImageCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import de.ble1st.camera.data.camera.CameraController
+import de.ble1st.camera.data.camera.CameraExtension
 import de.ble1st.camera.data.camera.CaptureMode
 import de.ble1st.camera.data.camera.LensFacing
 import de.ble1st.camera.data.camera.ManualSensorRanges
+import de.ble1st.camera.data.camera.VideoQuality
+import de.ble1st.camera.data.settings.CameraSettingsStore
 import de.ble1st.camera.data.storage.MediaStoreSaver
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -41,11 +45,12 @@ data class CaptureUiState(
     // konnte der Regler entweder nie das Maximum erreichen oder einen ungültigen Bereich anbieten.
     // Wird bei jedem Bind aus `Camera.cameraInfo.zoomState` neu gelesen (s. `bindPreview`).
     val zoomRatioRange: ClosedFloatingPointRange<Float> = 1f..1f,
-    // HDR (Camera2-Extension, s. CameraController-Klassendoc) — nur im Foto-Modus verfügbar,
-    // Verfügbarkeit wird erst nach dem Binden vom Gerät gemeldet (Extension-Support ist
-    // geräte-/objektivabhängig, nicht vorab bekannt).
-    val hdrAvailable: Boolean = false,
-    val hdrEnabled: Boolean = false,
+    // Camera2-Extensions (HDR/Nacht/Bokeh/Automatik, s. CameraExtension) — nur im Foto-Modus
+    // verfügbar, die Verfügbarkeit wird erst nach dem Binden vom Gerät gemeldet (Extension-Support
+    // ist geräte- *und* objektivabhängig, nicht vorab bekannt).
+    val availableExtensions: Set<CameraExtension> = emptySet(),
+    val extension: CameraExtension = CameraExtension.NONE,
+    val videoQuality: VideoQuality = VideoQuality.DEFAULT,
     val exposureCompensationRange: IntRange = 0..0,
     val exposureCompensationIndex: Int = 0,
     val manualSensorRanges: ManualSensorRanges? = null,
@@ -68,16 +73,56 @@ data class CaptureUiState(
  * Hält nur den [CameraController] (an den Application-Context gebunden, s. [bindPreview]) —
  * bewusst keine `PreviewView`/`LifecycleOwner`-Referenz im ViewModel selbst, um keine
  * Activity-Referenz über eine Konfigurationsänderung hinaus zu halten. `CaptureScreen` ruft
- * [bindPreview] stattdessen aus einem `LaunchedEffect(mode, lensFacing, hdrEnabled)` und beim
+ * [bindPreview] stattdessen aus einem `LaunchedEffect(mode, lensFacing, extension)` und beim
  * Wiedereintritt aus dem Hintergrund erneut auf (s. dortige Kommentare).
+ *
+ * [AndroidViewModel] statt [androidx.lifecycle.ViewModel] seit 2026-09-03, ausschließlich wegen
+ * der gespeicherten Sucher-Einstellungen: die müssen bereits im Anfangszustand stehen, bevor der
+ * erste `LaunchedEffect`-Bind läuft — sonst bindet die Kamera einmal mit den Defaults und sofort
+ * danach ein zweites Mal mit den geladenen Werten. Ein Laden aus der Komposition heraus
+ * (`remember { }`) wäre der offensichtliche Weg gewesen, ist aber genau das, was Compose-Lint mit
+ * `RememberReturnType` zu Recht verbietet. Der `Application`-Context ist prozesslanglebig, hier
+ * also unbedenklich — im Unterschied zu einer Activity-Referenz.
  */
-class CaptureViewModel : ViewModel() {
+class CaptureViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(CaptureUiState())
     val uiState: StateFlow<CaptureUiState> = _uiState.asStateFlow()
 
     private var controller: CameraController? = null
     private var countdownJob: Job? = null
     private var recordingTimerJob: Job? = null
+
+    // Nur dafür da, dass die Umschalter unten ihren neuen Wert persistieren können, ohne dass
+    // jeder von ihnen einen Context als Parameter durchreichen müsste (die UI ruft sie als
+    // Methodenreferenzen auf).
+    private val settingsContext: Context = application
+
+    init {
+        // Zuletzt benutzte Sucher-Einstellungen sofort in den Anfangszustand ziehen, noch bevor
+        // die erste Komposition ihn liest — s. Klassendoc.
+        val saved = CameraSettingsStore.load(settingsContext)
+        _uiState.update {
+            it.copy(
+                mode = saved.mode,
+                lensFacing = saved.lensFacing,
+                flashMode = saved.flashMode,
+                gridEnabled = saved.gridEnabled,
+                timerOption = saved.timerOption,
+                extension = saved.extension,
+                videoQuality = saved.videoQuality,
+            )
+        }
+    }
+
+    /** Die Videoqualität ist die einzige gespeicherte Einstellung, die außerhalb dieses
+     * ViewModels geändert werden kann (Einstellungs-Bildschirm) — beim Wiedereintritt in den
+     * Sucher neu einlesen, sonst bindet die nächste Videoaufnahme noch mit dem alten Wert. */
+    fun refreshVideoQuality(context: Context) {
+        val quality = CameraSettingsStore.loadVideoQuality(context.applicationContext)
+        if (_uiState.value.videoQuality != quality) {
+            _uiState.update { it.copy(videoQuality = quality) }
+        }
+    }
 
     fun bindPreview(context: Context, lifecycleOwner: LifecycleOwner, previewView: PreviewView) {
         val appContext = context.applicationContext
@@ -88,7 +133,8 @@ class CaptureViewModel : ViewModel() {
             previewView = previewView,
             lensFacing = state.lensFacing,
             mode = state.mode,
-            hdrRequested = state.hdrEnabled,
+            extensionRequested = state.extension,
+            videoQuality = state.videoQuality,
             onZoomChanged = { ratio -> _uiState.update { it.copy(zoomRatio = ratio) } },
             onBound = { boundCamera ->
                 cameraController.setFlashMode(state.flashMode)
@@ -121,8 +167,17 @@ class CaptureViewModel : ViewModel() {
                     cameraController.setManualSensorControls(state.manualIso, state.manualShutterNanos)
                 }
             },
-            onHdrAvailability = { available ->
-                _uiState.update { it.copy(hdrAvailable = available, hdrEnabled = it.hdrEnabled && available) }
+            // Ein gespeicherter Extension-Modus, den das gerade gebundene Objektiv nicht anbietet
+            // (Frontkamera, anderes Gerät), fällt still auf NONE zurück statt eine Auswahl
+            // anzuzeigen, die beim Auslösen wirkungslos wäre — CameraController bindet in diesem
+            // Fall ohnehin ohne Extension-Selektor (s. dortiges `useExtension`).
+            onAvailableExtensions = { available ->
+                _uiState.update {
+                    it.copy(
+                        availableExtensions = available,
+                        extension = if (it.extension in available) it.extension else CameraExtension.NONE,
+                    )
+                }
             },
             onManualSensorSupport = { ranges ->
                 _uiState.update {
@@ -186,22 +241,28 @@ class CaptureViewModel : ViewModel() {
     fun setMode(mode: CaptureMode) {
         if (_uiState.value.isBusy || _uiState.value.mode == mode) return
         _uiState.update { it.copy(mode = mode) }
+        CameraSettingsStore.saveMode(settingsContext, mode)
     }
 
     /** Sperrt den Aufnahmemodus auf `mode`, für den System-Kamera-Contract (ACTION_IMAGE_CAPTURE/
      * ACTION_VIDEO_CAPTURE, s. [de.ble1st.camera.nav.CaptureRequestInfo]) — anders als [setMode]
      * ignoriert diese Funktion `isBusy` nicht als Sperre, sondern läuft unbedingt einmalig beim
      * Bildschirmeintritt, damit ein Messenger, der ein Foto angefragt hat, nicht versehentlich ein
-     * Video zurückbekommt. */
+     * Video zurückbekommt.
+     *
+     * Speichert den Modus bewusst **nicht** (anders als [setMode]): dieser Wert kommt vom
+     * aufrufenden Fremd-Programm, nicht vom Nutzer dieser App — ein Messenger, der einmalig ein
+     * Video anfordert, soll nicht dafür sorgen, dass der Sucher beim nächsten regulären Start im
+     * Videomodus aufgeht. */
     fun lockMode(mode: CaptureMode) {
         if (_uiState.value.mode != mode) _uiState.update { it.copy(mode = mode) }
     }
 
     fun switchLens() {
         if (_uiState.value.isBusy) return
-        _uiState.update {
-            it.copy(lensFacing = if (it.lensFacing == LensFacing.BACK) LensFacing.FRONT else LensFacing.BACK)
-        }
+        val next = if (_uiState.value.lensFacing == LensFacing.BACK) LensFacing.FRONT else LensFacing.BACK
+        _uiState.update { it.copy(lensFacing = next) }
+        CameraSettingsStore.saveLensFacing(settingsContext, next)
     }
 
     fun cycleFlash() {
@@ -212,8 +273,11 @@ class CaptureViewModel : ViewModel() {
         }
         controller?.setFlashMode(next)
         _uiState.update { it.copy(flashMode = next) }
+        CameraSettingsStore.saveFlashMode(settingsContext, next)
     }
 
+    /** Dauerlicht wird als einzige Sucher-Einstellung bewusst nicht gespeichert — s.
+     * [CameraSettingsStore]-Klassendoc (sichtbarer, aktiv Akku verbrauchender Hardware-Zustand). */
     fun toggleTorch() {
         val next = !_uiState.value.torchOn
         controller?.setTorch(next)
@@ -221,7 +285,9 @@ class CaptureViewModel : ViewModel() {
     }
 
     fun toggleGrid() {
-        _uiState.update { it.copy(gridEnabled = !it.gridEnabled) }
+        val next = !_uiState.value.gridEnabled
+        _uiState.update { it.copy(gridEnabled = next) }
+        CameraSettingsStore.saveGridEnabled(settingsContext, next)
     }
 
     fun cycleTimer() {
@@ -231,14 +297,21 @@ class CaptureViewModel : ViewModel() {
             TimerOption.TEN -> TimerOption.OFF
         }
         _uiState.update { it.copy(timerOption = next) }
+        CameraSettingsStore.saveTimerOption(settingsContext, next)
     }
 
-    /** Löst einen Rebind aus (s. `LaunchedEffect(mode, lensFacing, hdrEnabled)` in
-     * [de.ble1st.camera.ui.capture.CaptureScreen]) — HDR-Extension-Selektoren werden beim Binden
-     * gewählt, nicht nachträglich auf eine laufende Session angewendet. */
-    fun toggleHdr() {
-        if (!_uiState.value.hdrAvailable || _uiState.value.mode != CaptureMode.PHOTO) return
-        _uiState.update { it.copy(hdrEnabled = !it.hdrEnabled) }
+    /** Löst einen Rebind aus (s. `LaunchedEffect(mode, lensFacing, extension)` in
+     * [de.ble1st.camera.ui.capture.CaptureScreen]) — Extension-Selektoren werden beim Binden
+     * gewählt, nicht nachträglich auf eine laufende Session angewendet. [CameraExtension.NONE] ist
+     * immer wählbar (kein Selektor nötig), jeder andere Modus nur, wenn das gebundene Objektiv ihn
+     * meldet. */
+    fun selectExtension(extension: CameraExtension) {
+        val state = _uiState.value
+        if (state.mode != CaptureMode.PHOTO) return
+        if (extension != CameraExtension.NONE && extension !in state.availableExtensions) return
+        if (state.extension == extension) return
+        _uiState.update { it.copy(extension = extension) }
+        CameraSettingsStore.saveExtension(settingsContext, extension)
     }
 
     fun toggleManualControls() {

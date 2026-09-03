@@ -21,10 +21,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import de.ble1st.camera.permission.CameraPermission
+import de.ble1st.camera.ui.about.AboutScreen
+import de.ble1st.camera.ui.about.LicensesScreen
 import de.ble1st.camera.ui.capture.CaptureScreen
 import de.ble1st.camera.ui.onboarding.CameraPermissionScreen
 import de.ble1st.camera.ui.review.CaptureReviewScreen
 import de.ble1st.camera.ui.scan.ScanResultScreen
+import de.ble1st.camera.ui.settings.CameraSettingsScreen
 
 /** `captureRequestInfo` != null, `onCaptureDelivered`/`onCaptureCanceled` != No-Op nur, wenn
  * [de.ble1st.camera.MainActivity] per `ACTION_IMAGE_CAPTURE`/`ACTION_VIDEO_CAPTURE` gestartet
@@ -87,11 +90,30 @@ fun CameraNavHost(
                 captureRequestInfo = captureRequestInfo,
                 onOpenReview = { uri, isVideo -> navController.navigate(Routes.review(uri, isVideo)) },
                 onOpenScanResult = { navController.navigate(Routes.SCAN_RESULT) },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
             )
         }
 
         composable(Routes.SCAN_RESULT) {
             ScanResultScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SETTINGS) {
+            CameraSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenAbout = { navController.navigate(Routes.ABOUT) },
+            )
+        }
+
+        composable(Routes.ABOUT) {
+            AboutScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLicenses = { navController.navigate(Routes.LICENSES) },
+            )
+        }
+
+        composable(Routes.LICENSES) {
+            LicensesScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

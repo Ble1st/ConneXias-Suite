@@ -27,9 +27,16 @@ ohne Play-Services-Laufzeitabhängigkeit); Material 3 (mit einer expressive-nahe
   Geräten mit `MANUAL_SENSOR`-Fähigkeit (per Camera2-Characteristics zur Laufzeit geprüft, sonst
   ausgeblendet) — echte manuelle ISO-/Verschlusszeit-Regler über Camera2-Interop
   (`Camera2CameraControl`/`CaptureRequestOptions`).
-- HDR über die vom Gerätehersteller im Camera2-HAL bereitgestellte "Camera Extension"
+- Aufnahmemodi über die vom Gerätehersteller im Camera2-HAL bereitgestellten "Camera Extensions"
   (`androidx.camera.extensions.ExtensionsManager`) — AndroidX/FOSS, kein Cloud-/Play-Services-
-  Dienst; nur im Foto-Modus, nur sichtbar, wenn das Gerät die Extension tatsächlich anbietet.
+  Dienst; nur im Foto-Modus. Seit 2026-09-03 eine Auswahl (Automatik/HDR/Nacht/Bokeh, s.
+  `data/camera/CameraExtension.kt`) statt des früheren reinen HDR-Schalters: es ist derselbe
+  `getExtensionEnabledCameraSelector`-Aufruf mit einer anderen Konstante, und die
+  Verfügbarkeitsprüfung lief ohnehin schon pro Bind. Angeboten wird ausschließlich, was das gerade
+  gebundene Objektiv tatsächlich meldet (Extension-Support ist geräte- *und* objektivabhängig);
+  ein gespeicherter Modus, den das aktuelle Objektiv nicht kann, fällt still auf "Aus" zurück.
+  `FACE_RETOUCH` ist bewusst ausgelassen — ein Schönheitsfilter ist keine Aufnahmefunktion,
+  Nachbearbeitung passiert in dieser App ausschließlich sichtbar und non-destruktiv.
 - Foto-Nachbearbeitung: sechs `ColorMatrix`-Filter (Original/Schwarz-Weiß/Sepia/Vintage/Kühl/Warm,
   `util/PhotoFilters.kt`) mit Live-Vorschau in der Kurz-Ansicht — speichert non-destruktiv eine
   neue MediaStore-Kopie, das Original bleibt unangetastet erhalten (Speichern selbst downsampled
@@ -59,6 +66,28 @@ ohne Play-Services-Laufzeitabhängigkeit); Material 3 (mit einer expressive-nahe
   Wardens QR-Scan. Nur im normalen App-Gebrauch sichtbar, nicht während ein Aufrufer diese App per
   System-Kamera-Contract als Aufnahmeziel nutzt.
 
+- **Einstellungen bleiben erhalten** (2026-09-03, `data/settings/CameraSettingsStore.kt`): Blitz,
+  Raster, Selbstauslöser, Aufnahmemodus, Objektiv und der gewählte Extension-Modus überstehen jetzt
+  einen App-Neustart. Bewusst **nicht** gespeichert wird das Dauerlicht — ein Gerät, das beim
+  Öffnen der App sofort die LED einschaltet, weil das vor drei Tagen einmal so war, ist
+  überraschend und kostet spürbar Akku; ebenso wenig EV-Korrektur und manuelle ISO-/
+  Verschlusszeitwerte, deren gültige Bereiche geräte- und objektivabhängig sind und beim Bind
+  ohnehin neu ermittelt werden. Ein per System-Kamera-Contract von außen erzwungener Modus wird
+  ebenfalls nicht gespeichert (der kommt vom aufrufenden Fremd-Programm, nicht vom Nutzer dieser
+  App). SharedPreferences statt DataStore, weil die Werte *synchron vor* dem ersten Kamera-Bind
+  feststehen müssen — geladen im `init` der ViewModel, nicht aus der Komposition heraus.
+- **Einstellungs-Bildschirm** (2026-09-03, `ui/settings/CameraSettingsScreen.kt`): bewusst klein —
+  Aufnahmeeinstellungen gehören in den Sucher, wo man sie beim Fotografieren braucht. Hier steht
+  nur, was dort nicht hingehört: die **Videoauflösung** (SD/HD/Full HD/4K, vorher fest auf Full HD
+  verdrahtet — der automatische Downgrade auf ein von der Hardware unterstütztes Profil bleibt
+  unverändert), der Speicherort als reine Information und ein Zurücksetzen der gemerkten
+  Sucher-Einstellungen.
+- **Über-Bildschirm** (2026-09-03, `ui/about/AboutScreen.kt`): Version, Lizenz und die
+  Fremdbibliotheken-Liste (`res/raw/third_party_licenses.txt`, gepflegte Quelle:
+  [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)). Apache-2.0 §4(d) verlangt, dass die
+  Attribution für den *Empfänger der Binary* erreichbar ist — eine Datei im Repository allein
+  genügt dafür nicht, sobald eine APK per Sideload weitergegeben wird.
+
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte, mit Begründung):
 - **RAW-Aufnahme (DNG)**: CameraX bietet dafür keine Standard-`ImageCapture`-Ausgabeoption; eine
   korrekte Umsetzung bräuchte eine eigenständige Camera2-`RAW_SENSOR`-`ImageReader`-Pipeline neben
@@ -74,10 +103,6 @@ ohne Play-Services-Laufzeitabhängigkeit); Material 3 (mit einer expressive-nahe
   ausgeliefert.
 - **Mehrkamera-Ansicht (gleichzeitig Front+Rück)**: CameraX' `ConcurrentCamera`-API wird nur von
   einer schmalen Geräteauswahl unterstützt und ebenfalls nicht in dieser Umgebung testbar.
-- **Einstellungen werden nicht dauerhaft gespeichert** (Blitz-/Torch-/Raster-/Timer-Wahl, letzter
-  Modus/Objektiv): setzen sich bei jedem App-Neustart auf die Defaults zurück — es gibt v1 bewusst
-  keinen eigenen Settings-Bildschirm/keine Persistenzschicht dafür (`DataStore` o. Ä. wäre die
-  naheliegende spätere Ergänzung).
 - **`ACTION_IMAGE_CAPTURE_SECURE`** (Sperrbildschirm-Kamera-Contract) wird nicht unterstützt — das
   bräuchte zusätzliche Sperrbildschirm-Fensterflags/-Verhalten (z. B. `FLAG_SHOW_WHEN_LOCKED`) und
   eine eigene Abwägung, ob eine App aus dieser Suite überhaupt vor dem Entsperren erreichbar sein
@@ -191,4 +216,6 @@ stand kein Gerät zur Verfügung, Verifikation beschränkte sich auf Unit-Tests 
 
 ## License
 
-See [LICENSE](../LICENSE).
+Apache License 2.0 — s. [LICENSE](../LICENSE). Fremdbibliotheken und ihre Lizenzen:
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), in der App unter "Über die App →
+Fremdbibliotheken".

@@ -19,8 +19,13 @@
     <string name="capture_timer_3s">3 Sekunden</string>
     <string name="capture_timer_10s">10 Sekunden</string>
     <string name="capture_last_capture">Letzte Aufnahme</string>
-    <string name="capture_action_hdr_on">HDR an</string>
-    <string name="capture_action_hdr_off">HDR aus</string>
+    <string name="capture_action_extension">Aufnahmemodus (HDR/Nacht/Bokeh)</string>
+    <string name="capture_extension_none">Aus</string>
+    <string name="capture_extension_auto">Automatik</string>
+    <string name="capture_extension_hdr">HDR</string>
+    <string name="capture_extension_night">Nacht</string>
+    <string name="capture_extension_bokeh">Bokeh</string>
+    <string name="capture_action_settings">Einstellungen</string>
     <string name="capture_action_manual">Manuelle Belichtung</string>
     <string name="capture_label_ev">EV %+d</string>
     <string name="capture_label_iso">ISO %d</string>
@@ -59,4 +64,28 @@
     <string name="scan_result_action_share">Teilen</string>
     <string name="scan_result_copied">Kopiert</string>
     <string name="scan_result_content_desc_label">Rohtext</string>
+
+    <!-- ui/settings/CameraSettingsScreen.kt -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_section_video">Video</string>
+    <string name="settings_video_quality_hint">Meldet die Kamera die gewählte Auflösung nicht, wird automatisch auf die nächstniedrigere unterstützte heruntergestuft.</string>
+    <string name="settings_video_quality_sd">SD (480p)</string>
+    <string name="settings_video_quality_hd">HD (720p)</string>
+    <string name="settings_video_quality_fhd">Full HD (1080p)</string>
+    <string name="settings_video_quality_uhd">4K (2160p)</string>
+    <string name="settings_section_storage">Speicherort</string>
+    <string name="settings_storage_hint">Aufnahmen liegen im gemeinsamen Gerätespeicher und sind für jede Galerie-App sichtbar. Der Ordner lässt sich nicht ändern.</string>
+    <string name="settings_section_viewfinder">Sucher</string>
+    <string name="settings_viewfinder_reset_hint">Blitz, Raster, Selbstauslöser, Aufnahmemodus und Objektiv werden beim Beenden gemerkt. Dauerlicht bewusst nicht.</string>
+    <string name="settings_viewfinder_reset">Sucher-Einstellungen zurücksetzen</string>
+    <string name="settings_viewfinder_reset_done">Sucher-Einstellungen zurückgesetzt</string>
+
+    <!-- ui/about/AboutScreen.kt -->
+    <string name="about_title">Über die App</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_description">Freie Kamera-App ohne Google Play Services und ohne proprietäre Google-Dienste. Aufnahmen bleiben auf dem Gerät; die App überträgt nichts an einen Server.</string>
+    <string name="about_suite">Teil der ConneXias Suite — vier eigenständige Apps (Warden, Files, Kamera, Galerie), die über Android-Intents zusammenarbeiten, aber jede für sich allein voll funktionsfähig bleiben.</string>
+    <string name="about_license_title">Lizenz</string>
+    <string name="about_license_body">Apache License 2.0</string>
+    <string name="about_licenses_third_party">Fremdbibliotheken</string>
 </resources>

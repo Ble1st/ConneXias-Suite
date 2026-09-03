@@ -17,6 +17,9 @@ object Routes {
     // Kein Argument in der Route selbst — der gescannte Rohtext läuft über ScanResultHolder
     // (s. dortiges Klassendoc), nicht als Navigations-Argument.
     const val SCAN_RESULT = "scan_result"
+    const val SETTINGS = "settings"
+    const val ABOUT = "about"
+    const val LICENSES = "licenses"
     private const val REVIEW_PATTERN = "review/{isVideo}/{uri}"
 
     fun reviewPattern() = REVIEW_PATTERN

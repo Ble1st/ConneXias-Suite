@@ -33,13 +33,16 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.GridOn
-import androidx.compose.material.icons.filled.HdrOff
-import androidx.compose.material.icons.filled.HdrOn
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Timer10
 import androidx.compose.material.icons.filled.Timer3
 import androidx.compose.material.icons.filled.TimerOff
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,9 +53,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,6 +79,7 @@ import coil3.compose.AsyncImage
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import de.ble1st.camera.R
+import de.ble1st.camera.data.camera.CameraExtension
 import de.ble1st.camera.data.camera.CaptureMode
 import de.ble1st.camera.data.scan.ScanResultHolder
 import de.ble1st.camera.nav.CaptureRequestInfo
@@ -90,11 +96,15 @@ import kotlinx.coroutines.delay
 fun CaptureScreen(
     onOpenReview: (Uri, Boolean) -> Unit,
     onOpenScanResult: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     captureRequestInfo: CaptureRequestInfo? = null,
     viewModel: CaptureViewModel = viewModel(),
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Die gespeicherten Sucher-Einstellungen (Blitz/Raster/Timer/Modus/Objektiv/Extension) stehen
+    // schon im Anfangszustand der ViewModel — s. deren init-Block; hier ist nichts zu laden.
     val state by viewModel.uiState.collectAsState()
     val previewView = remember { PreviewView(context) }
 
@@ -163,7 +173,7 @@ fun CaptureScreen(
         captureRequestInfo?.let { viewModel.lockMode(it.forcedMode) }
     }
 
-    LaunchedEffect(state.mode, state.lensFacing, state.hdrEnabled) {
+    LaunchedEffect(state.mode, state.lensFacing, state.extension, state.videoQuality) {
         viewModel.bindPreview(context, lifecycleOwner, previewView)
     }
 
@@ -172,7 +182,13 @@ fun CaptureScreen(
     LifecycleEventEffect(lifecycleOwner) { event ->
         when (event) {
             Lifecycle.Event.ON_PAUSE -> viewModel.releaseCamera()
-            Lifecycle.Event.ON_RESUME -> viewModel.bindPreview(context, lifecycleOwner, previewView)
+            Lifecycle.Event.ON_RESUME -> {
+                // Die Videoqualität kann zwischenzeitlich im Einstellungs-Bildschirm geändert
+                // worden sein; ein geänderter Wert löst über den LaunchedEffect oben ohnehin einen
+                // Rebind aus, deshalb hier vor dem bindPreview-Aufruf.
+                viewModel.refreshVideoQuality(context)
+                viewModel.bindPreview(context, lifecycleOwner, previewView)
+            }
             else -> Unit
         }
     }
@@ -251,13 +267,18 @@ fun CaptureScreen(
             onToggleTorch = viewModel::toggleTorch,
             onToggleGrid = viewModel::toggleGrid,
             onCycleTimer = viewModel::cycleTimer,
-            onToggleHdr = viewModel::toggleHdr,
+            onSelectExtension = viewModel::selectExtension,
             onToggleManual = viewModel::toggleManualControls,
             // Ausgeblendet, solange ein Aufrufer per System-Kamera-Contract diese App als
             // Aufnahmeziel nutzt (s. modeSwitchVisible-Kommentar in BottomControls) — der Aufrufer
             // erwartet ein Foto/Video zurück, kein Scan-Ergebnis-Umweg.
             scanVisible = captureRequestInfo == null,
             onScan = onScanClick,
+            // Wie der Scanner ausgeblendet, solange ein Aufrufer diese App per
+            // System-Kamera-Contract als Aufnahmeziel nutzt: der erwartet eine Aufnahme zurück,
+            // keinen Abstecher in die Einstellungen dieser App.
+            settingsVisible = captureRequestInfo == null,
+            onOpenSettings = onOpenSettings,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.systemBars)
@@ -370,11 +391,13 @@ private fun TopControls(
     onToggleTorch: () -> Unit,
     onToggleGrid: () -> Unit,
     onCycleTimer: () -> Unit,
-    onToggleHdr: () -> Unit,
+    onSelectExtension: (CameraExtension) -> Unit,
     onToggleManual: () -> Unit,
     onScan: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     scanVisible: Boolean = true,
+    settingsVisible: Boolean = true,
 ) {
     Column(
         modifier = modifier
@@ -411,15 +434,12 @@ private fun TopControls(
             Icon(icon, contentDescription = description, tint = Color.White)
         }
         // Nur im Foto-Modus sichtbar: Extension-Selektoren unterstützen keine gleichzeitige
-        // VideoCapture-Bindung (s. CameraController-Klassendoc).
-        if (state.mode == CaptureMode.PHOTO && state.hdrAvailable) {
-            IconButton(onClick = onToggleHdr) {
-                val icon = if (state.hdrEnabled) Icons.Filled.HdrOn else Icons.Filled.HdrOff
-                val description = stringResource(
-                    if (state.hdrEnabled) R.string.capture_action_hdr_on else R.string.capture_action_hdr_off,
-                )
-                Icon(icon, contentDescription = description, tint = Color.White)
-            }
+        // VideoCapture-Bindung (s. CameraController-Klassendoc). Ein Auswahlmenü statt des
+        // früheren HDR-An/Aus-Schalters, seit das Gerät mehr als eine Extension anbieten kann —
+        // gezeigt werden ausschließlich die Modi, die das gerade gebundene Objektiv wirklich
+        // meldet, plus "Aus" (braucht keinen Selektor und ist deshalb immer wählbar).
+        if (state.mode == CaptureMode.PHOTO && state.availableExtensions.isNotEmpty()) {
+            ExtensionMenuButton(state = state, onSelectExtension = onSelectExtension)
         }
         if (state.manualSensorRanges != null) {
             IconButton(onClick = onToggleManual) {
@@ -435,7 +455,61 @@ private fun TopControls(
                 Icon(Icons.Filled.QrCodeScanner, contentDescription = stringResource(R.string.capture_action_scan), tint = Color.White)
             }
         }
+        if (settingsVisible) {
+            IconButton(onClick = onOpenSettings) {
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = stringResource(R.string.capture_action_settings),
+                    tint = Color.White,
+                )
+            }
+        }
     }
+}
+
+/** Aufklappmenü für die Camera2-Extensions. Der aktive Modus färbt das Symbol ein (dasselbe
+ * Muster wie beim Manuell-Umschalter darunter), damit im randlosen Sucher ohne zusätzliche
+ * Textzeile erkennbar bleibt, dass überhaupt eine Extension aktiv ist. */
+@Composable
+private fun ExtensionMenuButton(state: CaptureUiState, onSelectExtension: (CameraExtension) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                Icons.Filled.AutoAwesome,
+                contentDescription = stringResource(R.string.capture_action_extension),
+                tint = if (state.extension == CameraExtension.NONE) Color.White else MaterialTheme.colorScheme.primary,
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            // "Aus" immer zuerst und immer wählbar; danach nur die vom Gerät gemeldeten Modi, in
+            // der Reihenfolge der Enum-Deklaration statt in der (undefinierten) Set-Reihenfolge.
+            val options = listOf(CameraExtension.NONE) +
+                CameraExtension.selectable.filter { it in state.availableExtensions }
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(extensionLabel(option))) },
+                    onClick = {
+                        onSelectExtension(option)
+                        expanded = false
+                    },
+                    leadingIcon = if (option == state.extension) {
+                        { Icon(Icons.Filled.Check, contentDescription = null) }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun extensionLabel(extension: CameraExtension): Int = when (extension) {
+    CameraExtension.NONE -> R.string.capture_extension_none
+    CameraExtension.AUTO -> R.string.capture_extension_auto
+    CameraExtension.HDR -> R.string.capture_extension_hdr
+    CameraExtension.NIGHT -> R.string.capture_extension_night
+    CameraExtension.BOKEH -> R.string.capture_extension_bokeh
 }
 
 /** Belichtungskorrektur (EV) — nur sichtbar, solange keine manuelle ISO-/Verschlusszeit-Steuerung

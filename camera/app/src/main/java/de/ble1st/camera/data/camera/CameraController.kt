@@ -56,9 +56,10 @@ data class ManualSensorRanges(val isoRange: Range<Int>, val shutterNanosRange: R
  * [CaptureMode] neu gebunden (Preview+ImageCapture ODER Preview+VideoCapture) — funktioniert
  * dadurch auf alle Geräteklassen, kostet nur einen kurzen Preview-Reset beim Moduswechsel.
  *
- * HDR läuft über [ExtensionsManager] (Camera2-Extensions, vom Gerätehersteller im HAL
- * bereitgestellt) statt über eine eigene Mehrfachbelichtungs-Fusion — nur für den Foto-Modus
- * verfügbar (die Extension-Selektoren unterstützen keine gleichzeitige `VideoCapture`-Bindung).
+ * HDR, Nacht- und Bokeh-Modus laufen über [ExtensionsManager] (Camera2-Extensions, vom
+ * Gerätehersteller im HAL bereitgestellt) statt über eigene Bildverarbeitung — nur für den
+ * Foto-Modus verfügbar (die Extension-Selektoren unterstützen keine gleichzeitige
+ * `VideoCapture`-Bindung), s. [CameraExtension].
  * Manuelle ISO-/Verschlusszeit-Kontrolle läuft über [Camera2CameraControl]/[CaptureRequestOptions]
  * (Camera2-Interop) statt einer eigenen Camera2-Session — bleibt dadurch innerhalb von CameraX'
  * Lifecycle-Bindung statt eine parallele Camera2-Pipeline aufzubauen.
@@ -96,10 +97,11 @@ class CameraController(private val context: Context) {
         previewView: PreviewView,
         lensFacing: LensFacing,
         mode: CaptureMode,
-        hdrRequested: Boolean,
+        extensionRequested: CameraExtension,
+        videoQuality: VideoQuality,
         onZoomChanged: (Float) -> Unit,
         onBound: (Camera) -> Unit,
-        onHdrAvailability: (Boolean) -> Unit,
+        onAvailableExtensions: (Set<CameraExtension>) -> Unit,
         onManualSensorSupport: (ManualSensorRanges?) -> Unit,
         onError: (Throwable) -> Unit,
     ) {
@@ -119,17 +121,25 @@ class CameraController(private val context: Context) {
 
                     // ExtensionsManager wird bei jedem Bind neu abgefragt (statt einmalig
                     // gecacht): Verfügbarkeit hängt vom `baseSelector` (Front/Rückkamera) ab, ein
-                    // Kamerawechsel kann die HDR-Verfügbarkeit also ändern.
+                    // Kamerawechsel kann die Extension-Verfügbarkeit also ändern.
                     val extFuture = ExtensionsManager.getInstanceAsync(context, provider)
                     extFuture.addListener(
                         {
                             if (generation != bindGeneration) return@addListener
                             try {
                                 val extManager = extFuture.get().also { extensionsManager = it }
-                                val hdrAvailable = extManager.isExtensionAvailable(baseSelector, ExtensionMode.HDR)
-                                onHdrAvailability(hdrAvailable)
-                                val selector = if (mode == CaptureMode.PHOTO && hdrRequested && hdrAvailable) {
-                                    extManager.getExtensionEnabledCameraSelector(baseSelector, ExtensionMode.HDR)
+                                val available = CameraExtension.selectable
+                                    .filter { extManager.isExtensionAvailable(baseSelector, extensionModeOf(it)) }
+                                    .toSet()
+                                onAvailableExtensions(available)
+                                val useExtension = mode == CaptureMode.PHOTO &&
+                                    extensionRequested != CameraExtension.NONE &&
+                                    extensionRequested in available
+                                val selector = if (useExtension) {
+                                    extManager.getExtensionEnabledCameraSelector(
+                                        baseSelector,
+                                        extensionModeOf(extensionRequested),
+                                    )
                                 } else {
                                     baseSelector
                                 }
@@ -139,6 +149,7 @@ class CameraController(private val context: Context) {
                                     provider,
                                     selector,
                                     mode,
+                                    videoQuality,
                                     generation,
                                     onBound,
                                     onManualSensorSupport,
@@ -164,6 +175,7 @@ class CameraController(private val context: Context) {
         provider: ProcessCameraProvider,
         selector: CameraSelector,
         mode: CaptureMode,
+        videoQuality: VideoQuality,
         generation: Int,
         onBound: (Camera) -> Unit,
         onManualSensorSupport: (ManualSensorRanges?) -> Unit,
@@ -181,12 +193,16 @@ class CameraController(private val context: Context) {
                     useCases += capture
                 }
                 CaptureMode.VIDEO -> {
-                    // FHD statt HIGHEST: hält Dateigröße/Encoder-Last moderat, mit
-                    // automatischem Downgrade auf ein von der Hardware unterstütztes
-                    // niedrigeres Profil statt eines harten Fehlers auf schwacher Hardware.
+                    // Auflösung kommt seit 2026-09-03 aus den Einstellungen (Default weiterhin
+                    // FHD — hält Dateigröße/Encoder-Last moderat), mit unverändertem automatischem
+                    // Downgrade auf ein von der Hardware unterstütztes niedrigeres Profil statt
+                    // eines harten Fehlers auf schwacher Hardware.
                     val recorder = Recorder.Builder()
                         .setQualitySelector(
-                            QualitySelector.from(Quality.FHD, FallbackStrategy.higherQualityOrLowerThan(Quality.SD)),
+                            QualitySelector.from(
+                                qualityOf(videoQuality),
+                                FallbackStrategy.higherQualityOrLowerThan(Quality.SD),
+                            ),
                         )
                         .build()
                     val capture = VideoCapture.withOutput(recorder)
@@ -378,5 +394,27 @@ class CameraController(private val context: Context) {
     fun shutdown() {
         stopVideoRecording()
         cameraProvider?.unbindAll()
+    }
+
+    companion object {
+        /** Zuordnung [CameraExtension] → CameraX-Konstante. Steht hier statt als Feld im Enum,
+         * damit [CameraExtension] framework-frei bleibt (s. dortiges Klassendoc). Als
+         * erschöpfendes `when` ohne `else`: ein neuer Enum-Wert bricht die Übersetzung, statt
+         * still auf einen Default zu fallen. */
+        private fun extensionModeOf(extension: CameraExtension): Int = when (extension) {
+            CameraExtension.NONE -> ExtensionMode.NONE
+            CameraExtension.AUTO -> ExtensionMode.AUTO
+            CameraExtension.HDR -> ExtensionMode.HDR
+            CameraExtension.NIGHT -> ExtensionMode.NIGHT
+            CameraExtension.BOKEH -> ExtensionMode.BOKEH
+        }
+
+        /** Zuordnung [VideoQuality] → CameraX-Konstante, gleiche Begründung wie oben. */
+        private fun qualityOf(videoQuality: VideoQuality): Quality = when (videoQuality) {
+            VideoQuality.SD -> Quality.SD
+            VideoQuality.HD -> Quality.HD
+            VideoQuality.FHD -> Quality.FHD
+            VideoQuality.UHD -> Quality.UHD
+        }
     }
 }
