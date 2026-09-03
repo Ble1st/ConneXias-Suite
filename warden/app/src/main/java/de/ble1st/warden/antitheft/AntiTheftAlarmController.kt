@@ -35,11 +35,19 @@ class AntiTheftAlarmController(private val context: Context) {
     fun trigger(reason: String) {
         stopAlarm()
         wardenAuditLog(context).append(Log.ERROR, TAG, "Diebstahlschutz-Alarm ausgelöst: $reason")
-        logLastKnownLocation()
         runCatching { AntiTheftAlarmNotifier(context).notify(reason) }
             .onFailure { Log.w(TAG, "Alarm-Benachrichtigung fehlgeschlagen", it) }
         startSound()
         startVibration()
+        // Sicherheitsreview 2026-09-03 (Nachtrag): bewusst NACH startSound()/startVibration(), nicht
+        // davor — [trigger] läuft synchron im Aufrufer-Thread (bei [AntiTheftLockStateReceiver]
+        // dessen `onReceive`, also dem Main-Thread), und der eigentliche, hörbare Alarm ist der Teil,
+        // der ohne jede Verzögerung feuern muss. `LocationManager.getProviders`/mehrfaches
+        // `getLastKnownLocation` plus ein weiterer, verschlüsselnder Audit-Log-Write kosten spürbar
+        // Zeit — vor dem Alarm hätte genau das den zeitkritischen Pfad verzögert, den
+        // [AntiTheftLastLocationReader]s eigener Klassendoc als Grund nennt, hier überhaupt keinen
+        // aktiven GPS-Fix zu verwenden.
+        logLastKnownLocation()
     }
 
     /** "Standort-Log beim Diebstahlschutz-Alarm" (2026-09-03) — best effort, eigenes try/catch statt

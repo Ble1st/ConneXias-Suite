@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -286,11 +287,23 @@ private fun LogViewerScreen(
                         // (`ActivityResultContracts.CreateDocument("text/plain")`) wie
                         // `SettingsScreen`s Konfigurations-Export.
                         val context = LocalContext.current
+                        val exportScope = rememberCoroutineScope()
                         val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
                             if (uri != null) {
-                                runCatching {
-                                    context.contentResolver.openOutputStream(uri)?.use { it.write(formatAuditLogForExport(current.entries).toByteArray()) }
-                                }.onFailure { Log.w("LogViewerActivity", "Audit-Log-Export fehlgeschlagen", it) }
+                                // Auf Dispatchers.IO statt direkt im Compose-Callback (anders als
+                                // SettingsScreens Konfig-Export, dessen wenige Dutzend Zeilen dafür
+                                // zu klein sind, um ins Gewicht zu fallen): das Audit-Log kann bis
+                                // zur Aufbewahrungsgrenze ≈10.000 Einträge umfassen (s.
+                                // HashChainLogStore-Klassendoc), und Formatierung + Dateischreiben
+                                // synchron im Main-Thread-Callback wäre bei dieser Größenordnung ein
+                                // echtes ANR-Risiko.
+                                exportScope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            context.contentResolver.openOutputStream(uri)?.use { it.write(formatAuditLogForExport(current.entries).toByteArray()) }
+                                        }.onFailure { Log.w("LogViewerActivity", "Audit-Log-Export fehlgeschlagen", it) }
+                                    }
+                                }
                             }
                         }
                         TextButton(onClick = { exportLauncher.launch("warden-audit-log.txt") }) {
