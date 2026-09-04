@@ -230,7 +230,7 @@ jobs:
       # Versionsnummern festlegen. Entwurf (draft), damit vor dem Veröffentlichen noch ein
       # Changelog eingetragen werden kann — wie bei Warden.
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ matrix.tag }}
           name: ${{ matrix.label }} ${{ matrix.name }}
