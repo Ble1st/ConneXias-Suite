@@ -46,7 +46,7 @@ zeroize = "1.9"
 # läuft in Warden. `rand_core` direkt gepinnt (statt nur transitiv über das "rand_core"-Feature),
 # damit `signing.rs` `OsRng` ohne Umweg über `ed25519_dalek::rand_core` importieren kann —
 # dasselbe Stolperfallen-Muster wie bei `password-hash`/B.1 (s. o.).
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 # Hex-Encoding fürs Offline-Tool (Übertragung von Schlüsseln/Challenges/Signaturen als Text,
 # z. B. zum Abtippen zwischen Warden-UI und Air-Gap-Maschine) — bewusst die schlanke, reine
