@@ -30,7 +30,7 @@ path = "src/bin/failsafe_keytool.rs"
 aes-gcm = "0.11"
 hkdf = "0.13"
 sha2 = "0.11"
-argon2 = "0.5"
+argon2 = "0.6"
 # Direkt als Dependency gepinnt (statt nur transitiv über argon2), um das "getrandom"-Feature
 # zu erzwingen — sonst fehlt password_hash::rand_core::OsRng (Feature-Unifikation, siehe B.1-Notizen).
 password-hash = { version = "0.5", features = ["getrandom"] }
