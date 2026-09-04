@@ -4,12 +4,19 @@
 //! bleibt für zweckgebundene Ableitung aus einem Master-Secret reserviert (Konzept 10:
 //! "Strikte Schlüsseltrennung pro App, HKDF-`info` zweckgebunden").
 
-use argon2::password_hash::rand_core::{OsRng, RngCore};
+use rand_core::{OsRng, RngCore};
 use zeroize::Zeroizing;
 
-/// Erzeugt `length` kryptografisch zufällige Bytes (`OsRng`, dieselbe CSPRNG-Quelle wie
-/// Argon2-Salts in [crate::password] und AEAD-Nonces in [crate::aead] — ein Zufallsquellen-Pfad
+/// Erzeugt `length` kryptografisch zufällige Bytes (`OsRng`, dieselbe direkt gepinnte
+/// `rand_core`-Instanz wie [crate::signing]s Ed25519-Schlüsselerzeugung — ein Zufallsquellen-Pfad
 /// für die ganze Engine).
+///
+/// Bis argon2 0.6 lief das über `argon2::password_hash::rand_core::OsRng` (dieselbe CSPRNG-Quelle
+/// wie Argon2-Salts in [crate::password]) — seit argon2/password-hash 0.6 ist deren `rand_core`
+/// eine andere, inkompatible Major-Version (`TryCryptoRng` statt der hier gebrauchten `RngCore`)
+/// und dort zudem hinter einem eigenen, nicht default-aktivierten Feature verborgen. Der direkt
+/// gepinnte `rand_core`-Import (bereits für [crate::signing] vorhanden) ist der sauberere, weil
+/// vom Argon2-Upgrade unabhängige Weg an dieselbe Stelle.
 ///
 /// Der Zwischenpuffer ist [Zeroizing] — Meilenstein B.3 ist der erste Punkt, an dem die Engine
 /// ein echtes Geheimnis in der Hand hält (B.1-Notiz in [crate::aead]/[crate::password]: "echte

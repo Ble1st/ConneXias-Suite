@@ -6,10 +6,11 @@
 //! separates Parameter-Tracking nötig.
 
 use argon2::Argon2;
-use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::{
-    PasswordHash as Argon2PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
-};
+// `PasswordHash` ist an der Modulwurzel seit argon2/password-hash 0.6 nur noch als deprecated
+// Re-Export vorhanden ("PHC types moved to the phc crate") — `-D warnings` in der CI würde die
+// Deprecation-Warnung sonst als Fehler werten, deshalb der volle `phc`-Pfad.
+use argon2::password_hash::phc::PasswordHash as Argon2PasswordHash;
+use argon2::password_hash::{PasswordHasher, PasswordVerifier};
 use std::fmt;
 
 /// Argon2id-Hash im PHC-String-Format (`$argon2id$v=19$m=...,t=...,p=...$salt$hash`) —
@@ -60,12 +61,15 @@ impl std::error::Error for PasswordError {}
 /// Hasht `password` mit Argon2id (RFC-9106-Default-Parameter der `argon2`-Crate) und einem
 /// frischen Zufalls-Salt. `password` wird hier nicht genullt — das bleibt Sache des Aufrufers
 /// (Kotlin-seitiger PIN-Puffer, Konzept Abschnitt 16: "kein Autofill/Logging der PIN").
+///
+/// Salt-Erzeugung läuft seit argon2 0.6 intern über die einargumentige `hash_password`
+/// (`PasswordHasher::hash_password`, Default-Feature "getrandom") — kein eigener
+/// `SaltString`/`OsRng`-Umweg mehr nötig wie bis argon2 0.5.
 #[uniffi::export]
 pub fn hash_password(password: Vec<u8>) -> Result<PasswordHash, PasswordError> {
-    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let hash = argon2
-        .hash_password(&password, &salt)
+        .hash_password(&password)
         .map_err(|_| PasswordError::Hashing)?;
     Ok(PasswordHash {
         phc: hash.to_string(),
