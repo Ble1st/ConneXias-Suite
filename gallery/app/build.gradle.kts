@@ -47,16 +47,18 @@ android {
             if (releaseStoreFilePath != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            // R8 bleibt hier bewusst aus — anders als bei Warden (dort seit 2026-08-25 aktiv, mit
-            // eigenen Keep-Regeln für JNA/UniFFI). Diese App bündelt mit Coil, Media3 und OkHttp
-            // mehrere reflektionslastige Bibliotheken, und R8s Umbenennung bricht so etwas
-            // typischerweise erst zur Laufzeit, nicht beim Bauen. (Mit security-crypto/Tink ist
-            // seit 2026-09-04 eine davon weg — s. data/crypto/SecretStore.kt —, die übrigen
-            // bleiben.) Ohne Testgerät in dieser Umgebung wäre das ungeprüft ausgeliefert —
-            // dieselbe Abwägung wie bei den nicht umgesetzten Kamera-Features. Einschaltbar,
-            // sobald ein Gerätetest gegen eine minifizierte Release-APK laufen kann.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // R8 (analyse.md 7-15, 2026-09-04): jetzt aktiv, wie bei Warden seit 2026-08-25. War
+            // bewusst aus, solange kein Gerätetest gegen eine minifizierte Release-APK laufen
+            // konnte — Coil, Media3 und OkHttp sind reflektions-/serviceloader-lastig genug, dass
+            // ein Keep-Regel-Fehler erst zur Laufzeit aufgefallen wäre, nicht beim Bauen. Diese
+            // Voraussetzung ist mit Wardens 7-14-Test erfüllt (dieselben Mechanismen liefen dort
+            // fehlerfrei), und ein eigener Gerätetest dieser App folgt direkt danach. Keine
+            // App-eigenen Keep-Regeln nötig — alle drei Bibliotheken bringen ihre eigenen
+            // consumer-rules.pro mit, die R8 automatisch mit einliest.
+            optimization {
+                enable = true
+            }
+            isShrinkResources = true
         }
     }
     compileOptions {
