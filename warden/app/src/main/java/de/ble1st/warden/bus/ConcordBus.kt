@@ -22,6 +22,7 @@ import de.ble1st.warden.domain.registry.SafeguardRegistry
 import de.ble1st.warden.integrity.DebuggableOsStatusReader
 import de.ble1st.warden.integrity.DeveloperOptionsStatusReader
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
+import de.ble1st.warden.integrity.KeystoreSecurityLevelReader
 import de.ble1st.warden.integrity.RootIndicatorScanner
 import de.ble1st.warden.integrity.StorageEncryptionStatusReader
 import de.ble1st.warden.logging.HashChainLogStore
@@ -77,6 +78,7 @@ class ConcordBus(
     private val rootIndicatorScanner = RootIndicatorScanner(context)
     private val developerOptionsStatusReader = DeveloperOptionsStatusReader(context)
     private val storageEncryptionStatusReader = StorageEncryptionStatusReader(context)
+    private val keystoreSecurityLevelReader = KeystoreSecurityLevelReader(context)
     private val deviceLockNowManager = DeviceLockNowManager(context)
     // "Arbeite langsam am Lockdownmodus" (2026-08-22), dritter Schritt: rein lesende Instanz fürs
     // Dashboard-Statuslicht — bewusst NICHT in `registry` unten registriert (dort absichtlich
@@ -114,6 +116,7 @@ class ConcordBus(
                 adbEnabled = developerOptionsStatusReader.isAdbEnabled(),
                 developerOptionsEnabled = developerOptionsStatusReader.isDeveloperOptionsEnabled(),
                 storageEncrypted = storageEncryptionStatusReader.isEncrypted(),
+                keystoreSecurityLevel = keystoreSecurityLevelReader.read(),
             )
         }
 

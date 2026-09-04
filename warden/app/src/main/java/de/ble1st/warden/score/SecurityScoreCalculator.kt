@@ -50,6 +50,7 @@ class SecurityScoreCalculator(private val context: Context, private val concordB
             adbEnabled = integrity.adbEnabled,
             developerOptionsEnabled = integrity.developerOptionsEnabled,
             storageEncrypted = integrity.storageEncrypted,
+            keystoreSecurityLevel = integrity.keystoreSecurityLevel,
             activeSafeguards = safeguardStates.values.count { it == true },
             totalSafeguards = safeguardIds.size,
         )

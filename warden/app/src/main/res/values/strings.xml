@@ -202,6 +202,16 @@
     <string name="security_scanner_root_indicators_empty">Keine Root-/Magisk-/Custom-ROM-Indikatoren gefunden</string>
     <string name="security_scanner_root_indicators_prefix">Root-Indikatoren: %1$s</string>
     <string name="security_scanner_encryption_label">Speicherverschlüsselung</string>
+    <!-- integrity/KeystoreSecurityLevelReader.kt, domain/encryption/EncryptionRecommendationDecision.kt (Feature 5 "Storage Encryption Verification") -->
+    <string name="security_scanner_keystore_label">KeyStore-Hardwarebindung</string>
+    <string name="security_scanner_keystore_state_hardware">hardwaregebunden</string>
+    <string name="security_scanner_keystore_state_software">nur Software</string>
+    <string name="security_scanner_keystore_state_unknown">unbekannt</string>
+    <string name="security_scanner_recommendations_title">Empfehlungen</string>
+    <string name="security_scanner_recommendations_empty">Keine Empfehlungen — Verschlüsselung und KeyStore sind in Ordnung</string>
+    <string name="security_scanner_recommendation_device_encryption_inactive">Die Geräteverschlüsselung ist nicht aktiv. Wardens eigene PIN- und Protokoll-Verschlüsselung bleibt davon unabhängig wirksam, aber alle übrigen App-Daten auf dem Gerät liegen dann ungeschützt.</string>
+    <string name="security_scanner_recommendation_keystore_software_only">Der Schlüsselspeicher ist nur software-basiert, nicht hardwaregebunden (kein TEE/StrongBox). Wardens PIN- und Protokoll-Verschlüsselung funktioniert weiterhin, ist aber nicht durch dedizierte Sicherheitshardware isoliert.</string>
+    <string name="security_scanner_recommendation_keystore_unknown">Die Hardware-Sicherheitsstufe des Schlüsselspeichers konnte nicht ermittelt werden.</string>
     <string name="security_scanner_finding_content_description">Verdachtsfund %1$s, %2$s, Schweregrad %3$s</string>
     <string name="security_scanner_finding_frozen_state">eingefroren</string>
     <string name="security_scanner_finding_not_frozen_state">nicht eingefroren</string>

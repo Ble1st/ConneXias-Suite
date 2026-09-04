@@ -1,5 +1,7 @@
 package de.ble1st.warden.domain.score
 
+import de.ble1st.warden.domain.encryption.KeystoreSecurityLevel
+
 /**
  * Feature 5 "Security Score Dashboard" aus `docs/umsetzungsplan-7-features.md`, umgesetzt
  * 2026-08-29. Reine Berechnungslogik, kein Android-Import (s. CLAUDE.md "Decision/Executor-
@@ -23,6 +25,13 @@ package de.ble1st.warden.domain.score
  *   ([de.ble1st.warden.score.SecurityScoreHistoryStore]), genau wie hier vorgezeichnet: als reiner
  *   Anbau, ohne dass sich an dieser Berechnungslogik etwas geändert hat — [evaluate] bleibt eine
  *   zustandslose Momentaufnahme, die Historie lebt ausschließlich im Store.
+ * - **KeyStore-Hardwarebindung fließt seit 2026-09-04 zusätzlich in die Geräte-Integrität ein**
+ *   (Feature 5 "Storage Encryption Verification", s.
+ *   [de.ble1st.warden.domain.encryption.EncryptionRecommendationDecision]-Klassendoc für den
+ *   vollständigen Realitätsabgleich) — ein rein software-basierter Schlüssel kostet dieselbe
+ *   Kategorie einen zusätzlichen Abzug, `UNKNOWN` (Lesefehler dieses einen Signals) bewusst
+ *   keinen: Unsicherheit wird hier nicht bestraft, dieselbe Fail-Safe-Haltung wie sonst im
+ *   Projekt.
  *
  * **Gewichtung** (muss in Summe 1.0 ergeben, s. [SecurityScoreDecisionTest.weightsSumToOne]):
  * Bedrohungen zählen am stärksten, weil ein einzelner kritischer Fund einen akuten, laufenden
@@ -47,6 +56,7 @@ object SecurityScoreDecision {
     private const val ADB_ENABLED_PENALTY = 15
     private const val DEVELOPER_OPTIONS_PENALTY = 10
     private const val STORAGE_NOT_ENCRYPTED_PENALTY = 25
+    private const val KEYSTORE_SOFTWARE_PENALTY = 15
 
     fun threatScore(warningFindings: Int, hasCriticalFinding: Boolean): Int {
         if (hasCriticalFinding) return CRITICAL_FINDING_SCORE
@@ -69,12 +79,14 @@ object SecurityScoreDecision {
         adbEnabled: Boolean,
         developerOptionsEnabled: Boolean,
         storageEncrypted: Boolean,
+        keystoreSecurityLevel: KeystoreSecurityLevel,
     ): Int {
         var score = 100
         if (rootIndicatorCount > 0) score -= ROOT_INDICATOR_PENALTY
         if (adbEnabled) score -= ADB_ENABLED_PENALTY
         if (developerOptionsEnabled) score -= DEVELOPER_OPTIONS_PENALTY
         if (!storageEncrypted) score -= STORAGE_NOT_ENCRYPTED_PENALTY
+        if (keystoreSecurityLevel == KeystoreSecurityLevel.SOFTWARE) score -= KEYSTORE_SOFTWARE_PENALTY
         return score.coerceIn(0, 100)
     }
 
@@ -110,12 +122,13 @@ object SecurityScoreDecision {
         adbEnabled: Boolean,
         developerOptionsEnabled: Boolean,
         storageEncrypted: Boolean,
+        keystoreSecurityLevel: KeystoreSecurityLevel,
         activeSafeguards: Int,
         totalSafeguards: Int,
     ): SecurityScoreBreakdown {
         val threat = threatScore(warningFindings, hasCriticalFinding)
         val permission = permissionScore(totalApps, flaggedApps)
-        val integrity = integrityScore(rootIndicatorCount, adbEnabled, developerOptionsEnabled, storageEncrypted)
+        val integrity = integrityScore(rootIndicatorCount, adbEnabled, developerOptionsEnabled, storageEncrypted, keystoreSecurityLevel)
         val hardening = hardeningScore(activeSafeguards, totalSafeguards)
         val total = total(threat, permission, integrity, hardening)
         return SecurityScoreBreakdown(

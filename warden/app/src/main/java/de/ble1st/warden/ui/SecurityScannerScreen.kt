@@ -38,6 +38,9 @@ import de.ble1st.warden.R
 import de.ble1st.warden.appmanagement.SuspiciousAppFindingInfo
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
 import de.ble1st.warden.domain.appmanagement.ThreatSeverity
+import de.ble1st.warden.domain.encryption.EncryptionRecommendationDecision
+import de.ble1st.warden.domain.encryption.EncryptionRecommendationType
+import de.ble1st.warden.domain.encryption.KeystoreSecurityLevel
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.integrity.RootIndicatorSignal
 import de.ble1st.warden.ui.theme.mono
@@ -225,6 +228,9 @@ private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -
         // nicht schlecht — eigene Zeile statt IntegrityStatusRow-Wiederverwendung mit invertierter
         // Farblogik, sonst müsste jede/r Leser*in die Bedeutung von "aktiv" pro Zeile neu prüfen.
         EncryptionStatusRow(encrypted = status.storageEncrypted)
+        // Feature 5 "Storage Encryption Verification" (nachgeholt 2026-09-04): dieselbe
+        // "aktiv = gut"-Farblogik wie EncryptionStatusRow direkt darüber.
+        KeystoreStatusRow(level = status.keystoreSecurityLevel)
         if (status.rootIndicators.isEmpty()) {
             EmptyStateRow(headline = stringResource(R.string.security_scanner_root_indicators_empty))
         } else {
@@ -237,6 +243,84 @@ private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -
                 color = MaterialTheme.colorScheme.error,
             )
         }
+        HorizontalDivider()
+        Text(text = stringResource(R.string.security_scanner_recommendations_title), style = MaterialTheme.typography.titleMedium)
+        EncryptionRecommendationsSection(
+            storageEncrypted = status.storageEncrypted,
+            keystoreSecurityLevel = status.keystoreSecurityLevel,
+        )
+    }
+}
+
+/** Reine Ableitung aus bereits geladenen Werten — kein eigener ConcordBus-Aufruf nötig
+ * ([EncryptionRecommendationDecision] ist zustandslos, s. dessen Klassendoc). */
+@Composable
+private fun EncryptionRecommendationsSection(
+    storageEncrypted: Boolean,
+    keystoreSecurityLevel: KeystoreSecurityLevel,
+) {
+    val recommendations = remember(storageEncrypted, keystoreSecurityLevel) {
+        EncryptionRecommendationDecision.evaluate(storageEncrypted, keystoreSecurityLevel)
+    }
+    if (recommendations.isEmpty()) {
+        EmptyStateRow(headline = stringResource(R.string.security_scanner_recommendations_empty))
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        recommendations.forEach { recommendation ->
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SeverityBadge(recommendation.severity)
+                Text(
+                    text = encryptionRecommendationText(recommendation.type),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = severityColor(recommendation.severity),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun encryptionRecommendationText(type: EncryptionRecommendationType): String =
+    when (type) {
+        EncryptionRecommendationType.DEVICE_ENCRYPTION_INACTIVE ->
+            stringResource(R.string.security_scanner_recommendation_device_encryption_inactive)
+        EncryptionRecommendationType.KEYSTORE_SOFTWARE_ONLY ->
+            stringResource(R.string.security_scanner_recommendation_keystore_software_only)
+        EncryptionRecommendationType.KEYSTORE_UNKNOWN ->
+            stringResource(R.string.security_scanner_recommendation_keystore_unknown)
+    }
+
+/** Dieselbe "aktiv/gut vs. schlecht"-Farblogik wie [EncryptionStatusRow] direkt darüber —
+ * `UNKNOWN` bekommt bewusst die neutrale Farbe, keine der beiden Bewertungen (dieselbe
+ * Nicht-Bestrafung von Unsicherheit wie [EncryptionRecommendationDecision]/`SecurityScoreDecision`). */
+@Composable
+private fun KeystoreStatusRow(level: KeystoreSecurityLevel) {
+    val label = stringResource(R.string.security_scanner_keystore_label)
+    val stateText = when (level) {
+        KeystoreSecurityLevel.HARDWARE_BACKED -> stringResource(R.string.security_scanner_keystore_state_hardware)
+        KeystoreSecurityLevel.SOFTWARE -> stringResource(R.string.security_scanner_keystore_state_software)
+        KeystoreSecurityLevel.UNKNOWN -> stringResource(R.string.security_scanner_keystore_state_unknown)
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = label
+                stateDescription = stateText
+            },
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodySmall)
+        Text(
+            text = stateText,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (level == KeystoreSecurityLevel.SOFTWARE) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
     }
 }
 
