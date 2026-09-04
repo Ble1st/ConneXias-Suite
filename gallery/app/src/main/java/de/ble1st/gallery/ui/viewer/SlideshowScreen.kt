@@ -27,10 +27,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.compose.AsyncImage
 import de.ble1st.gallery.R
 import de.ble1st.gallery.data.media.MediaType
 import de.ble1st.gallery.ui.GalleryViewModel
+import de.ble1st.gallery.ui.MediaScope
 import kotlinx.coroutines.delay
 
 private const val SLIDE_DURATION_MS = 4000L
@@ -41,24 +44,34 @@ private const val SLIDE_DURATION_MS = 4000L
  * [SLIDE_DURATION_MS]. */
 @Composable
 fun SlideshowScreen(bucketId: Long, viewModel: GalleryViewModel, onBack: () -> Unit) {
-    val allItems by viewModel.allItems.collectAsState()
-    // favorites mit als Schlüssel — das Favoriten-Album ändert seinen Inhalt, ohne dass sich
-    // allItems ändert (s. GalleryViewModel.itemsForBucket).
+    // favorites/customAlbums gehören mit in den Schlüssel — beide ändern den Inhalt eines
+    // ID-Mengen-Albums, ohne dass sich der Scope ändert.
     val favorites by viewModel.favorites.collectAsState()
-    val images = remember(allItems, bucketId, favorites) { viewModel.itemsForBucket(bucketId).filter { it.type == MediaType.IMAGE } }
+    val customAlbums by viewModel.customAlbums.collectAsState()
+    val mediaScope = remember(bucketId) { MediaScope.of(bucketId) }
+    val scopeIds = remember(mediaScope, favorites, customAlbums) { viewModel.idsForScope(mediaScope) }
+    // Dieselbe seitenweise Bilderquelle wie im Betrachter (analyse.md 6.2) — eine Diashow über
+    // eine große Mediathek hätte sonst deren gesamten Bestand geladen, um das erste Bild zu zeigen.
+    val images = remember(mediaScope, scopeIds) { viewModel.pagedImages(mediaScope, scopeIds) }
+        .collectAsLazyPagingItems()
     var playing by remember { mutableStateOf(true) }
 
-    if (images.isEmpty()) {
+    val refreshDone = images.loadState.refresh is LoadState.NotLoading
+    if (refreshDone && images.itemCount == 0) {
         LaunchedEffect(Unit) { onBack() }
         return
     }
+    if (images.itemCount == 0) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+        return
+    }
 
-    val pagerState = rememberPagerState(initialPage = 0) { images.size }
+    val pagerState = rememberPagerState(initialPage = 0) { images.itemCount }
 
-    LaunchedEffect(playing, pagerState.currentPage, images.size) {
+    LaunchedEffect(playing, pagerState.currentPage, images.itemCount) {
         if (!playing) return@LaunchedEffect
         delay(SLIDE_DURATION_MS)
-        val next = (pagerState.currentPage + 1) % images.size
+        val next = (pagerState.currentPage + 1) % images.itemCount
         pagerState.animateScrollToPage(next)
     }
 
@@ -86,12 +99,18 @@ fun SlideshowScreen(bucketId: Long, viewModel: GalleryViewModel, onBack: () -> U
             modifier = Modifier.fillMaxSize().padding(padding).background(Color.Black).clickable { playing = !playing },
         ) {
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                AsyncImage(
-                    model = images[page].uri,
-                    contentDescription = images[page].displayName,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                // null = Platzhalter, die Seite lädt noch. Schwarz statt eines Spinners: die
+                // Diashow läuft im Vollbild auf schwarzem Grund, ein Ladeindikator wäre der einzige
+                // helle Punkt darin.
+                val item = images[page]
+                if (item != null) {
+                    AsyncImage(
+                        model = item.uri,
+                        contentDescription = item.displayName,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
     }

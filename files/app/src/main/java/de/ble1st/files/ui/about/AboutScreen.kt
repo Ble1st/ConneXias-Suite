@@ -1,5 +1,10 @@
 package de.ble1st.files.ui.about
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.widget.Toast
+import androidx.core.content.pm.PackageInfoCompat
+import androidx.core.net.toUri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,9 +43,16 @@ import de.ble1st.files.R
 @Composable
 fun AboutScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
     val context = LocalContext.current
-    val versionName = remember {
+    // Name **und** Code: bei einem Sideload-Vertrieb ohne Store ist der Versionscode die
+    // eindeutige Angabe, mit der sich ein Fehlerbericht einer konkreten APK zuordnen lässt —
+    // zwei Builds können denselben Namen tragen, der Code ist je Release eindeutig.
+    val versionLabel = remember {
         runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            // PackageInfoCompat statt info.longVersionCode: das gibt es erst ab API 28,
+            // minSdk dieser App ist 26.
+            val code = PackageInfoCompat.getLongVersionCode(info)
+            info.versionName?.let { "$it ($code)" }
         }.getOrNull().orEmpty()
     }
 
@@ -67,7 +79,7 @@ fun AboutScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
         ) {
             ListItem(
                 headlineContent = { Text(stringResource(R.string.app_name)) },
-                supportingContent = { Text(stringResource(R.string.about_version, versionName)) },
+                supportingContent = { Text(stringResource(R.string.about_version, versionLabel)) },
             )
             HorizontalDivider()
             Text(
@@ -80,6 +92,20 @@ fun AboutScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp),
+            )
+            HorizontalDivider()
+            // Der Update-Weg bei Sideload-Vertrieb. Die App prüft **nicht** selbst auf neue
+            // Versionen: das bräuchte Netzwerkzugriff plus einen regelmäßigen Aufruf an GitHub,
+            // also genau die Art stiller Verbindung nach außen, die diese Suite nicht haben soll
+            // (die Kamera hat aus demselben Grund gar keine INTERNET-Berechtigung). Stattdessen
+            // ein Verweis, den der Nutzer selbst auslöst und der im Browser landet — die
+            // Releases-Seite trägt APK, SHA256-Summen und den Zertifikat-Fingerabdruck.
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.about_updates_title)) },
+                supportingContent = { Text(stringResource(R.string.about_updates_body)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { openReleasesPage(context) },
             )
             HorizontalDivider()
             ListItem(
@@ -145,3 +171,18 @@ fun LicensesScreen(onBack: () -> Unit) {
         )
     }
 }
+
+/** Öffnet die Releases-Seite im Browser. Kein eigener Netzwerkzugriff: der Intent geht an die
+ * Standard-Browser-App, diese App sieht die Antwort nie. Ohne installierten Browser (auf einem
+ * gehärteten Gerät durchaus möglich) bleibt es bei einem Hinweis statt einem Absturz. */
+private fun openReleasesPage(context: android.content.Context) {
+    val intent = Intent(Intent.ACTION_VIEW, RELEASES_URL.toUri())
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, R.string.about_updates_no_browser, Toast.LENGTH_LONG).show()
+    }
+}
+
+private const val RELEASES_URL = "https://github.com/Ble1st/ConneXias-Suite/releases"

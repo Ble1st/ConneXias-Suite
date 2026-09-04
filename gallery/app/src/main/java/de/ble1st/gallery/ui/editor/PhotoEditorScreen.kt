@@ -88,7 +88,7 @@ fun PhotoEditorScreen(uri: Uri, onBack: () -> Unit, onSaved: () -> Unit) {
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             AsyncImage(
                 model = uri,
-                contentDescription = null,
+                contentDescription = stringResource(R.string.content_desc_editor_preview),
                 contentScale = if (aspect == CropAspect.ORIGINAL) ContentScale.Fit else ContentScale.Crop,
                 colorFilter = if (filter == PhotoFilter.NONE) null else ColorFilter.colorMatrix(filter.composeColorMatrix()),
                 // Live-Vorschau nähert den Zuschnitt nur an (ContentScale.Crop füllt den

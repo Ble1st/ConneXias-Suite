@@ -1,5 +1,9 @@
 package de.ble1st.warden.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.pm.PackageInfoCompat
+import androidx.core.net.toUri
 import de.ble1st.warden.R
 import de.ble1st.warden.domain.cellsecurity.CellSecurityReaction
 import de.ble1st.warden.domain.sim.SimChangeReaction
@@ -241,6 +247,28 @@ fun SettingsScreen(
             )
 
             SectionLabel(stringResource(R.string.settings_section_info))
+            // Name **und** Code: bei Sideload-Vertrieb ohne Store ist der Versionscode die
+            // eindeutige Angabe, mit der sich ein Fehlerbericht einer konkreten APK zuordnen
+            // lässt — zwei Builds können denselben Namen tragen.
+            val versionLabel = remember(context) {
+                runCatching {
+                    val info = context.packageManager.getPackageInfo(context.packageName, 0)
+                    "${info.versionName} (${PackageInfoCompat.getLongVersionCode(info)})"
+                }.getOrDefault("?")
+            }
+            // Update-Weg bei Sideload-Vertrieb: Warden prüft bewusst **nicht** selbst auf neue
+            // Versionen. Ein regelmäßiger Aufruf an GitHub wäre eine dauerhafte, vom Nutzer nicht
+            // ausgelöste Verbindung nach außen aus einer App, die als Device Owner läuft — genau
+            // die Art Hintergrundverkehr, die diese App sonst überwacht. Stattdessen ein Verweis,
+            // den der Nutzer selbst antippt und der im Browser landet; die Releases-Seite trägt
+            // APK, SHA256-Summen und den Zertifikat-Fingerabdruck (Warden und Sentinel müssen
+            // denselben tragen, s. sentinel/build.gradle.kts).
+            MenuRow(
+                title = stringResource(R.string.settings_updates_title),
+                subtitle = stringResource(R.string.settings_updates_subtitle, versionLabel),
+                tag = "UP",
+                onClick = { openReleasesPage(context) },
+            )
             MenuRow(
                 title = stringResource(R.string.settings_licenses_title),
                 subtitle = stringResource(R.string.settings_licenses_subtitle),
@@ -250,3 +278,18 @@ fun SettingsScreen(
         }
     }
 }
+
+/** Öffnet die Releases-Seite im Browser. Kein eigener Netzwerkzugriff — der Intent geht an die
+ * Standard-Browser-App, Warden sieht die Antwort nie. Auf einem gehärteten Gerät kann jeder
+ * Browser fehlen; dann bleibt es bei einem Hinweis statt einem Absturz. */
+private fun openReleasesPage(context: Context) {
+    val intent = Intent(Intent.ACTION_VIEW, RELEASES_URL.toUri())
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, R.string.settings_updates_no_browser, Toast.LENGTH_LONG).show()
+    }
+}
+
+private const val RELEASES_URL = "https://github.com/Ble1st/ConneXias-Suite/releases"

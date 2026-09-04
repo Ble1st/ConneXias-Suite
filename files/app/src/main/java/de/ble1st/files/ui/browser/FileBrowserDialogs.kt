@@ -12,6 +12,9 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import de.ble1st.files.R
 import de.ble1st.files.data.fileops.ConflictPolicy
 import de.ble1st.files.data.fs.FileEntry
 import de.ble1st.files.data.fs.LocalFileSystem
@@ -39,7 +42,9 @@ fun NameInputDialog(
         confirmButton = {
             TextButton(onClick = { onConfirm(text) }, enabled = text.isNotBlank()) { Text(confirmLabel) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.action_cancel)) }
+        },
     )
 }
 
@@ -51,16 +56,20 @@ fun NameInputDialog(
 @Composable
 fun ConfirmDeleteDialog(entries: List<FileEntry>, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     val message = if (entries.size == 1) {
-        "„${entries.first().name}“ in den Papierkorb verschieben?"
+        stringResource(id = R.string.dialog_trash_message_one, entries.first().name)
     } else {
-        "${entries.size} Einträge in den Papierkorb verschieben?"
+        pluralStringResource(R.plurals.dialog_trash_message_many, entries.size, entries.size)
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("In den Papierkorb") },
+        title = { Text(stringResource(id = R.string.dialog_trash_title)) },
         text = { Text(message) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Verschieben") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(id = R.string.action_move)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.action_cancel)) }
+        },
     )
 }
 
@@ -76,23 +85,29 @@ fun ConflictResolutionDialog(
     onDismiss: () -> Unit,
 ) {
     val message = if (conflictingNames.size == 1) {
-        "„${conflictingNames.first()}“ existiert im Zielordner bereits."
+        stringResource(id = R.string.dialog_conflict_message_one, conflictingNames.first())
     } else {
-        "${conflictingNames.size} Namen existieren im Zielordner bereits:\n" +
-            conflictingNames.joinToString("\n") { "• $it" }
+        pluralStringResource(R.plurals.dialog_conflict_message_many, conflictingNames.size, conflictingNames.size) +
+            "\n" + conflictingNames.joinToString("\n") { "• $it" }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Name bereits vorhanden") },
+        title = { Text(stringResource(id = R.string.dialog_conflict_title)) },
         text = { Text(message) },
         confirmButton = {
-            TextButton(onClick = { onResolve(ConflictPolicy.OVERWRITE) }) { Text("Überschreiben") }
+            TextButton(onClick = { onResolve(ConflictPolicy.OVERWRITE) }) {
+                Text(stringResource(id = R.string.action_overwrite))
+            }
         },
         dismissButton = {
             Column {
-                TextButton(onClick = { onResolve(ConflictPolicy.SKIP) }) { Text("Überspringen") }
-                TextButton(onClick = { onResolve(ConflictPolicy.KEEP_BOTH) }) { Text("Beide behalten") }
-                TextButton(onClick = onDismiss) { Text("Abbrechen") }
+                TextButton(onClick = { onResolve(ConflictPolicy.SKIP) }) {
+                    Text(stringResource(id = R.string.action_skip))
+                }
+                TextButton(onClick = { onResolve(ConflictPolicy.KEEP_BOTH) }) {
+                    Text(stringResource(id = R.string.action_keep_both))
+                }
+                TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.action_cancel)) }
             }
         },
     )
@@ -113,12 +128,19 @@ fun PropertiesDialog(entry: FileEntry, onDismiss: () -> Unit) {
         title = { Text(entry.name) },
         text = {
             Column {
-                Text("Pfad: ${entry.file.path}")
-                Text("Größe: ${formatFileSize(totalSize)}")
-                itemCount?.let { Text("Enthaltene Dateien: $it") }
-                Text("Versteckt: ${if (entry.isHidden) "Ja" else "Nein"}")
+                Text(stringResource(id = R.string.properties_path, entry.file.path))
+                Text(stringResource(id = R.string.properties_size, formatFileSize(totalSize)))
+                itemCount?.let { Text(stringResource(id = R.string.properties_item_count, it)) }
+                Text(
+                    stringResource(
+                        id = R.string.properties_hidden,
+                        stringResource(id = if (entry.isHidden) R.string.value_yes else R.string.value_no),
+                    ),
+                )
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Schließen") } },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.action_close)) }
+        },
     )
 }

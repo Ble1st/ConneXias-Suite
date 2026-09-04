@@ -31,7 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.ble1st.files.R
 import de.ble1st.files.data.webdav.WebDavAccount
 import de.ble1st.files.data.webdav.WebDavEntry
 import de.ble1st.files.ui.browser.NameInputDialog
@@ -82,22 +84,34 @@ fun WebDavBrowserScreen(
                 title = { Text(if (path == "/") account.label else path.substringAfterLast('/')) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(id = R.string.content_desc_back),
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = { uploadLauncher.launch(arrayOf("*/*")) }) {
-                        Icon(Icons.Filled.UploadFile, contentDescription = "Hochladen")
+                        Icon(
+                            Icons.Filled.UploadFile,
+                            contentDescription = stringResource(id = R.string.content_desc_upload),
+                        )
                     }
                     IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Aktualisieren")
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = stringResource(id = R.string.content_desc_refresh),
+                        )
                     }
                 },
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { viewModel.showDialog(WebDavDialog.NewFolder) }) {
-                Icon(Icons.Filled.CreateNewFolder, contentDescription = "Neuer Ordner")
+                Icon(
+                    Icons.Filled.CreateNewFolder,
+                    contentDescription = stringResource(id = R.string.action_new_folder),
+                )
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -106,7 +120,7 @@ fun WebDavBrowserScreen(
             when {
                 state.isLoading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 state.entries.isEmpty() && state.errorMessage == null ->
-                    Text("Leer", modifier = Modifier.align(Alignment.Center))
+                    Text(stringResource(id = R.string.webdav_empty), modifier = Modifier.align(Alignment.Center))
                 else -> LazyColumn {
                     items(state.entries) { entry ->
                         WebDavEntryRow(
@@ -124,16 +138,16 @@ fun WebDavBrowserScreen(
 
     when (val dialog = state.pendingDialog) {
         WebDavDialog.NewFolder -> NameInputDialog(
-            title = "Neuer Ordner",
+            title = stringResource(id = R.string.action_new_folder),
             initialValue = "",
-            confirmLabel = "Erstellen",
+            confirmLabel = stringResource(id = R.string.action_create),
             onConfirm = viewModel::createFolder,
             onDismiss = { viewModel.showDialog(null) },
         )
         is WebDavDialog.Rename -> NameInputDialog(
-            title = "Umbenennen",
+            title = stringResource(id = R.string.action_rename),
             initialValue = dialog.entry.name,
-            confirmLabel = "Umbenennen",
+            confirmLabel = stringResource(id = R.string.action_rename),
             onConfirm = { newName -> viewModel.rename(dialog.entry, newName) },
             onDismiss = { viewModel.showDialog(null) },
         )

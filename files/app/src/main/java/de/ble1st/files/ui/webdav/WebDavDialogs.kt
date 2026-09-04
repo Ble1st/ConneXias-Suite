@@ -15,9 +15,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import de.ble1st.files.R
 import de.ble1st.files.data.webdav.WebDavAccount
 import de.ble1st.files.data.webdav.WebDavClient
 import de.ble1st.files.data.webdav.WebDavEntry
@@ -47,28 +49,37 @@ fun WebDavAccountDialog(
     var password by remember { mutableStateOf(existing?.password.orEmpty()) }
     var testState by remember { mutableStateOf<TestState>(TestState.Idle) }
     val scope = rememberCoroutineScope()
+    // Vorab aufgelöst: der Fallback wird im onClick-Lambda gebraucht, und stringResource() ist
+    // eine @Composable-Funktion, die dort nicht aufgerufen werden darf.
+    val connectionFailedMessage = stringResource(id = R.string.webdav_error_connection_failed)
 
     val isValid = label.isNotBlank() && baseUrl.isNotBlank() && username.isNotBlank()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "Server hinzufügen" else "Server bearbeiten") },
+        title = {
+            Text(
+                stringResource(
+                    id = if (existing == null) R.string.webdav_add_server else R.string.webdav_edit_server,
+                ),
+            )
+        },
         text = {
             Column {
-                OutlinedTextField(value = label, onValueChange = { label = it }, singleLine = true, label = { Text("Bezeichnung") })
+                OutlinedTextField(value = label, onValueChange = { label = it }, singleLine = true, label = { Text(stringResource(id = R.string.webdav_field_label)) })
                 OutlinedTextField(
                     value = baseUrl,
                     onValueChange = { baseUrl = it; testState = TestState.Idle },
                     singleLine = true,
-                    label = { Text("Server-URL") },
+                    label = { Text(stringResource(id = R.string.webdav_field_url)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
-                OutlinedTextField(value = username, onValueChange = { username = it; testState = TestState.Idle }, singleLine = true, label = { Text("Benutzername") })
+                OutlinedTextField(value = username, onValueChange = { username = it; testState = TestState.Idle }, singleLine = true, label = { Text(stringResource(id = R.string.webdav_field_username)) })
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it; testState = TestState.Idle },
                     singleLine = true,
-                    label = { Text("Passwort") },
+                    label = { Text(stringResource(id = R.string.webdav_field_password)) },
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
@@ -78,7 +89,7 @@ fun WebDavAccountDialog(
                 // und Passwort gehen bei jedem Request im Klartext übers Netz.
                 if (baseUrl.isNotBlank() && !baseUrl.startsWith("https://", ignoreCase = true)) {
                     Text(
-                        "Achtung: kein HTTPS — Zugangsdaten werden unverschlüsselt übertragen.",
+                        stringResource(id = R.string.webdav_cleartext_warning),
                         color = androidx.compose.material3.MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 4.dp),
                     )
@@ -97,14 +108,14 @@ fun WebDavAccountDialog(
                         scope.launch {
                             testState = WebDavClient.testConnection(candidate).fold(
                                 onSuccess = { TestState.Success },
-                                onFailure = { error -> TestState.Failed(error.message ?: "Verbindung fehlgeschlagen") },
+                                onFailure = { error -> TestState.Failed(error.message ?: connectionFailedMessage) },
                             )
                         }
                     },
-                ) { Text("Verbindung testen") }
+                ) { Text(stringResource(id = R.string.webdav_test_connection)) }
                 when (val state = testState) {
                     TestState.Running -> CircularProgressIndicator(modifier = Modifier.padding(top = 4.dp))
-                    TestState.Success -> Text("Verbindung erfolgreich")
+                    TestState.Success -> Text(stringResource(id = R.string.webdav_test_success))
                     is TestState.Failed -> Text(state.message)
                     TestState.Idle -> Unit
                 }
@@ -124,9 +135,11 @@ fun WebDavAccountDialog(
                         ),
                     )
                 },
-            ) { Text("Speichern") }
+            ) { Text(stringResource(id = R.string.action_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.action_cancel)) }
+        },
     )
 }
 
@@ -134,10 +147,14 @@ fun WebDavAccountDialog(
 fun WebDavConfirmDeleteDialog(entry: WebDavEntry, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Löschen") },
-        text = { Text("„${entry.name}“ auf dem Server endgültig löschen?") },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Löschen") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+        title = { Text(stringResource(id = R.string.action_delete)) },
+        text = { Text(stringResource(id = R.string.webdav_delete_message, entry.name)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(id = R.string.action_delete)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.action_cancel)) }
+        },
     )
 }
 
@@ -147,9 +164,13 @@ fun WebDavConfirmDeleteDialog(entry: WebDavEntry, onConfirm: () -> Unit, onDismi
 fun WebDavConfirmRemoveAccountDialog(account: WebDavAccount, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Server entfernen") },
-        text = { Text("„${account.label}“ und die gespeicherten Zugangsdaten entfernen? Dateien auf dem Server bleiben unberührt.") },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Entfernen") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+        title = { Text(stringResource(id = R.string.webdav_remove_account_title)) },
+        text = { Text(stringResource(id = R.string.webdav_remove_account_message, account.label)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(id = R.string.action_remove)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.action_cancel)) }
+        },
     )
 }

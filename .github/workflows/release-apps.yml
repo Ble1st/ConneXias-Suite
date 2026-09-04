@@ -174,6 +174,57 @@ jobs:
           path: ${{ matrix.app }}/app/build/outputs/apk/release/*.apk
           retention-days: 90
 
+      # Prüfsummen + Signaturzertifikat für den Sideload-Weg. Ohne Play Store gibt es keine
+      # Instanz, die die Herkunft einer APK für den Nutzer bestätigt — die beiden Angaben hier
+      # sind der Ersatz dafür: die SHA256-Summe beweist, dass die heruntergeladene Datei
+      # unverändert ist, der Zertifikat-Fingerabdruck, dass sie vom selben Schlüssel signiert
+      # wurde wie die bereits installierte Version (Android verweigert ein Update über eine APK
+      # mit anderem Zertifikat ohnehin — nur eben erst beim Installieren, ohne zu sagen, warum).
+      #
+      # keytool statt apksigner: keytool kommt mit dem oben eingerichteten JDK, apksigner läge in
+      # einem build-tools-Verzeichnis, dessen Versionsnummer hier fest verdrahtet werden müsste.
+      - name: Prüfsummen und Zertifikat-Fingerabdruck
+        id: checksums
+        working-directory: ${{ matrix.app }}/app/build/outputs/apk/release
+        run: |
+          set -euo pipefail
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          apk=$(ls *.apk | head -n1)
+          fingerprint=$(keytool -printcert -jarfile "$apk" \
+            | grep -m1 'SHA256:' | sed 's/.*SHA256: *//')
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Release-Text zusammenstellen
+        run: |
+          {
+            echo "## Installation"
+            echo
+            echo "Sideload — kein Play Store, keine Google-Play-Dienste. APK herunterladen, im"
+            echo "Dateimanager öffnen, Installation aus unbekannter Quelle für die installierende"
+            echo "App einmalig erlauben."
+            echo
+            echo "## Datei prüfen"
+            echo
+            echo '```'
+            echo "sha256sum -c SHA256SUMS.txt          # Datei unverändert?"
+            echo "keytool -printcert -jarfile *.apk    # von wem signiert?"
+            echo '```'
+            echo
+            echo "Erwarteter Zertifikat-Fingerabdruck (SHA256), identisch für alle vier Apps der Suite:"
+            echo
+            echo '```'
+            echo "${{ steps.checksums.outputs.fingerprint }}"
+            echo '```'
+            echo
+            echo "## Updates"
+            echo
+            echo "Die App prüft nicht selbst auf Updates — sie hat dafür bewusst keinen"
+            echo "Netzwerkzugriff. Neue Versionen stehen auf dieser Releases-Seite; der"
+            echo "Über-Bildschirm der App verlinkt sie direkt. Ein Update wird über die neue APK"
+            echo "installiert, Daten und Einstellungen bleiben erhalten."
+          } > "$RUNNER_TEMP/release-body.md"
+
       # Eigene Release-Seite je App statt einer gemeinsamen: die drei Apps werden unabhängig
       # versioniert (eigener Tag-Präfix), eine gemeinsame Seite müsste sich auf eine der drei
       # Versionsnummern festlegen. Entwurf (draft), damit vor dem Veröffentlichen noch ein
@@ -184,4 +235,14 @@ jobs:
           tag_name: ${{ matrix.tag }}
           name: ${{ matrix.label }} ${{ matrix.name }}
           draft: true
-          files: ${{ matrix.app }}/app/build/outputs/apk/release/*.apk
+          body_path: ${{ runner.temp }}/release-body.md
+          # Hängt die von GitHub aus den Commits/PRs seit dem letzten Tag erzeugte Liste unter
+          # den festen Teil oben. Bewusst statt einer handgepflegten CHANGELOG.md: die
+          # App-READMEs führen die inhaltliche Historie ohnehin chronologisch (und zwar nach
+          # Befund, nicht nach Release), eine dritte Liste daneben wäre die erste, die veraltet.
+          # Was auf einer Release-Seite fehlte, war die Antwort auf "was ist seit meiner Version
+          # passiert" — genau das erzeugt GitHub hier automatisch und immer vollständig.
+          generate_release_notes: true
+          files: |
+            ${{ matrix.app }}/app/build/outputs/apk/release/*.apk
+            ${{ matrix.app }}/app/build/outputs/apk/release/SHA256SUMS.txt

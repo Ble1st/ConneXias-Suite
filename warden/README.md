@@ -205,9 +205,45 @@ festgehalten, nicht durch ein späteres Update nachgezogen.
 Hardware — vor jeder Geräte-Arbeit lesen, inklusive des Abschnitts darüber, was bewusst *nicht*
 scharf getestet wird.
 
+## Produktionsreife (2026-09-04)
+
+S. `../analyse.md` Abschnitt 7. Für Warden:
+
+- **Einstellungen → Updates** zeigt die installierte Version samt Versionscode und verweist auf
+  die Releases-Seite. Warden prüft bewusst **nicht** selbst auf neue Versionen: ein regelmäßiger
+  Aufruf an GitHub wäre eine dauerhafte, vom Nutzer nicht ausgelöste Verbindung nach außen aus
+  einer App, die als Device Owner läuft — genau die Art Hintergrundverkehr, die sie sonst
+  überwacht. Der Verweis geht per `ACTION_VIEW` an den Browser.
+- **Release-Verifikation:** `release.yml` erzeugt `SHA256SUMS.txt` und schreibt den SHA-256-
+  Fingerabdruck des Signaturzertifikats in den Release-Text. Zusätzlich wird geprüft, dass Warden
+  und Sentinel denselben Fingerabdruck tragen — sie sind über eine `signature`-geschützte
+  Permission gekoppelt, ein ungleich signiertes Paar wäre auf dem Gerät funktionsunfähig. Stimmen
+  sie nicht überein, bricht der Release-Bau ab.
+- **Signaturschlüssel:** Erzeugung, Aufbewahrung und Wiederherstellung stehen jetzt in
+  [`../docs/RELEASE-SIGNING.md`](../docs/RELEASE-SIGNING.md). Für ein Device-Owner-Gerät ist ein
+  verlorener Schlüssel kein Ärgernis, sondern ein Werksreset — Warden wehrt sich gegen genau die
+  Deinstallation, die eine Neuinstallation bräuchte.
+- **Barrierefreiheit (analyse.md 7-10):** geprüft, ohne Änderungsbedarf. Wardens vier Symbole
+  ohne Beschreibung sind alle rein dekorativ — Warn-/Erfolgssymbol neben der Klartext-Statuszeile,
+  Chevron am Menüeintrag, und das Schritt-Symbol im Einrichtungs-Assistenten, das seinen Zustand
+  ohnehin schon als Text darunter führt und deshalb bereits `clearAndSetSemantics` trägt.
+- **Abhängigkeiten (analyse.md 7-11):** AGP 9.4.0, Kotlin 2.4.10, `appcompat` 1.8.0,
+  Compose-BOM 2026.08.00 — damit auf demselben Stand wie die drei Compose-Apps. Der
+  Release-Bau mit R8 und Ressourcen-Shrinking wurde gegen die neue Werkzeugkette geprüft (was
+  7-14 nicht ersetzt: gebaut ist nicht gestartet).
+- **App-Icon (analyse.md 7-13):** trug bis 2026-09-04 unverändert das Android-Studio-
+  Vorlagensymbol — den grünen Roboter auf Rasterhintergrund. Jetzt ein Schild mit ausgespartem
+  Haken auf Terminal-Schwarz (`TerminalBackground`/Terminal-Grün, dieselben Farben wie die
+  Oberfläche). Die zehn WebP-Fallbacks unter `mipmap-*dpi/` sind entfallen: bei minSdk 35 wird
+  ausschließlich `mipmap-anydpi/ic_launcher.xml` verwendet, sie hätten den Roboter nur noch in
+  der APK mitgeschleppt.
+- **Offen, braucht das Testgerät:** eine minifizierte Warden-Release-APK ist nie auf Hardware
+  gestartet worden (analyse.md 7-14), und die QR-Provisionierung ist nicht ausrollbar
+  dokumentiert (7-16).
+
 ## Sicherheit
 
-S. [SECURITY.md](SECURITY.md). Das laufende Suite-Audit steht in
+S. [SECURITY.md](../SECURITY.md) im Repo-Root (gilt für alle vier Apps). Das laufende Suite-Audit steht in
 [`../analyse.md`](../analyse.md); Wardens Befunde sind dort Abschnitt 1.
 
 Fremdbibliotheken und ihre Lizenzen: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), in der App

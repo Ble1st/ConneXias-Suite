@@ -43,6 +43,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import de.ble1st.gallery.R
@@ -137,7 +139,10 @@ fun TrashScreen(onBack: () -> Unit) {
                             .combinedClickable(
                                 onClick = { selection = if (item.id in selection) selection - item.id else selection + item.id },
                                 onLongClick = { selection = if (item.id in selection) selection - item.id else selection + item.id },
-                            ),
+                            )
+                            // s. MediaGridScreen. Anders als dort ohne Bedingung: im Papierkorb
+                            // ist Antippen immer Auswählen, einen Nicht-Auswahlmodus gibt es nicht.
+                            .semantics { selected = item.id in selection },
                     ) {
                         AsyncImage(
                             model = item.uri,

@@ -4,9 +4,25 @@ import android.content.Context
 import android.os.Environment
 import java.io.File
 
-data class StorageRoot(val label: String, val path: File)
+/**
+ * Ein Speichervolume. [kind] und [ordinal] statt einer fertigen Beschriftung: die Beschriftung ist
+ * eine Anzeige-Entscheidung und liegt deshalb in `res/values/strings.xml`, aufgelöst in
+ * `ui/home/HomeScreen.kt`. Vorher stand hier der deutsche Text — und `HomeScreen` hat daran
+ * zusätzlich per `label.startsWith("SD")` das Icon festgemacht, was eine Übersetzung lautlos
+ * kaputtgemacht hätte.
+ *
+ * [ordinal] ist die 1-basierte Nummer unter den entfernbaren Volumes (erste SD-Karte = 1) und für
+ * [Kind.INTERNAL] immer 0.
+ */
+data class StorageRoot(val kind: Kind, val ordinal: Int, val path: File) {
+    enum class Kind { INTERNAL, REMOVABLE }
+}
 
-data class QuickAccessFolder(val label: String, val path: File)
+/** Schnellzugriff auf einen der Standardordner des internen Speichers — [kind] aus demselben
+ * Grund wie bei [StorageRoot]. */
+data class QuickAccessFolder(val kind: Kind, val path: File) {
+    enum class Kind { DOWNLOADS, PICTURES, DCIM, MOVIES, DOCUMENTS, MUSIC }
+}
 
 object StorageRoots {
 
@@ -31,8 +47,11 @@ object StorageRoots {
             if (markerIndex < 0) return@mapIndexedNotNull null
             val root = File(appSpecificDir.path.substring(0, markerIndex))
             if (!root.isDirectory) return@mapIndexedNotNull null
-            val label = if (index == 0) "Interner Speicher" else "SD-Karte ${index + 1}"
-            StorageRoot(label, root)
+            if (index == 0) {
+                StorageRoot(StorageRoot.Kind.INTERNAL, ordinal = 0, path = root)
+            } else {
+                StorageRoot(StorageRoot.Kind.REMOVABLE, ordinal = index, path = root)
+            }
         }
     }
 
@@ -60,11 +79,11 @@ object StorageRoots {
 
     /** Direkte Verknüpfungen auf dem Home-Bildschirm — alle relativ zum internen Speicher. */
     fun quickAccessFolders(primaryRoot: File): List<QuickAccessFolder> = listOf(
-        QuickAccessFolder("Downloads", File(primaryRoot, Environment.DIRECTORY_DOWNLOADS)),
-        QuickAccessFolder("Bilder", File(primaryRoot, Environment.DIRECTORY_PICTURES)),
-        QuickAccessFolder("DCIM", File(primaryRoot, Environment.DIRECTORY_DCIM)),
-        QuickAccessFolder("Videos", File(primaryRoot, Environment.DIRECTORY_MOVIES)),
-        QuickAccessFolder("Dokumente", File(primaryRoot, Environment.DIRECTORY_DOCUMENTS)),
-        QuickAccessFolder("Audio", File(primaryRoot, Environment.DIRECTORY_MUSIC)),
+        QuickAccessFolder(QuickAccessFolder.Kind.DOWNLOADS, File(primaryRoot, Environment.DIRECTORY_DOWNLOADS)),
+        QuickAccessFolder(QuickAccessFolder.Kind.PICTURES, File(primaryRoot, Environment.DIRECTORY_PICTURES)),
+        QuickAccessFolder(QuickAccessFolder.Kind.DCIM, File(primaryRoot, Environment.DIRECTORY_DCIM)),
+        QuickAccessFolder(QuickAccessFolder.Kind.MOVIES, File(primaryRoot, Environment.DIRECTORY_MOVIES)),
+        QuickAccessFolder(QuickAccessFolder.Kind.DOCUMENTS, File(primaryRoot, Environment.DIRECTORY_DOCUMENTS)),
+        QuickAccessFolder(QuickAccessFolder.Kind.MUSIC, File(primaryRoot, Environment.DIRECTORY_MUSIC)),
     )
 }

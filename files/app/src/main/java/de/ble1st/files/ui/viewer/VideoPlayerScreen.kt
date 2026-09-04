@@ -16,6 +16,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -24,6 +25,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import de.ble1st.files.R
 import de.ble1st.files.util.FileActions
 import java.io.File
 
@@ -68,12 +70,18 @@ fun VideoPlayerScreen(file: File, onBack: () -> Unit) {
                 title = { Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(id = R.string.content_desc_back),
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = { FileActions.share(context, listOf(file)) }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Teilen")
+                        Icon(
+                            Icons.Filled.Share,
+                            contentDescription = stringResource(id = R.string.action_share),
+                        )
                     }
                 },
             )

@@ -45,7 +45,10 @@
     <string name="trash_confirm_delete_forever_title">Endgültig löschen?</string>
     <string name="trash_confirm_delete_forever_message">„%1$s“ kann danach nicht mehr wiederhergestellt werden.</string>
     <string name="trash_confirm_empty_title">Papierkorb leeren?</string>
-    <string name="trash_confirm_empty_message">Alle %1$d Einträge werden endgültig gelöscht und können danach nicht mehr wiederhergestellt werden.</string>
+    <plurals name="trash_confirm_empty_message">
+        <item quantity="one">Der eine Eintrag wird endgültig gelöscht und kann danach nicht mehr wiederhergestellt werden.</item>
+        <item quantity="other">Alle %1$d Einträge werden endgültig gelöscht und können danach nicht mehr wiederhergestellt werden.</item>
+    </plurals>
 
     <string name="notification_channel_local_share">Netzwerkfreigabe</string>
     <string name="notification_title_local_share">Ordner wird im Netzwerk freigegeben</string>
@@ -64,14 +67,187 @@
     <string name="search_placeholder_recursive">In allen Unterordnern suchen …</string>
     <string name="search_toggle_recursive">Unterordner mit durchsuchen</string>
     <string name="search_no_results">Keine Treffer</string>
-    <string name="search_truncated">Anzeige auf %1$d Treffer begrenzt — Suchbegriff eingrenzen für vollständige Ergebnisse.</string>
+    <plurals name="search_truncated">
+        <item quantity="one">Anzeige auf %1$d Treffer begrenzt — Suchbegriff eingrenzen für vollständige Ergebnisse.</item>
+        <item quantity="other">Anzeige auf %1$d Treffer begrenzt — Suchbegriff eingrenzen für vollständige Ergebnisse.</item>
+    </plurals>
     <!-- ui/about/AboutScreen.kt -->
     <string name="content_desc_back">Zurück</string>
     <string name="about_title">Über die App</string>
     <string name="about_version">Version %1$s</string>
     <string name="about_description">Freier Dateimanager ohne Google Play Services und ohne proprietäre Google-Dienste. Alles läuft lokal auf dem Gerät; Daten verlassen es nur, wenn Sie selbst eine WebDAV-Verbindung einrichten oder einen Ordner im WLAN freigeben.</string>
     <string name="about_suite">Teil der ConneXias Suite — vier eigenständige Apps (Warden, Files, Kamera, Galerie), die über Android-Intents zusammenarbeiten, aber jede für sich allein voll funktionsfähig bleiben.</string>
+    <string name="about_updates_title">Updates</string>
+    <string name="about_updates_body">Neue Versionen, Prüfsummen und Zertifikat-Fingerabdruck auf der Releases-Seite. Die App prüft nicht selbst auf Updates — antippen öffnet die Seite im Browser.</string>
+    <string name="about_updates_no_browser">Keine App gefunden, die einen Link öffnen kann.</string>
     <string name="about_license_title">Lizenz</string>
     <string name="about_license_body">Apache License 2.0</string>
     <string name="about_licenses_third_party">Fremdbibliotheken</string>
+
+    <!-- ==================================================================================
+         Gemeinsame Aktionsbeschriftungen. Bewusst je einmal statt pro Bildschirm dupliziert —
+         dieselbe Beschriftung an verschiedenen Stellen soll auch nach einer Übersetzung noch
+         dieselbe sein.
+         ================================================================================== -->
+    <string name="action_close">Schließen</string>
+    <string name="action_save">Speichern</string>
+    <string name="action_create">Erstellen</string>
+    <string name="action_delete">Löschen</string>
+    <string name="action_remove">Entfernen</string>
+    <string name="action_edit">Bearbeiten</string>
+    <string name="action_move">Verschieben</string>
+    <string name="action_copy">Kopieren</string>
+    <string name="action_cut">Ausschneiden</string>
+    <string name="action_paste">Einfügen</string>
+    <string name="action_share">Teilen</string>
+    <string name="action_download">Herunterladen</string>
+    <string name="action_extract">Entpacken</string>
+    <string name="action_properties">Eigenschaften</string>
+    <string name="action_select_all">Alle auswählen</string>
+    <string name="action_open_with">Mit anderer App öffnen</string>
+    <string name="action_overwrite">Überschreiben</string>
+    <string name="action_skip">Überspringen</string>
+    <string name="action_keep_both">Beide behalten</string>
+    <string name="action_discard">Verwerfen</string>
+    <string name="action_continue_editing">Weiter bearbeiten</string>
+
+    <!-- Bildschirmleser-Beschriftungen für Icon-Buttons ohne sichtbaren Text. `content_desc_back`
+         steht bereits weiter oben (ui/about/AboutScreen.kt war die erste Verwendung). -->
+    <string name="content_desc_more">Mehr</string>
+    <string name="content_desc_search">Suchen</string>
+    <string name="content_desc_sort">Sortieren</string>
+    <string name="content_desc_toggle_view">Ansicht wechseln</string>
+    <string name="content_desc_close_selection">Auswahl beenden</string>
+    <string name="content_desc_close_search">Suche schließen</string>
+    <string name="content_desc_upload">Hochladen</string>
+    <string name="content_desc_refresh">Aktualisieren</string>
+    <string name="content_desc_rotate">Drehen</string>
+
+    <!-- Dateiart als Beschreibung des Kategorie-Symbols in Listen- und Kachelansicht. Der
+         Dateiname allein sagt nicht zuverlässig, ob ein Eintrag ein Ordner ist — genau das
+         entscheidet aber, was ein Antippen tut. -->
+    <string name="content_desc_category_folder">Ordner</string>
+    <string name="content_desc_category_image">Bild</string>
+    <string name="content_desc_category_video">Video</string>
+    <string name="content_desc_category_audio">Audiodatei</string>
+    <string name="content_desc_category_text">Textdatei</string>
+    <string name="content_desc_category_archive">Archiv</string>
+    <string name="content_desc_category_apk">App-Paket</string>
+    <string name="content_desc_category_other">Datei</string>
+
+    <!-- data/fs/StorageRoots.kt — die Beschriftungen der Speichervolumes und Schnellzugriffe
+         liegen hier statt im Datenmodell: dort steht nur noch die Art des Eintrags
+         (StorageRoot.Kind/QuickAccessFolder.Kind), aufgelöst wird sie in ui/home/HomeScreen.kt.
+         Vorher war die Beschriftung selbst der Schlüssel, über den HomeScreen das Icon
+         ausgewählt hat (`when (label) { "Bilder" -> ... }`) — das wäre bei der ersten
+         Übersetzung lautlos auf das Standard-Ordner-Icon zurückgefallen. -->
+    <string name="storage_internal">Interner Speicher</string>
+    <string name="storage_removable">SD-Karte %1$d</string>
+    <string name="quick_access_downloads">Downloads</string>
+    <string name="quick_access_pictures">Bilder</string>
+    <string name="quick_access_dcim">DCIM</string>
+    <string name="quick_access_movies">Videos</string>
+    <string name="quick_access_documents">Dokumente</string>
+    <string name="quick_access_music">Audio</string>
+
+    <!-- ui/home/HomeScreen.kt -->
+    <plurals name="home_share_received">
+        <item quantity="one">%1$d geteilte Datei empfangen</item>
+        <item quantity="other">%1$d geteilte Dateien empfangen</item>
+    </plurals>
+    <string name="home_share_received_hint">Ordner öffnen, um sie dort zu speichern</string>
+    <string name="home_section_network">Netzwerkspeicher</string>
+
+    <!-- ui/browser/FileBrowserScreen.kt + FileBrowserViewModel.kt -->
+    <string name="browser_error_unreadable">Ordner nicht lesbar</string>
+    <string name="browser_pick_title">Datei auswählen: %1$s</string>
+    <string name="browser_import_started">Import gestartet</string>
+    <string name="browser_op_done">Fertig (%1$d)</string>
+    <plurals name="browser_op_skipped">
+        <item quantity="one">%1$d übersprungen</item>
+        <item quantity="other">%1$d übersprungen</item>
+    </plurals>
+    <plurals name="browser_op_failed_count">
+        <item quantity="one">%1$d fehlgeschlagen</item>
+        <item quantity="other">%1$d fehlgeschlagen</item>
+    </plurals>
+    <string name="browser_op_failed">Fehlgeschlagen: %1$s</string>
+    <string name="browser_op_cancelled">Abgebrochen</string>
+    <plurals name="browser_op_cancelled_dropped">
+        <item quantity="one">Abgebrochen — %1$d wartender Auftrag verworfen</item>
+        <item quantity="other">Abgebrochen — %1$d wartende Aufträge verworfen</item>
+    </plurals>
+    <plurals name="browser_selected_count">
+        <item quantity="one">%1$d ausgewählt</item>
+        <item quantity="other">%1$d ausgewählt</item>
+    </plurals>
+    <plurals name="clipboard_pending_move">
+        <item quantity="one">%1$d zum Verschieben</item>
+        <item quantity="other">%1$d zum Verschieben</item>
+    </plurals>
+    <plurals name="clipboard_pending_copy">
+        <item quantity="one">%1$d zum Kopieren</item>
+        <item quantity="other">%1$d zum Kopieren</item>
+    </plurals>
+    <string name="default_archive_name">Archiv</string>
+    <string name="sort_key_name">Name</string>
+    <string name="sort_key_date">Datum</string>
+    <string name="sort_key_size">Größe</string>
+    <string name="sort_key_type">Typ</string>
+
+    <!-- ui/browser/FileBrowserDialogs.kt -->
+    <string name="dialog_trash_title">In den Papierkorb</string>
+    <string name="dialog_trash_message_one">„%1$s“ in den Papierkorb verschieben?</string>
+    <plurals name="dialog_trash_message_many">
+        <item quantity="one">%1$d Eintrag in den Papierkorb verschieben?</item>
+        <item quantity="other">%1$d Einträge in den Papierkorb verschieben?</item>
+    </plurals>
+    <string name="dialog_conflict_title">Name bereits vorhanden</string>
+    <string name="dialog_conflict_message_one">„%1$s“ existiert im Zielordner bereits.</string>
+    <plurals name="dialog_conflict_message_many">
+        <item quantity="one">%1$d Name existiert im Zielordner bereits:</item>
+        <item quantity="other">%1$d Namen existieren im Zielordner bereits:</item>
+    </plurals>
+    <string name="properties_path">Pfad: %1$s</string>
+    <string name="properties_size">Größe: %1$s</string>
+    <string name="properties_item_count">Enthaltene Dateien: %1$d</string>
+    <string name="properties_hidden">Versteckt: %1$s</string>
+    <string name="value_yes">Ja</string>
+    <string name="value_no">Nein</string>
+
+    <!-- ui/webdav/ -->
+    <string name="webdav_add_server">Server hinzufügen</string>
+    <string name="webdav_edit_server">Server bearbeiten</string>
+    <string name="webdav_field_label">Bezeichnung</string>
+    <string name="webdav_field_url">Server-URL</string>
+    <string name="webdav_field_username">Benutzername</string>
+    <string name="webdav_field_password">Passwort</string>
+    <string name="webdav_cleartext_warning">Achtung: kein HTTPS — Zugangsdaten werden unverschlüsselt übertragen.</string>
+    <string name="webdav_test_connection">Verbindung testen</string>
+    <string name="webdav_test_success">Verbindung erfolgreich</string>
+    <string name="webdav_error_connection_failed">Verbindung fehlgeschlagen</string>
+    <string name="webdav_delete_message">„%1$s“ auf dem Server endgültig löschen?</string>
+    <string name="webdav_remove_account_title">Server entfernen</string>
+    <string name="webdav_remove_account_message">„%1$s“ und die gespeicherten Zugangsdaten entfernen? Dateien auf dem Server bleiben unberührt.</string>
+    <string name="webdav_empty">Leer</string>
+    <string name="webdav_error_source_unreadable">Datei konnte nicht gelesen werden: %1$s</string>
+    <string name="webdav_error_no_storage">Kein Speicher gefunden</string>
+    <string name="webdav_downloaded_to">Heruntergeladen nach Downloads/%1$s</string>
+    <string name="webdav_error_generic">Vorgang fehlgeschlagen</string>
+
+    <!-- ui/viewer/TextEditorScreen.kt -->
+    <string name="editor_saved">Gespeichert</string>
+    <string name="editor_save_failed">Speichern fehlgeschlagen: %1$s</string>
+    <string name="editor_error_no_parent">Kein übergeordneter Ordner: %1$s</string>
+    <string name="editor_too_large">Diese Datei ist größer als %1$s und zu groß für den eingebauten Texteditor.</string>
+    <string name="editor_not_text">Datei konnte nicht als Text gelesen werden.</string>
+    <string name="editor_discard_title">Änderungen verwerfen?</string>
+    <string name="editor_discard_message">Es gibt ungespeicherte Änderungen an „%1$s“.</string>
+
+    <!-- util/FileActions.kt, nav/FilesNavHost.kt, ui/localshare/LocalShareScreen.kt — Beschriftungen
+         von ClipData-Objekten sind für den Nutzer sichtbar (Zwischenablage-Vorschau ab Android 13). -->
+    <string name="clip_label_shared_files">Geteilte Dateien</string>
+    <string name="clip_label_share_link">Freigabe-Link</string>
+    <string name="error_no_app_found">Keine App gefunden, die das öffnen kann</string>
+    <string name="error_open_failed">Datei konnte nicht geöffnet werden</string>
 </resources>

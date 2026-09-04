@@ -1,0 +1,17 @@
+# Repo-weites .gitignore. Die vier App-Ordner haben jeweils ihr eigenes (Gradle-/IDE-Artefakte);
+# hier steht, was für alle vier gleichermaßen gilt.
+
+# Signaturschlüssel. Zweite Verteidigungslinie — der Keystore gehört gar nicht erst in einen
+# Arbeitsordner unterhalb des Repos (s. docs/RELEASE-SIGNING.md). Ein einmal gepushter privater
+# Schlüssel gilt als kompromittiert, auch nach einem force-push: der Weg zurück ist ein neuer
+# Schlüssel, und der bedeutet für ein Warden-Device-Owner-Gerät einen Werksreset.
+*.keystore
+*.jks
+*.p12
+*.pfx
+keystore.properties
+signing.properties
+
+# Betriebssystem-/Editor-Reste
+.DS_Store
+*~

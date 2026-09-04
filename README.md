@@ -46,14 +46,25 @@ Jede App wird einzeln aus ihrem eigenen Ordner gebaut:
 
 ```
 cd <warden|files|camera|gallery>
-./gradlew test              # Unit-Tests
+./gradlew test                       # Unit-Tests (JVM)
+./gradlew connectedDebugAndroidTest  # Instrumentation-Tests (Gerät/Emulator nötig)
 ./gradlew :app:assembleDebug
 ./gradlew lint
 ```
 
 CI (`.github/workflows/ci.yml`) baut und testet alle vier Apps parallel (Matrix-Job) bei jedem
 Push/PR gegen `main`, plus einen separaten Job für Wardens Rust-Engine (`cargo fmt`/`clippy`/
-`test`).
+`test`) und einen dritten für die Instrumentation-Tests auf einem Emulator.
+
+Der Emulator-Job deckt Files, Kamera und Galerie ab. Wardens eigene `androidTest`-Klassen laufen
+dort **nicht**: sie brauchen ein per `dpm set-device-owner` provisioniertes Gerät ohne Konten,
+was ein Standard-AVD-Image nicht hergibt — sie bleiben dem echten Testgerät vorbehalten.
+
+Was in einem Instrumentation-Test gehört und was nicht: alles, was `Intent`, `Uri`,
+`SharedPreferences` oder Compose anfasst, liefert unter einem reinen JVM-Unit-Test nur
+`RuntimeException("Stub!")` — genau deshalb waren die App-übergreifenden Intent-Verträge lange
+komplett ungetestet (s. `analyse.md` 7-01). Reine Datei-/Sortier-/Formatierungslogik bleibt
+JVM-Unit-Test, weil die schneller ist.
 
 ## Release
 
@@ -70,23 +81,67 @@ Warden hat eine eigene Pipeline, weil dort zusätzlich die komplette Rust-Kette 
 vier ABIs frisch aus der Quelle) und die Sentinel-APK mitgebaut werden, die zwingend dasselbe
 Zertifikat tragen muss. Beide Pipelines lassen sich per Git-Tag oder manuell über „Run workflow"
 auslösen; im manuellen Fall berechnet die Pipeline die nächste Version aus dem letzten passenden
-Tag, setzt den Tag selbst und legt einen Release-**Entwurf** an, damit vor dem Veröffentlichen noch
-ein Changelog eingetragen werden kann.
+Tag, setzt den Tag selbst und legt einen Release-**Entwurf** an — die Liste der Commits seit dem
+letzten Tag steht darin schon, der Entwurf ist die Gelegenheit, ihr eine Einordnung voranzustellen
+und den Bau zu verwerfen, falls etwas nicht stimmt.
 
 Alle vier Apps werden mit demselben Keystore signiert (Secrets `RELEASE_KEYSTORE_BASE64`,
 `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`). Ein lokaler
 `./gradlew assembleRelease` ohne die entsprechenden Env-Vars liefert weiterhin eine unsignierte
 APK — für einen lokalen Testbau ist kein Secret-Material nötig.
 
+Erzeugung, Aufbewahrung und Wiederherstellung dieses Schlüssels: **[docs/RELEASE-SIGNING.md](docs/RELEASE-SIGNING.md)**.
+Der Punkt ist bei einem Sideload-Vertrieb kein Formalismus — es gibt kein Play App Signing, das
+einen Verlust auffangen könnte, und für ein Warden-Device-Owner-Gerät bedeutet ein verlorener
+Schlüssel einen Werksreset.
+
+Jede Release-Seite trägt zusätzlich `SHA256SUMS.txt` und den SHA-256-Fingerabdruck des
+Signaturzertifikats; `release.yml` prüft dabei, dass Warden und Sentinel denselben tragen
+(sie sind über eine `signature`-geschützte Permission gekoppelt) und bricht sonst ab. Unter den
+festen Kopfteil des Release-Texts hängt GitHub automatisch die Liste der Commits seit dem
+letzten Tag.
+
 R8 ist nur bei Warden aktiv. Für die drei Compose-Apps bleibt es bewusst aus, solange kein
 Gerätetest gegen eine minifizierte Release-APK laufen kann — die Begründung steht in der jeweiligen
 `app/build.gradle.kts`.
+
+## Installation und Updates
+
+Sideload, kein Play Store. APK von der [Releases-Seite](https://github.com/Ble1st/ConneXias-Suite/releases)
+laden, im Dateimanager öffnen, Installation aus unbekannter Quelle einmalig erlauben.
+
+Vor dem Installieren prüfen — das ersetzt die Herkunftsbestätigung, die sonst der Store leistet:
+
+```
+sha256sum -c SHA256SUMS.txt          # Datei unverändert?
+keytool -printcert -jarfile *.apk    # von wem signiert?
+```
+
+Der Zertifikat-Fingerabdruck ist für alle vier Apps derselbe und steht auf jeder Release-Seite.
+Eine APK mit anderem Fingerabdruck kann eine installierte App nicht aktualisieren — Android
+verweigert das. Ein „Update", das anders signiert ist, ist deshalb nie eines.
+
+**Keine der vier Apps prüft selbst auf Updates.** Das wäre eine regelmäßige, vom Nutzer nicht
+ausgelöste Verbindung nach außen; die Kamera hat aus demselben Grund gar keine
+`INTERNET`-Berechtigung, und bei einer Device-Owner-App wäre es genau der Hintergrundverkehr, den
+sie sonst überwacht. Stattdessen zeigt der Über-Bildschirm jeder App (bei Warden:
+Einstellungen → Updates) die installierte Version samt Versionscode und verlinkt die
+Releases-Seite, geöffnet vom Browser des Geräts.
+
+## Datenschutz und Sicherheit
+
+- **[PRIVACY.md](PRIVACY.md)** — was jede der vier Apps lokal speichert, wohin überhaupt etwas
+  übertragen wird (nur an Server, die Sie selbst eintragen), und welche Berechtigung wofür da ist.
+- **[SECURITY.md](SECURITY.md)** — wie eine Sicherheitslücke gemeldet wird (nicht als
+  öffentliches Issue), was im Geltungsbereich liegt und was nicht.
 
 ## Herkunft / Änderungsverlauf
 
 `analyse.md` im Repo-Root ist das laufende Sicherheits-/Robustheits-Audit der Suite (mehrere
 Durchgänge, jeweils mit Datum) — jede App-eigene README dokumentiert die daraus resultierenden
-Fixes chronologisch in einem eigenen Abschnitt. Warden zusätzlich unter `warden/CLAUDE.md`
+Fixes chronologisch in einem eigenen Abschnitt. Abschnitt 7 dort führt zusätzlich die
+Produktionsreife: was zwischen „der Code ist geprüft" und „läuft auf echten Geräten" liegt,
+einschließlich der Punkte, die noch offen sind. Warden zusätzlich unter `warden/CLAUDE.md`
 (englisch, nicht versioniert) mit einer tieferen Architekturreferenz.
 
 ## License

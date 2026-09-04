@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import de.ble1st.files.R
 import de.ble1st.files.data.fileops.ClipboardContent
 import de.ble1st.files.data.fileops.ClipboardHolder
 import de.ble1st.files.data.fileops.ClipboardMode
@@ -120,7 +121,12 @@ class FileBrowserViewModel(application: Application, private val directory: File
             val listing = withContext(Dispatchers.IO) { LocalFileSystem.list(directory) }
             _uiState.update {
                 if (listing == null) {
-                    it.copy(isLoading = false, errorMessage = "Ordner nicht lesbar", entries = emptyList())
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = getApplication<Application>()
+                            .getString(R.string.browser_error_unreadable),
+                        entries = emptyList(),
+                    )
                 } else {
                     it.copy(isLoading = false, entries = listing)
                 }

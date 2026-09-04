@@ -108,6 +108,13 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
+    // Seitenweises Laden des Medienrasters — s. data/media/MediaPagingSource.kt und
+    // analyse.md 6.2 ("MediaStore-Paging"). Handgeschrieben wäre hier vor allem das
+    // Nachladen beim Scrollen samt Invalidierung neu zu bauen; genau das ist die Stelle,
+    // an der Fehler entstehen.
+    implementation(libs.androidx.paging.runtime)
+    implementation(libs.androidx.paging.compose)
+
     // Thumbnail-Grid + Bildbetrachter — s. ui/grid/MediaGridScreen.kt, ui/viewer/ImageViewerScreen.kt.
     implementation(libs.coil.compose)
     // Videoplayer — s. ui/viewer/VideoPlayerScreen.kt.
@@ -127,4 +134,6 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

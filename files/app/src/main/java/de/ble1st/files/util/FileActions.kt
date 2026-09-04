@@ -7,6 +7,7 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
+import de.ble1st.files.R
 
 /**
  * ACTION_VIEW/ACTION_SEND über [FileProvider] statt nacktem `file://`-Uri (seit Android N von
@@ -51,7 +52,7 @@ object FileActions {
         // den EXTRA_STREAM-Parcelable-Extra selbst — ohne das sah der Empfänger bei mehreren
         // geteilten Dateien (ACTION_SEND_MULTIPLE) oft nur die erste Datei, weil die übrigen Uris
         // keine gültige Leseberechtigung hatten (bekanntes Android-Verhalten, z. B. bei Gmail).
-        val clipData = ClipData.newUri(context.contentResolver, "Geteilte Dateien", uris.first()).apply {
+        val clipData = ClipData.newUri(context.contentResolver, context.getString(R.string.clip_label_shared_files), uris.first()).apply {
             for (uri in uris.drop(1)) addItem(ClipData.Item(uri))
         }
         intent.clipData = clipData
@@ -64,7 +65,7 @@ object FileActions {
         try {
             context.startActivity(intent)
         } catch (_: ActivityNotFoundException) {
-            Toast.makeText(context, "Keine App gefunden, die das öffnen kann", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, R.string.error_no_app_found, Toast.LENGTH_SHORT).show()
         }
     }
 }

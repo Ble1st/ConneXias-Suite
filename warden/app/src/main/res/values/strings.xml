@@ -451,6 +451,9 @@
     <string name="settings_config_import_title">Importieren</string>
     <string name="settings_config_import_subtitle">Zuvor exportierte Konfiguration wieder einspielen</string>
     <string name="settings_section_info">Info</string>
+    <string name="settings_updates_title">Updates</string>
+    <string name="settings_updates_subtitle">Installiert: %1$s — antippen öffnet die Releases-Seite im Browser (Warden prüft nicht selbst)</string>
+    <string name="settings_updates_no_browser">Keine App gefunden, die einen Link öffnen kann.</string>
     <string name="settings_licenses_title">Lizenzen</string>
     <string name="settings_licenses_subtitle">Open-Source-Bestandteile dieser App</string>
 

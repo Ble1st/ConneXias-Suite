@@ -289,7 +289,13 @@ class CameraController(private val context: Context) {
                 setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
             }
         }.build()
-        camera2Control.captureRequestOptions = options
+        // CameraX 1.6 hat Camera2CameraControl nach Kotlin portiert: setCaptureRequestOptions()
+        // liefert jetzt ein ListenableFuture und ist damit kein Property-Setter mehr (bis 1.5
+        // stand hier `camera2Control.captureRequestOptions = options`). Das Future wird bewusst
+        // nicht abgewartet — der Aufruf kommt aus der UI beim Schieben der ISO-/Zeit-Regler, ein
+        // Warten würde den Regler blockieren, und das Ergebnis ist ohnehin unmittelbar im
+        // Sucherbild zu sehen.
+        camera2Control.setCaptureRequestOptions(options)
     }
 
     fun updateTargetRotation(rotation: Int) {

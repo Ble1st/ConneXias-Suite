@@ -37,10 +37,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import de.ble1st.files.data.fs.LocalFileSystem
+import de.ble1st.files.R
 import de.ble1st.files.util.FileActions
 import de.ble1st.files.util.FileCategory
 import kotlinx.coroutines.Dispatchers
@@ -96,15 +98,24 @@ fun ImageViewerScreen(file: File, onBack: () -> Unit) {
                 title = { Text(currentFile.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(id = R.string.content_desc_back),
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = { FileActions.share(context, listOf(currentFile)) }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Teilen")
+                        Icon(
+                            Icons.Filled.Share,
+                            contentDescription = stringResource(id = R.string.action_share),
+                        )
                     }
                     IconButton(onClick = { FileActions.openWithOtherApp(context, currentFile) }) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Mit anderer App öffnen")
+                        Icon(
+                            Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = stringResource(id = R.string.action_open_with),
+                        )
                     }
                 },
             )
@@ -189,7 +200,11 @@ private fun ZoomableImage(file: File, onZoomChanged: (Boolean) -> Unit) {
                 .padding(16.dp)
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f), MaterialTheme.shapes.small),
         ) {
-            Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = "Drehen", tint = Color.White)
+            Icon(
+                Icons.AutoMirrored.Filled.RotateRight,
+                contentDescription = stringResource(id = R.string.content_desc_rotate),
+                tint = Color.White,
+            )
         }
     }
 }

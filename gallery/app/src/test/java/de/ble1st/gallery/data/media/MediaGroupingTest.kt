@@ -3,6 +3,7 @@ package de.ble1st.gallery.data.media
 import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.Mockito.mock
@@ -11,9 +12,15 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 
 /**
- * [groupByTime] ist bewusst framework-frei (nur `java.time`) und bekommt Zeitzone und "heute" als
- * Parameter — dieser Test läuft dadurch unabhängig von Zeitzone und Datum des ausführenden
- * Rechners, was für eine Datumslogik sonst die klassische Quelle sporadisch roter Tests ist.
+ * [sectionKeyOf] und [headerBetween] sind bewusst framework-frei (nur `java.time`) und bekommen
+ * Zeitzone und "heute" als Parameter — dieser Test läuft dadurch unabhängig von Zeitzone und Datum
+ * des ausführenden Rechners, was für eine Datumslogik sonst die klassische Quelle sporadisch roter
+ * Tests ist.
+ *
+ * Geprüft wird über [headersAndEntries] genau der Weg, den auch die Anzeige geht: das Raster wird
+ * seitenweise geladen (analyse.md 6.2), die Datums-Überschriften entstehen deshalb nicht mehr aus
+ * einer vorab gebauten Abschnittsliste, sondern zwischen zwei benachbarten Einträgen des
+ * Paging-Stroms.
  *
  * [MediaItem.uri] wird nie inhaltlich ausgewertet, ein Mockito-Mock genügt als Platzhalter (s.
  * [BucketGroupingTest]).
@@ -40,83 +47,109 @@ class MediaGroupingTest {
         path = "",
     )
 
-    private fun group(items: List<MediaItem>) = groupByTime(items, zone, today)
+    /** Baut den Strom so auf, wie `PagingData.insertSeparators` es tut: für jeden Eintrag wird
+     * gefragt, ob zwischen ihm und seinem Vorgänger eine Überschrift gehört. */
+    private fun headersAndEntries(items: List<MediaItem>): List<MediaListItem> = buildList {
+        items.forEachIndexed { index, item ->
+            headerBetween(items.getOrNull(index - 1), item, zone, today)?.let { add(it) }
+            add(MediaListItem.Entry(item))
+        }
+    }
+
+    private fun headers(items: List<MediaItem>): List<SectionKey> =
+        headersAndEntries(items).filterIsInstance<MediaListItem.Header>().map { it.key }
 
     @Test
-    fun `leere Eingabe ergibt keine Abschnitte`() {
-        assertTrue(group(emptyList()).isEmpty())
+    fun `leere Eingabe ergibt keine Ueberschriften`() {
+        assertTrue(headers(emptyList()).isEmpty())
     }
 
     @Test
-    fun `Aufnahmen desselben Tages landen in einem Abschnitt`() {
-        val sections = group(listOf(itemAt(2026, 9, 3, hour = 20), itemAt(2026, 9, 3, hour = 8)))
+    fun `am Ende der geladenen Liste steht keine Ueberschrift`() {
+        // after == null heißt "hinter dem letzten geladenen Eintrag" — eine Überschrift ohne
+        // Inhalt darunter wäre sinnlos.
+        assertNull(headerBetween(itemAt(2026, 9, 3), null, zone, today))
+    }
 
-        assertEquals(1, sections.size)
-        assertEquals(2, sections.first().items.size)
-        assertFalse(sections.first().monthOnly)
+    @Test
+    fun `Aufnahmen desselben Tages bekommen nur eine Ueberschrift`() {
+        val keys = headers(listOf(itemAt(2026, 9, 3, hour = 20), itemAt(2026, 9, 3, hour = 8)))
+
+        assertEquals(1, keys.size)
+        assertFalse(keys.first().monthOnly)
     }
 
     @Test
     fun `verschiedene Tage im laufenden Jahr ergeben Tagesabschnitte`() {
-        val sections = group(listOf(itemAt(2026, 9, 3), itemAt(2026, 9, 2), itemAt(2026, 1, 15)))
+        val keys = headers(listOf(itemAt(2026, 9, 3), itemAt(2026, 9, 2), itemAt(2026, 1, 15)))
 
-        assertEquals(3, sections.size)
-        assertTrue(sections.none { it.monthOnly })
+        assertEquals(3, keys.size)
+        assertTrue(keys.none { it.monthOnly })
     }
 
     @Test
     fun `aeltere Jahre werden zu Monatsabschnitten zusammengefasst`() {
         // Zwei Tage desselben Monats, aber aus einem vergangenen Jahr — genau der Fall, für den
-        // die Monatsgruppierung existiert (s. groupByTime-Doc).
-        val sections = group(listOf(itemAt(2024, 7, 20), itemAt(2024, 7, 3)))
+        // die Monatsgruppierung existiert (s. sectionKeyOf-Doc).
+        val keys = headers(listOf(itemAt(2024, 7, 20), itemAt(2024, 7, 3)))
 
-        assertEquals(1, sections.size)
-        assertTrue(sections.first().monthOnly)
-        assertEquals(2, sections.first().items.size)
+        assertEquals(1, keys.size)
+        assertTrue(keys.first().monthOnly)
         assertEquals(
             LocalDate.of(2024, 7, 1).atStartOfDay(zone).toInstant().toEpochMilli(),
-            sections.first().startMillis,
+            keys.first().startMillis,
         )
     }
 
     @Test
     fun `verschiedene Monate eines alten Jahres bleiben getrennt`() {
-        val sections = group(listOf(itemAt(2024, 8, 1), itemAt(2024, 7, 31)))
+        val keys = headers(listOf(itemAt(2024, 8, 1), itemAt(2024, 7, 31)))
 
-        assertEquals(2, sections.size)
-        assertTrue(sections.all { it.monthOnly })
+        assertEquals(2, keys.size)
+        assertTrue(keys.all { it.monthOnly })
     }
 
     @Test
     fun `Jahreswechsel trennt Tages- von Monatsabschnitten`() {
-        val sections = group(listOf(itemAt(2026, 1, 1), itemAt(2025, 12, 31)))
+        val keys = headers(listOf(itemAt(2026, 1, 1), itemAt(2025, 12, 31)))
 
-        assertEquals(2, sections.size)
-        assertFalse(sections[0].monthOnly)
-        assertTrue(sections[1].monthOnly)
+        assertEquals(2, keys.size)
+        assertFalse(keys[0].monthOnly)
+        assertTrue(keys[1].monthOnly)
     }
 
     @Test
-    fun `Reihenfolge der Eingabe bleibt erhalten`() {
+    fun `Reihenfolge der Eintraege bleibt erhalten`() {
         val newest = itemAt(2026, 9, 3)
         val middle = itemAt(2026, 9, 1)
         val oldest = itemAt(2023, 4, 5)
 
-        val sections = group(listOf(newest, middle, oldest))
+        val stream = headersAndEntries(listOf(newest, middle, oldest))
 
         assertEquals(
             listOf(newest.id, middle.id, oldest.id),
-            sections.flatMap { section -> section.items.map { it.id } },
+            stream.filterIsInstance<MediaListItem.Entry>().map { it.item.id },
         )
     }
 
     @Test
     fun `Abschnittsbeginn ist der Tagesanfang in der uebergebenen Zeitzone`() {
-        val sections = group(listOf(itemAt(2026, 9, 3, hour = 23)))
+        val key = sectionKeyOf(itemAt(2026, 9, 3, hour = 23), zone, today)
 
         assertEquals(
             LocalDate.of(2026, 9, 3).atStartOfDay(zone).toInstant().toEpochMilli(),
-            sections.first().startMillis,
+            key.startMillis,
         )
+        assertFalse(key.monthOnly)
+    }
+
+    @Test
+    fun `erster geladener Eintrag bekommt immer eine Ueberschrift`() {
+        // before == null tritt bei seitenweisem Laden nicht nur ganz am Anfang auf, sondern auch
+        // am oberen Rand des geladenen Fensters — dort ist eine Überschrift richtig, weil der
+        // Nutzer sonst einen Abschnitt ohne Titel vor sich hätte.
+        val header = headerBetween(null, itemAt(2026, 9, 3), zone, today)
+
+        assertEquals(sectionKeyOf(itemAt(2026, 9, 3), zone, today), header?.key)
     }
 }

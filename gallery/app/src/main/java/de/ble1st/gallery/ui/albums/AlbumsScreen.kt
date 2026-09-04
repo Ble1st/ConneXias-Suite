@@ -63,12 +63,14 @@ fun AlbumsScreen(
     onOpenAbout: () -> Unit,
 ) {
     val buckets by viewModel.buckets.collectAsState()
-    val allItems by viewModel.allItems.collectAsState()
     val customAlbums by viewModel.customAlbums.collectAsState()
-    val favorites by viewModel.favorites.collectAsState()
+    // Titelbild und Anzahl je Kachel kommen als eigene, schlanke Abfragen aus dem ViewModel —
+    // vorher wurden sie aus dem vollständig geladenen Medienbestand gefiltert (analyse.md 6.2).
+    val allSummary by viewModel.allAlbumSummary.collectAsState()
+    val summaries by viewModel.albumSummaries.collectAsState()
+    val favoritesSummary = summaries[GalleryViewModel.FAVORITES_SUMMARY_KEY]
     val allLabel = stringResource(R.string.album_all)
     val favoritesLabel = stringResource(R.string.album_favorites)
-    val favoriteItems = remember(allItems, favorites) { allItems.filter { it.id in favorites } }
     var showCreateDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -99,24 +101,24 @@ fun AlbumsScreen(
             contentPadding = padding,
             modifier = Modifier.fillMaxSize(),
         ) {
-            if (allItems.isNotEmpty()) {
+            if (allSummary.itemCount > 0) {
                 item {
                     AlbumTile(
                         name = allLabel,
-                        coverUri = allItems.first().uri,
-                        itemCount = allItems.size,
+                        coverUri = allSummary.coverUri,
+                        itemCount = allSummary.itemCount,
                         onClick = { onOpenBucket(ALL_BUCKET_ID, allLabel) },
                     )
                 }
             }
             // Nur wenn tatsächlich etwas markiert ist — eine dauerhaft leere Kachel an prominenter
             // Stelle wäre für jeden, der die Funktion nicht nutzt, reiner Platzverbrauch.
-            if (favoriteItems.isNotEmpty()) {
+            if (favoritesSummary != null && favoritesSummary.itemCount > 0) {
                 item(key = "favorites") {
                     AlbumTile(
                         name = favoritesLabel,
-                        coverUri = favoriteItems.first().uri,
-                        itemCount = favoriteItems.size,
+                        coverUri = favoritesSummary.coverUri,
+                        itemCount = favoritesSummary.itemCount,
                         onClick = { onOpenBucket(FAVORITES_BUCKET_ID, favoritesLabel) },
                     )
                 }
@@ -130,10 +132,11 @@ fun AlbumsScreen(
                 )
             }
             items(customAlbums, key = { "custom_${it.id}" }) { album ->
+                val summary = summaries[album.id]
                 CustomAlbumTile(
                     album = album,
-                    coverUri = allItems.find { it.id in album.itemIds }?.uri,
-                    itemCount = viewModel.liveItemCount(album),
+                    coverUri = summary?.coverUri,
+                    itemCount = summary?.itemCount ?: 0,
                     onClick = { onOpenCustomAlbum(album.id, album.name) },
                 )
             }
@@ -179,7 +182,10 @@ private fun CreateAlbumDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit)
 }
 
 @Composable
-private fun AlbumTile(name: String, coverUri: Uri, itemCount: Int, onClick: () -> Unit) {
+// coverUri ist seit der Paging-Umstellung nullable: Anzahl und Titelbild kommen aus einer
+// eigenen Abfrage, die einen Moment nach dem ersten Zeichnen eintrifft — bis dahin steht die
+// Kachel mit ihrem Platzhalter da, statt gar nicht zu existieren.
+private fun AlbumTile(name: String, coverUri: Uri?, itemCount: Int, onClick: () -> Unit) {
     Column(modifier = Modifier.padding(8.dp).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier

@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.ble1st.files.R
@@ -66,7 +67,10 @@ fun TrashScreen(onNavigateUp: () -> Unit) {
                 title = { Text(stringResource(id = R.string.trash_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(id = R.string.content_desc_back),
+                        )
                     }
                 },
                 actions = {
@@ -134,7 +138,13 @@ private fun TrashRow(entry: TrashEntry, onRestore: () -> Unit, onDeleteForever: 
         leadingContent = {
             Icon(
                 if (entry.isDirectory) Icons.Filled.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
-                contentDescription = null,
+                contentDescription = stringResource(
+                    id = if (entry.isDirectory) {
+                        R.string.content_desc_category_folder
+                    } else {
+                        R.string.content_desc_category_other
+                    },
+                ),
             )
         },
         trailingContent = {
@@ -166,7 +176,7 @@ private fun ConfirmEmptyTrashDialog(count: Int, onConfirm: () -> Unit, onDismiss
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(id = R.string.trash_confirm_empty_title)) },
-        text = { Text(stringResource(id = R.string.trash_confirm_empty_message, count)) },
+        text = { Text(pluralStringResource(R.plurals.trash_confirm_empty_message, count, count)) },
         confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(id = R.string.trash_action_empty)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.action_cancel)) } },
     )

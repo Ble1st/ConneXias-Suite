@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import de.ble1st.files.data.fileops.FileOperations
+import de.ble1st.files.R
 import de.ble1st.files.data.fs.StorageRoots
 import de.ble1st.files.data.webdav.WebDavAccount
 import de.ble1st.files.data.webdav.WebDavClient
@@ -68,7 +69,11 @@ class WebDavBrowserViewModel(
                     _uiState.update { it.copy(entries = sorted, isLoading = false) }
                 },
                 onFailure = { error ->
-                    _uiState.update { it.copy(isLoading = false, errorMessage = error.message ?: "Verbindung fehlgeschlagen") }
+                    val fallback = getApplication<Application>()
+                        .getString(R.string.webdav_error_connection_failed)
+                    _uiState.update {
+                        it.copy(isLoading = false, errorMessage = error.message ?: fallback)
+                    }
                 },
             )
         }
@@ -148,7 +153,11 @@ class WebDavBrowserViewModel(
                 }
             }
             if (tempFile == null) {
-                setError(IOException("Datei konnte nicht gelesen werden: $sourceUri"))
+                setError(
+                    IOException(
+                        application.getString(R.string.webdav_error_source_unreadable, sourceUri.toString()),
+                    ),
+                )
                 return@launch
             }
             val result = WebDavClient.upload(state.account, childPath(state.path, safeName), tempFile)
@@ -200,7 +209,7 @@ class WebDavBrowserViewModel(
         viewModelScope.launch {
             val primaryRoot = StorageRoots.list(application).firstOrNull()?.path
             if (primaryRoot == null) {
-                setError(IllegalStateException("Kein Speicher gefunden"))
+                setError(IllegalStateException(application.getString(R.string.webdav_error_no_storage)))
                 return@launch
             }
             val downloadsDir = File(primaryRoot, Environment.DIRECTORY_DOWNLOADS)
@@ -214,14 +223,23 @@ class WebDavBrowserViewModel(
             }
             val destination = File(downloadsDir, targetName)
             WebDavClient.download(state.account, entry.path, destination).fold(
-                onSuccess = { _uiState.update { it.copy(statusMessage = "Heruntergeladen nach Downloads/$targetName") } },
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(statusMessage = application.getString(R.string.webdav_downloaded_to, targetName))
+                    }
+                },
                 onFailure = { error -> setError(error) },
             )
         }
     }
 
     private fun setError(error: Throwable) {
-        _uiState.update { it.copy(errorMessage = error.message ?: "Vorgang fehlgeschlagen") }
+        _uiState.update {
+            it.copy(
+                errorMessage = error.message
+                    ?: getApplication<Application>().getString(R.string.webdav_error_generic),
+            )
+        }
     }
 
     private fun childPath(parent: String, name: String): String =

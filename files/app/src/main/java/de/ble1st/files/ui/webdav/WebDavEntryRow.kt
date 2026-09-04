@@ -4,12 +4,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -17,7 +18,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.Text
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,8 +25,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import de.ble1st.files.R
 import de.ble1st.files.data.webdav.WebDavEntry
+import de.ble1st.files.ui.categoryLabelRes
 import de.ble1st.files.util.FileCategory
 import de.ble1st.files.util.formatFileSize
 import java.text.DateFormat
@@ -47,18 +50,35 @@ fun WebDavEntryRow(
     ListItem(
         headlineContent = { Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = { Text(subtitleFor(entry)) },
-        leadingContent = { Icon(iconFor(entry), contentDescription = null) },
+        leadingContent = {
+            Icon(
+                imageVector = iconFor(entry),
+                contentDescription = stringResource(id = categoryLabelRes(entry.category)),
+            )
+        },
         trailingContent = {
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "Mehr")
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = stringResource(id = R.string.content_desc_more),
+                    )
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     if (!entry.isDirectory) {
-                        DropdownMenuItem(text = { Text("Herunterladen") }, onClick = { menuExpanded = false; onDownload() })
+                        DropdownMenuItem(
+                            text = { Text(stringResource(id = R.string.action_download)) },
+                            onClick = { menuExpanded = false; onDownload() },
+                        )
                     }
-                    DropdownMenuItem(text = { Text("Umbenennen") }, onClick = { menuExpanded = false; onRename() })
-                    DropdownMenuItem(text = { Text("Löschen") }, onClick = { menuExpanded = false; onDelete() })
+                    DropdownMenuItem(
+                        text = { Text(stringResource(id = R.string.action_rename)) },
+                        onClick = { menuExpanded = false; onRename() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(id = R.string.action_delete)) },
+                        onClick = { menuExpanded = false; onDelete() },
+                    )
                 }
             }
         },

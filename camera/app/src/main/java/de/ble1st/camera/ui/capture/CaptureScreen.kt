@@ -26,17 +26,17 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FlashAuto
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.GridOn
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Timer10
 import androidx.compose.material.icons.filled.Timer3
 import androidx.compose.material.icons.filled.TimerOff
@@ -51,10 +51,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -67,6 +67,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -493,6 +494,11 @@ private fun ExtensionMenuButton(state: CaptureUiState, onSelectExtension: (Camer
                         onSelectExtension(option)
                         expanded = false
                     },
+                    // Das Häkchen bleibt ohne eigene Beschreibung; welcher Modus aktiv ist, hängt
+                    // als Standard-Semantik am Menüeintrag. Sonst wäre der aktive Modus für eine
+                    // Vorlesehilfe gar nicht zu erkennen — die nicht aktiven Einträge haben kein
+                    // Symbol, an dem eine Beschreibung hängen könnte.
+                    modifier = Modifier.semantics { selected = option == state.extension },
                     leadingIcon = if (option == state.extension) {
                         { Icon(Icons.Filled.Check, contentDescription = null) }
                     } else {

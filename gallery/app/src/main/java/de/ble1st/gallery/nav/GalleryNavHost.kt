@@ -14,6 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,13 +35,13 @@ import de.ble1st.gallery.data.media.MediaType
 import de.ble1st.gallery.data.media.SharedMediaImporter
 import de.ble1st.gallery.permission.MediaPermission
 import de.ble1st.gallery.ui.GalleryViewModel
+import de.ble1st.gallery.ui.about.AboutScreen
+import de.ble1st.gallery.ui.about.LicensesScreen
 import de.ble1st.gallery.ui.albums.AlbumsScreen
 import de.ble1st.gallery.ui.albums.CustomAlbumScreen
 import de.ble1st.gallery.ui.editor.PhotoEditorScreen
 import de.ble1st.gallery.ui.grid.MediaGridScreen
 import de.ble1st.gallery.ui.onboarding.MediaPermissionScreen
-import de.ble1st.gallery.ui.about.AboutScreen
-import de.ble1st.gallery.ui.about.LicensesScreen
 import de.ble1st.gallery.ui.sync.CloudSyncScreen
 import de.ble1st.gallery.ui.trash.TrashScreen
 import de.ble1st.gallery.ui.viewer.ImageViewerScreen
@@ -212,12 +213,18 @@ fun GalleryNavHost(
             arguments = listOf(navArgument("itemId") { type = NavType.LongType }),
         ) { backStackEntry ->
             val itemId = backStackEntry.arguments?.getLong("itemId") ?: -1L
-            val allItems by galleryViewModel.allItems.collectAsState()
-            val item = allItems.find { it.id == itemId }
+            // Gezielte Einzelabfrage statt Suche im vollständig geladenen Bestand (analyse.md 6.2).
+            // Solange sie läuft, ist der Wert null — deshalb der zusätzliche `loaded`-Zustand:
+            // "noch nicht geladen" und "existiert nicht" dürfen nicht dasselbe bedeuten, sonst
+            // schlösse sich der Bildschirm sofort wieder.
+            val loaded by produceState<Pair<Boolean, MediaItem?>>(false to null, itemId) {
+                value = true to galleryViewModel.itemById(itemId)
+            }
+            val (isLoaded, item) = loaded
             if (item == null) {
                 // Video wurde zwischenzeitlich gelöscht (z. B. von einer anderen App) — kein
                 // Absturz auf einen jetzt ungültigen Verweis, einfach zurück.
-                LaunchedEffect(Unit) { navController.popBackStack() }
+                if (isLoaded) LaunchedEffect(Unit) { navController.popBackStack() }
             } else {
                 VideoPlayerScreen(
                     item = item,
@@ -280,10 +287,13 @@ fun GalleryNavHost(
             arguments = listOf(navArgument("itemId") { type = NavType.LongType }),
         ) { backStackEntry ->
             val itemId = backStackEntry.arguments?.getLong("itemId") ?: -1L
-            val allItems by galleryViewModel.allItems.collectAsState()
-            val item = allItems.find { it.id == itemId }
+            // s. Kommentar beim Videoplayer oben.
+            val loaded by produceState<Pair<Boolean, MediaItem?>>(false to null, itemId) {
+                value = true to galleryViewModel.itemById(itemId)
+            }
+            val (isLoaded, item) = loaded
             if (item == null) {
-                LaunchedEffect(Unit) { navController.popBackStack() }
+                if (isLoaded) LaunchedEffect(Unit) { navController.popBackStack() }
             } else {
                 PhotoEditorScreen(
                     uri = item.uri,

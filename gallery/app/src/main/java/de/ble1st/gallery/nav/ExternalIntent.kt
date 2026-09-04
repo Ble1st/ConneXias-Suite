@@ -1,6 +1,10 @@
 package de.ble1st.gallery.nav
 
+import android.content.ContentUris
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 
 /**
  * Erkannter Startgrund, wenn die App nicht regulär über den Launcher, sondern von einer fremden
@@ -27,4 +31,67 @@ sealed interface ExternalIntent {
      * unspezifischen Wildcard-Typ) über den ContentResolver preisgeben — s.
      * [de.ble1st.gallery.data.media.SharedMediaImporter]. */
     data class Send(val uris: List<Uri>, val mimeType: String?) : ExternalIntent
+
+    companion object {
+        /**
+         * Wertet den Start-Intent aus. Lag bis 2026-09-04 als privater Block in
+         * [de.ble1st.gallery.MainActivity] — dort war die Authority-Prüfung aus analyse.md 4-08
+         * nur über einen echten Activity-Start prüfbar, also praktisch gar nicht. Als reine
+         * Funktion auf `Intent` ist sie einzeln testbar (s. `ExternalIntentInstrumentedTest`),
+         * ohne dass sich am Verhalten etwas ändert.
+         *
+         * [resolveMimeType] ist der Rückfall auf `ContentResolver.getType(uri)`, wenn der Intent
+         * selbst keinen Typ mitbringt — als Parameter statt als direkter Zugriff, damit die
+         * Funktion keinen `Context` braucht.
+         */
+        fun from(intent: Intent?, resolveMimeType: (Uri) -> String?): ExternalIntent? =
+            when (intent?.action) {
+                Intent.ACTION_VIEW -> viewItemFromUri(intent, intent.data, resolveMimeType)
+                Intent.ACTION_PICK, Intent.ACTION_GET_CONTENT -> Pick(intent.type)
+                Intent.ACTION_SEND -> sendUri(intent)?.let { Send(listOf(it), intent.type) }
+                Intent.ACTION_SEND_MULTIPLE -> sendMultipleUris(intent)?.let { Send(it, intent.type) }
+                else -> null
+            }
+
+        /** "Teilen mit ConneXias Galerie" — dasselbe EXTRA_STREAM-Muster wie ConneXias Files'
+         * `data/share/IncomingShare.kt`, hier unabhängig dupliziert (kein Code wird zwischen den
+         * Apps geteilt, s. Plan-Klassendoc). */
+        private fun sendUri(intent: Intent): Uri? =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+
+        private fun sendMultipleUris(intent: Intent): List<Uri>? =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+            }
+
+        private fun viewItemFromUri(
+            intent: Intent,
+            uri: Uri?,
+            resolveMimeType: (Uri) -> String?,
+        ): ViewItem? {
+            if (uri == null) return null
+            // analyse.md (2. Durchgang, Hoch): vorher akzeptierte diese Funktion JEDE Uri, deren
+            // letztes Pfadsegment zufällig eine Zahl war — ContentUris.parseId kennt keine
+            // Authority-Prüfung. Ein `content://com.other.provider/item/42` hätte
+            // MediaStore-Element 42 geöffnet (falsches Bild, keine erkennbare Ablehnung) statt
+            // regulär zu Albums zu gehen wie bei einer wirklich unbrauchbaren Uri.
+            // `MediaStore.AUTHORITY` ("media") ist die einzige Authority, unter der `parseId` hier
+            // je einen sinnvollen Treffer liefern kann.
+            if (uri.authority != MediaStore.AUTHORITY) return null
+            // ContentUris.parseId schlägt für eine Uri fehl, die nicht mit einer numerischen ID
+            // endet (z. B. ein fremder DocumentsProvider-Pfad) — in dem Fall gibt es hier keinen
+            // sinnvollen MediaStore-Eintrag zu zeigen, also regulär zu Albums statt abzustürzen.
+            val id = runCatching { ContentUris.parseId(uri) }.getOrNull() ?: return null
+            val mimeType = intent.type ?: runCatching { resolveMimeType(uri) }.getOrNull()
+            return ViewItem(id, isVideo = mimeType?.startsWith("video/") == true)
+        }
+    }
 }

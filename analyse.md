@@ -5,7 +5,14 @@ ConneXias Galerie). Jeder Befund steht hier mit Schweregrad, Fundort und Auflös
 App-eigenen READMEs führen dieselben Befunde noch einmal chronologisch als Changelog, aus Sicht
 der jeweiligen App.
 
-**Zum Stand dieses Dokuments (2026-09-03):** Die Arbeitsfassungen der einzelnen Durchgänge waren
+**Zum Stand dieses Dokuments (2026-09-04):** Abschnitt 6.2 war bis dahin veraltet — drei der
+fünf dort als offen geführten Punkte waren in den Commits `09a8520`/`0339405` bereits erledigt,
+ohne dass das Dokument nachgezogen worden wäre. Abschnitt 6.2 ist entsprechend korrigiert, und
+Abschnitt 7 kommt neu dazu: er führt die Produktionsreife-Arbeiten, die keine Sicherheitsbefunde
+sind (Instrumentation-Tests, Auslieferungsweg, Projektunterlagen), aber vor einem echten Einsatz
+genauso anstehen.
+
+**Zum ursprünglichen Stand dieses Dokuments (2026-09-03):** Die Arbeitsfassungen der einzelnen Durchgänge waren
 nie im Repository eingecheckt, obwohl alle vier READMEs auf `analyse.md` verweisen. Diese Fassung
 konsolidiert die Befunde aus den vier App-Changelogs und `warden/CLAUDE.md` zu dem Dokument, auf
 das die Verweise zeigen. Sie enthält deshalb genau die Befunde, deren Behebung im Repository
@@ -24,6 +31,7 @@ Abschnittsnummerierung (stabil, die Verweise in den READMEs zeigen darauf):
 | 4 | ConneXias Galerie |
 | 5 | Suite-Schnittstellen (App-übergreifende Intent-Verträge) |
 | 6 | Offene Punkte und bewusst akzeptierte Risiken |
+| 7 | Produktionsreife (kein Sicherheitsbefund, aber Voraussetzung für den Einsatz) |
 
 Schweregrade: **Hoch** = umgeht oder entwertet eine Sicherheitszusage der App · **Mittel** =
 Datenverlust, Fehlfunktion oder eine Schutzlücke in einem Randfenster · **Niedrig** =
@@ -135,6 +143,12 @@ Zwei Befunde aus dem separaten Review der Warden-internen Schnittstellen, s. Com
 | 3-16 | Niedrig | Doppeltes URL-Decoding der Review-Route | Behoben |
 | 3-17 | Niedrig | Bildschirm ging während Countdown/Foto-Schreiben aus (`keepScreenOn` nur an `isRecording`) | Behoben — an `state.isBusy` |
 
+### 3.3 Nachzügler aus dem Routen-Review (2026-09-04)
+
+| # | Schweregrad | Befund | Stand |
+|---|---|---|---|
+| 3-18 | Niedrig | **Encoding-Mismatch in `Routes.encode` war als einzige der drei Apps noch offen.** 3-16 hatte das doppelte Decodieren beseitigt, aber weiter mit `URLEncoder.encode` kodiert — das schreibt ein Leerzeichen als „+", während Compose Navigation mit `Uri.decode` dekodiert und „+" unverändert stehen lässt. Files (2-18) und Galerie (4-19) hatten genau das mitbehoben, die Kamera nicht. Latent, weil die von `MediaStoreSaver` erzeugten `content://media/...`-Uris numerisch sind — der Zeichensatz einer Uri liegt aber nicht in der Hand dieser App | Behoben — `Uri.encode`, abgesichert durch `nav/RoutesInstrumentedTest.kt` (s. Abschnitt 7.1) |
+
 ---
 
 ## 4. ConneXias Galerie
@@ -219,10 +233,16 @@ eintippen) steht nicht im Verhältnis zur neu geschaffenen Angriffsfläche.
 | Punkt | App | Warum offen |
 |---|---|---|
 | Direct-Mode-Traffic-Test (`dig`/`curl` durch den Tunnel) | Warden | Braucht das physische Testgerät. ChildVPN ist seit 2026-09-01 end-to-end bestätigt (Handshake, Relay, Rückweg); Direct-Mode wurde nie unter demselben Maßstab geprüft |
-| Echte Job-Warteschlange | Files | Mehrere Jobs sind UI-seitig gesperrt (2-08), aber es gibt keine Queue, die sie nacheinander abarbeitet |
-| Process-Tod-sicherer Cloud-Sync | Galerie | Übersteht Navigation (4-03), aber nicht das Killen der App im Hintergrund — bräuchte einen `WorkManager`-Worker |
-| MediaStore-Paging | Galerie | Die gesamte Bibliothek liegt im Speicher; der akute ANR-Auslöser ist behoben (4-05), Paging selbst bleibt offen |
-| `GET_CONTENT` mit Mime-Typ-Filter | Files | Es wird jeder Dateityp zurückgegeben, unabhängig davon, wonach der Aufrufer fragt |
+
+**Seit der letzten Fassung erledigt** (die Tabelle oben führte sie bis 2026-09-04 weiter als
+offen, obwohl sie es nicht mehr waren):
+
+| Punkt | App | Erledigt in |
+|---|---|---|
+| Echte Job-Warteschlange | Files | `09a8520` — `data/fileops/FileOperationQueue.kt`, abgearbeitet vom `FileOperationService` |
+| `GET_CONTENT` mit Mime-Typ-Filter | Files | `09a8520` — `data/share/PickRequest.kt` + `MimeTypeFilter.kt`, seit 2026-09-04 durch `PickRequestInstrumentedTest` abgesichert |
+| Process-Tod-sicherer Cloud-Sync | Galerie | `0339405` — `data/sync/CloudSyncWorker.kt` als WorkManager-Foreground-Auftrag |
+| MediaStore-Paging | Galerie | 2026-09-04 — s. 7-12 |
 
 ### 6.3 Akzeptierte Risiken
 
@@ -244,3 +264,38 @@ eintippen) steht nicht im Verhältnis zur neu geschaffenen Angriffsfläche.
   `RELATIVE_PATH` im Standardverzeichnis statt im eigenen Unterordner ab, und **exakt API 29 in
   der Galerie** braucht nach der Löschbestätigung einen zweiten Tap. Drei bewusst in Kauf
   genommene Randfälle für seit Jahren nicht mehr gepflegte Android-Versionen.
+
+---
+
+## 7. Produktionsreife
+
+Dieser Abschnitt führt kein Sicherheitsaudit fort. Er hält fest, was zwischen „der Code ist
+geprüft" und „die Apps laufen auf echten Geräten" liegt — Punkte, die keine Befunde im Sinne der
+Abschnitte 1–5 sind, aber vor einem Einsatz genauso erledigt sein müssen. Aufgenommen am
+2026-09-04, nachdem eine Bestandsaufnahme über die ganze Suite gelaufen war.
+
+### 7.1 Erledigt (2026-09-04)
+
+| # | Gegenstand | Was fehlte, und was jetzt da ist |
+|---|---|---|
+| 7-01 | **Instrumentation-Tests für Files/Kamera/Galerie** | Warden hatte 14 `androidTest`-Klassen, die drei Compose-Apps **null**. Damit war genau die Schicht ungetestet, die ein reiner JVM-Unit-Test nicht erreicht: alles, was `Intent`, `Uri` oder `SharedPreferences` anfasst, liefert dort nur `RuntimeException("Stub!")`. Sämtliche Befunde der Abschnitte 2–5 wurden per Code-Review gefunden, nicht von einem Test — gegen eine Regression stand nichts. Jetzt neun Testklassen über die drei Apps: Routen-Encoding (2-18/3-16/3-18/4-19), `ACTION_GET_CONTENT`-Vertrag samt Typfilter, `ACTION_SEND`/`ACTION_VIEW`-Empfang, `ExternalIntent`-Authority-Prüfung (4-08), Kamera-Einstellungen samt Fallback bei unbekannten gespeicherten Werten, Favoriten-Speicherformat, und die beiden Compose-Dialoge, an denen Daten verloren gehen (Papierkorb-Bestätigung, Konfliktauflösung) |
+| 7-02 | **CI ließ `androidTest` nie laufen** | Auch Wardens vorhandene Tests liefen in keiner Pipeline. Neuer Job `instrumented` in `ci.yml`: Emulator-Matrix über die drei Compose-Apps. Warden bleibt bewusst außen vor — seine Tests brauchen ein per `dpm set-device-owner` provisioniertes Gerät, das ein Standard-AVD nicht hergibt |
+| 7-03 | **Zwei Befunde brauchten erst eine testbare Struktur** | Die Authority-Prüfung aus 4-08 lag als privater Block in `MainActivity` und war nur über einen echten Activity-Start erreichbar, also praktisch gar nicht. Sie liegt jetzt in `ExternalIntent.from(intent, resolveMimeType)` — reine Funktion, kein `Context`. Verhalten unverändert |
+| 7-04 | **56 hartkodierte UI-Texte in Files** | Galerie (0), Kamera (1) und Warden (3) waren sauber, Files hatte 56 Literale gegen 68 `stringResource`. Alle in `res/values/strings.xml` überführt. Nebenbei fiel eine Kopplung auf, die eine Übersetzung lautlos kaputtgemacht hätte: `HomeScreen` wählte das Icon eines Speicherorts über den deutschen Anzeigetext (`when (label) { "Bilder" -> ... }`). `StorageRoot`/`QuickAccessFolder` tragen jetzt eine `Kind`-Aufzählung, die Beschriftung kommt aus den Ressourcen |
+| 7-05 | **Keine Verifizierbarkeit einer APK** | Sideload ohne Store heißt: keine Instanz bestätigt dem Nutzer die Herkunft. Beide Release-Pipelines erzeugen jetzt `SHA256SUMS.txt` und schreiben den SHA-256-Fingerabdruck des Signaturzertifikats in den Release-Text. `release.yml` prüft zusätzlich, dass Warden und Sentinel denselben Fingerabdruck tragen, und bricht sonst ab — die beiden sind über eine `signature`-geschützte Permission gekoppelt, ein ungleiches Paar wäre auf dem Gerät funktionsunfähig |
+| 7-06 | **Kein Update-Weg** | Niemand erfuhr von einer neuen Version. Eine In-App-Prüfung wurde **verworfen**: sie bräuchte eine regelmäßige, vom Nutzer nicht ausgelöste Verbindung nach außen — die Kamera hat aus gutem Grund gar keine `INTERNET`-Berechtigung, und bei einer Device-Owner-App wäre es genau der Hintergrundverkehr, den sie sonst überwacht. Stattdessen: Über-Bildschirm bzw. Warden-Einstellungen zeigen Version **und Versionscode** und verlinken die Releases-Seite per `ACTION_VIEW` an den Browser. Die Release-Seiten tragen seit 7-05 alles Nötige |
+| 7-07 | **Keine Release-Notizen** | Die Pipelines legten Entwürfe an, „damit ein Changelog eingetragen werden kann" — es gab aber keine Quelle dafür. Jetzt `generate_release_notes: true` zusätzlich zum festen Kopfteil. Bewusst keine handgepflegte `CHANGELOG.md`: die App-READMEs führen die inhaltliche Historie ohnehin, nach Befund statt nach Release; eine dritte Liste wäre die erste, die veraltet |
+| 7-08 | **Projektunterlagen unvollständig** | `SECURITY.md` lag unter `warden/` — galt formal nur für eine App und war für GitHubs Weboberfläche unsichtbar (die liest nur Root, `.github/`, `docs/`). Jetzt im Root und für alle vier Apps formuliert, mit Verweis auf die Release-Verifikation. Neu dazu: `PRIVACY.md` (Datenschutzerklärung je App — für F-Droid und jeden Sideload-Vertrieb erwartet, und der Ort, an dem der GPS-Hinweis aus 6.3 für Nutzer steht), Issue-/PR-Vorlagen, `dependabot.yml` über fünf Ökosysteme |
+| 7-09 | **Kein Verfahren für den Signaturschlüssel** | Ein Keystore für vier Apps, nur als GitHub-Secret — und GitHub gibt ein gesetztes Secret nicht wieder heraus. Verlust hieß: keine Updates mehr für vier installierte Apps, und für ein Warden-Device-Owner-Gerät ein Werksreset, weil sich die App gegen genau das Deinstallieren wehrt, das eine Neuinstallation bräuchte. `docs/RELEASE-SIGNING.md` beschreibt Erzeugung, Drei-Orte-Aufbewahrung, Wiederherstellung und den Kompromittierungsfall. Repo-weites `.gitignore` sperrt Keystore-Dateien als zweite Verteidigungslinie |
+| 7-10 | **Symbole ohne Beschreibung für Vorlesehilfen** | 40 × `contentDescription = null` über die vier Apps. Ein großer Teil davon ist zu Recht dekorativ (ein Symbol neben beschriftetem Text doppelt nur die Ansage), ein Drittel war es nicht: die Auswahlhäkchen in Files' Liste und Kachelansicht, in Galeries Raster, Album- und Papierkorbansicht waren die **einzige** Anzeige dafür, ob ein Element ausgewählt ist — und der leere Kreis für „nicht ausgewählt" hätte auch mit Beschreibung nichts vorzulesen gehabt. Der Zustand hängt jetzt als Standard-Semantik `selected` am Zeilen-/Kachel-Knoten, die eine Vorlesehilfe in ihrer eigenen Sprache ansagt. Beschreibungen bekommen haben außerdem: Files' Kategoriesymbol (Ordner oder Datei — der Dateiname sagt es nicht, beide können endungslos sein), lokal wie über WebDAV, Galeries Video- und Favoritenmarkierung im Raster, das Vollbild im Betrachter (Dateiname) und die Editor-Vorschau, das aufgenommene Foto in der Kamera-Nachschau und der aktive Extension-Modus in deren Menü. Dabei fiel ein echter Fehler auf: Files' Papierkorb hatte einen **völlig unbeschrifteten Zurück-Knopf** |
+| 7-11 | **Abhängigkeits-Rückstand** | Dependabot fängt ab jetzt Neues ab (7-08), den bestehenden Rückstand räumte es nicht. Erledigt: AGP 9.3.2 → 9.4.0 und Kotlin 2.3.20 → 2.4.10 in allen vier Apps (die beiden hängen zusammen — seit AGP 9 kommt der Kotlin-Compiler fest eingebaut mit, die Version im Katalog steuert nur noch das Compose-Plugin und muss zur eingebauten passen), Wardens `appcompat` 1.7.1 → 1.8.0 und Compose-BOM 2026.06.01 → 2026.08.00 (damit auf demselben Stand wie die anderen drei), Files' `zxing:core` 3.5.3 → 3.5.4, `exifinterface` 1.4.1 → 1.4.2 in Kamera und Galerie, CameraX 1.5.1 → 1.6.2. Letzteres brachte einen Bruch mit: `Camera2CameraControl` ist nach Kotlin portiert, `setCaptureRequestOptions()` liefert jetzt ein `ListenableFuture` und ist damit kein Property-Setter mehr — die manuelle ISO-/Belichtungszeit-Steuerung kompilierte nicht mehr und wurde angepasst. Danach melden alle vier Lint-Läufe keine `GradleDependency`/`AndroidGradlePluginVersion`/`NewerVersionAvailable`-Warnung mehr; Wardens Release-Bau mit R8 wurde gegen die neue Werkzeugkette geprüft |
+| 7-12 | **Galerie hielt die ganze Mediathek im Speicher** | Der letzte offene Punkt aus 6.2. `GalleryViewModel` hielt den vollständigen Medienbestand als `StateFlow<List<MediaItem>>`; Ordnerübersicht, Album-Inhalt, Suche, Sortierung, Auswahl und die Wisch-Geschwister des Betrachters entstanden daraus per Kotlin-Filter. Bei einer großen Bibliothek bedeutete das jedes `MediaItem` samt `Uri` und drei Zeichenketten dauerhaft im Speicher — **und** einen vollständigen Neuaufbau bei jeder einzelnen MediaStore-Änderung (der `ContentObserver` feuert pro Schreibvorgang, bei einer Serienaufnahme also im Sekundentakt). Jetzt lädt jede Ansicht nur, was sie zeigt: das Raster seitenweise über eine `PagingSource` (Fenster von 100), die Ordnerübersicht als Faltung von vier Cursor-Spalten ohne ein einziges `MediaItem`, ID-Mengen (Favoriten, eigene Alben) gezielt, ein einzelnes Element einzeln. Das Änderungssignal ist auf 300 ms zusammengefasst. Zwei Dinge mussten dabei von Kotlin nach SQL wandern: die **Suche** (`DISPLAY_NAME LIKE` mit maskierten Platzhaltern — clientseitig hätte sie nur die schon gescrollten Seiten durchsucht) und die **Sortierung**. Letztere ist der heikle Teil: das angezeigte Datum ist `DATE_TAKEN` mit `DATE_ADDED`-Rückfall, in SQL also ein `CASE WHEN`-Ausdruck, den der MediaProvider (`SQLiteQueryBuilder.setStrict`) ablehnen darf. Deshalb eine Ersatzsortierung aus reinen Spaltennamen, auf die bei einer Ablehnung automatisch zurückgefallen wird, plus `MediaQueryInstrumentedTest`, der auf dem Emulator feststellt, ob der Rückfall überhaupt gebraucht wird |
+| 7-13 | **Alle vier App-Icons waren Platzhalter** | Warden trug unverändert das Android-Studio-Vorlagensymbol (der grüne Roboter auf `#3DDC84`-Raster), Files, Kamera und Galerie teilten sich **dieselbe** Ordner-Grafik — im XML selbst als „Platzhalter, kein finales App-Icon" vermerkt —, unterschieden nur durch die Hintergrundfarbe. Kamera und Galerie standen damit als Ordner im Launcher. Bei einem Sideload-Vertrieb ohne Store-Eintrag ist das Symbol die einzige Wiedererkennung. Jetzt vier eigene Adaptive Icons: Schild mit ausgespartem Haken auf Terminal-Schwarz (Warden), Ordner mit Dokumentzeilen (Files), Gehäuse mit Linse und Blitz (Kamera), Bildrahmen mit Sonne und Bergsilhouette (Galerie) — jeweils ein einziger Pfad mit `fillType="evenOdd"`, damit dieselbe Grafik auch die monochrome Ebene (themed icons ab Android 13) trägt, und vollständig innerhalb des 66dp-Sicherheitskreises. Wardens zehn WebP-Fallbacks für API < 26 sind entfallen: bei minSdk 35 unerreichbar, hätten aber den Roboter weiter in der APK mitgeschleppt |
+
+### 7.2 Offen — braucht das physische Testgerät
+
+| # | Gegenstand | Warum offen |
+|---|---|---|
+| 7-14 | **Keine Release-APK lief je auf Hardware** | Der wichtigste offene Punkt. Warden baut mit R8 und Ressourcen-Shrinking; die Keep-Regeln unter `warden/app/src/release/keepRules/` sind sorgfältig begründet, aber ein Fehler darin bricht nicht im Bau, sondern zur Laufzeit als `UnsatisfiedLinkError`/SIGSEGV in der nativen Engine — und trifft dann Krypto, PIN und Registry gleichzeitig. Im Repository ist nichts belegt, das eine gestartete minifizierte Warden-Release-APK zeigt. Deckt sich mit dem Direct-Mode-Test aus 6.2: beides braucht dasselbe Gerät |
+| 7-15 | **R8 bei Files/Kamera/Galerie aus** | Dokumentiert und begründet („solange kein Gerätetest gegen eine minifizierte Release-APK laufen kann") — aber genau diese Begründung ist der Punkt, der vor Produktion aufzulösen ist. Die Kamera-Release-APK ist dadurch 18 MB. Voraussetzung dafür sind 7-14 und die Instrumentation-Tests aus 7-01, die dann gegen die minifizierte Variante laufen können |
+| 7-16 | **Warden-Provisionierung nicht ausrollbar dokumentiert** | `warden/README.md` nennt `adb dpm set-device-owner` und „alternativ QR-Provisionierung" — es gibt aber keine QR-JSON, keinen `PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM` und keine gehostete Download-URL. Für das Aufsetzen eines echten Geräts ist genau das der Weg. Der Checksum lässt sich erst nach 7-14 aus einer verifizierten Release-APK bilden |

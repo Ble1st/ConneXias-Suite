@@ -170,7 +170,7 @@ fun CaptureReviewScreen(
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {
                 AsyncImage(
                     model = uri,
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.content_desc_review_photo),
                     contentScale = ContentScale.Fit,
                     colorFilter = if (selectedFilter == PhotoFilter.NONE) {
                         null

@@ -42,6 +42,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import de.ble1st.gallery.R
@@ -70,10 +72,13 @@ fun CustomAlbumScreen(
     onAlbumDeleted: () -> Unit,
 ) {
     val context = LocalContext.current
-    val allItems by viewModel.allItems.collectAsState()
+    // Eigene Alben sind ID-Mengen und bleiben vollständig geladen — sie sind durch die
+    // Nutzerauswahl begrenzt (s. GalleryViewModel.MediaScope). Die Schnittmenge mit dem
+    // tatsächlichen Bestand entsteht in der Abfrage: gelöschte Aufnahmen kommen nicht zurück.
+    val items by remember(albumId) { viewModel.customAlbumItems(albumId) }
+        .collectAsState(initial = emptyList())
     val customAlbums by viewModel.customAlbums.collectAsState()
     val album = customAlbums.find { it.id == albumId }
-    val items = remember(allItems, album) { viewModel.itemsForCustomAlbum(albumId) }
 
     var selection by remember { mutableStateOf(emptySet<Long>()) }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -170,6 +175,15 @@ fun CustomAlbumScreen(
                                     }
                                 },
                                 onLongClick = { selection = if (item.id in selection) selection - item.id else selection + item.id },
+                            )
+                            // s. MediaGridScreen: Auswahlzustand als Standard-Semantik am
+                            // Zellen-Knoten, nicht als Beschreibung am Häkchen-Symbol.
+                            .then(
+                                if (selectionActive) {
+                                    Modifier.semantics { selected = item.id in selection }
+                                } else {
+                                    Modifier
+                                },
                             ),
                     ) {
                         AsyncImage(
@@ -181,7 +195,7 @@ fun CustomAlbumScreen(
                         if (item.type == MediaType.VIDEO) {
                             Icon(
                                 Icons.Filled.Videocam,
-                                contentDescription = null,
+                                contentDescription = stringResource(R.string.content_desc_video),
                                 tint = Color.White,
                                 modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
                             )

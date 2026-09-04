@@ -3,13 +3,13 @@ package de.ble1st.files.ui.browser
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material3.Icon
@@ -19,8 +19,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import de.ble1st.files.data.fs.FileEntry
+import de.ble1st.files.ui.categoryLabelRes
 import de.ble1st.files.util.FileCategory
 import de.ble1st.files.util.formatFileSize
 import java.text.DateFormat
@@ -50,19 +54,29 @@ fun FileEntryRow(
         },
         leadingContent = {
             if (isSelectionMode) {
+                // Ohne Beschreibung: der Auswahlzustand hängt als `selected` an der Zeile selbst
+                // (s. Modifier unten). Eine Vorlesehilfe sagt ihn damit in ihrer eigenen Sprache
+                // an — und auch dann, wenn hier gerade der leere Kreis steht, der ja "nicht
+                // ausgewählt" bedeutet und als Symbol allein nichts vorzulesen hätte.
                 Icon(
                     imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
                     contentDescription = null,
                     tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                 )
             } else {
-                Icon(iconFor(entry), contentDescription = null)
+                Icon(
+                    imageVector = iconFor(entry),
+                    contentDescription = stringResource(id = categoryLabelRes(entry.category)),
+                )
             }
         },
         trailingContent = trailingContent,
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .then(
+                if (isSelectionMode) Modifier.semantics { selected = isSelected } else Modifier,
+            ),
     )
 }
 

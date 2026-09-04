@@ -52,6 +52,7 @@
     <string name="action_confirm">Bestätigen</string>
     <string name="action_cancel">Abbrechen</string>
     <string name="content_desc_back">Zurück</string>
+    <string name="content_desc_review_photo">Aufgenommenes Foto</string>
     <string name="error_no_app_found">Keine App gefunden, die das öffnen kann</string>
     <string name="error_camera_disabled_by_policy">Kamera durch Warden gesperrt</string>
 
@@ -85,6 +86,9 @@
     <string name="about_version">Version %1$s</string>
     <string name="about_description">Freie Kamera-App ohne Google Play Services und ohne proprietäre Google-Dienste. Aufnahmen bleiben auf dem Gerät; die App überträgt nichts an einen Server.</string>
     <string name="about_suite">Teil der ConneXias Suite — vier eigenständige Apps (Warden, Files, Kamera, Galerie), die über Android-Intents zusammenarbeiten, aber jede für sich allein voll funktionsfähig bleiben.</string>
+    <string name="about_updates_title">Updates</string>
+    <string name="about_updates_body">Neue Versionen, Prüfsummen und Zertifikat-Fingerabdruck auf der Releases-Seite. Die App prüft nicht selbst auf Updates — antippen öffnet die Seite im Browser.</string>
+    <string name="about_updates_no_browser">Keine App gefunden, die einen Link öffnen kann.</string>
     <string name="about_license_title">Lizenz</string>
     <string name="about_license_body">Apache License 2.0</string>
     <string name="about_licenses_third_party">Fremdbibliotheken</string>

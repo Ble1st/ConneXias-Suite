@@ -53,6 +53,7 @@ import de.ble1st.files.util.FileCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import de.ble1st.files.R
 
 /**
  * [onPicked] nimmt seit 2026-09-03 eine Liste statt einer einzelnen Uri entgegen — der
@@ -141,7 +142,7 @@ fun FilesNavHost(onPicked: (List<Uri>) -> Unit = {}) {
                 if (dir != null) {
                     navController.navigate(Routes.browser(dir.path))
                 } else {
-                    Toast.makeText(context, "Datei konnte nicht geöffnet werden", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, R.string.error_open_failed, Toast.LENGTH_LONG).show()
                 }
             }
 

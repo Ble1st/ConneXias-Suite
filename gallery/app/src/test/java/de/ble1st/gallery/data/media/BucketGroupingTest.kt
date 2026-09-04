@@ -1,60 +1,71 @@
 package de.ble1st.gallery.data.media
 
-import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import org.mockito.Mockito.mock
 
-/** [groupIntoBuckets] ist reine Listenlogik ohne MediaStore-Zugriff — [MediaItem.uri] wird dabei
- * nie inhaltlich ausgewertet, ein Mockito-Mock genügt als Platzhalter-Referenz (echte
- * `Uri.parse()`/`Uri.EMPTY`-Aufrufe würden im Android-Stub-JAR ohne Robolectric werfen). */
+/**
+ * [foldIntoBuckets] ist reine Faltungslogik ohne MediaStore-Zugriff.
+ *
+ * Seit der Paging-Umstellung (analyse.md 6.2) kommt die Ordnerübersicht nicht mehr aus dem
+ * vollständig geladenen Medienbestand, sondern entsteht direkt beim Durchlaufen des Cursors —
+ * [BucketRow] trägt deshalb nur `itemId` + `type` statt einer fertigen `Uri`. Angenehmer
+ * Nebeneffekt: dieser Test braucht keinen `Uri`-Platzhalter mehr (`Uri` liefert unter einem
+ * JVM-Unit-Test nur `RuntimeException("Stub!")`).
+ */
 class BucketGroupingTest {
 
-    private fun item(id: Long, bucketId: Long, bucketName: String, dateAdded: Long) = MediaItem(
-        id = id,
-        uri = mock(Uri::class.java),
-        displayName = "item_$id",
-        bucketId = bucketId,
-        bucketName = bucketName,
-        type = MediaType.IMAGE,
-        dateSortMillis = dateAdded,
-        sizeBytes = 0,
-        width = 0,
-        height = 0,
-        path = "",
-    )
+    private fun row(itemId: Long, bucketId: Long, bucketName: String, type: MediaType = MediaType.IMAGE) =
+        BucketRow(itemId = itemId, bucketId = bucketId, bucketName = bucketName, type = type)
 
     @Test
-    fun `groups items by bucket and counts them`() {
-        val items = listOf(
-            item(1, bucketId = 10, bucketName = "Camera", dateAdded = 300),
-            item(2, bucketId = 10, bucketName = "Camera", dateAdded = 200),
-            item(3, bucketId = 20, bucketName = "Screenshots", dateAdded = 100),
+    fun `gruppiert Zeilen nach Ordner und zaehlt sie`() {
+        val folds = foldIntoBuckets(
+            listOf(
+                row(1, bucketId = 10, bucketName = "Camera"),
+                row(2, bucketId = 10, bucketName = "Camera"),
+                row(3, bucketId = 20, bucketName = "Screenshots"),
+            ),
         )
 
-        val buckets = groupIntoBuckets(items)
-
-        assertEquals(2, buckets.size)
-        val camera = buckets.first { it.id == 10L }
-        assertEquals("Camera", camera.name)
-        assertEquals(2, camera.itemCount)
-        val screenshots = buckets.first { it.id == 20L }
-        assertEquals(1, screenshots.itemCount)
+        assertEquals(2, folds.size)
+        assertEquals(2, folds.first { it.id == 10L }.itemCount)
+        assertEquals(1, folds.first { it.id == 20L }.itemCount)
+        assertEquals("Camera", folds.first { it.id == 10L }.name)
     }
 
     @Test
-    fun `cover is the first (most recent) item of the bucket`() {
-        // groupIntoBuckets erwartet bereits absteigend nach Datum sortierte Eingabe.
-        val newest = item(1, bucketId = 10, bucketName = "Camera", dateAdded = 300)
-        val older = item(2, bucketId = 10, bucketName = "Camera", dateAdded = 100)
+    fun `das erste Element eines Ordners liefert das Titelbild`() {
+        // Die Eingabe ist bereits absteigend nach Datum sortiert (das leistet die ORDER-BY-Klausel
+        // der Abfrage), die erste Zeile eines Ordners ist damit dessen neueste Aufnahme.
+        val folds = foldIntoBuckets(
+            listOf(
+                row(99, bucketId = 10, bucketName = "Camera", type = MediaType.VIDEO),
+                row(98, bucketId = 10, bucketName = "Camera"),
+            ),
+        )
 
-        val buckets = groupIntoBuckets(listOf(newest, older))
-
-        assertEquals(newest.uri, buckets.single().coverUri)
+        assertEquals(1, folds.size)
+        assertEquals(99L, folds.first().coverItemId)
+        // Der Typ entscheidet, gegen welche MediaStore-Collection die Uri gebaut wird — ein Video
+        // als Titelbild braucht eine video/media-Uri, sonst löst Coil sie nicht auf.
+        assertEquals(MediaType.VIDEO, folds.first().coverType)
     }
 
     @Test
-    fun `empty list yields no buckets`() {
-        assertEquals(0, groupIntoBuckets(emptyList()).size)
+    fun `Ordner behalten die Reihenfolge ihres neuesten Elements`() {
+        val folds = foldIntoBuckets(
+            listOf(
+                row(5, bucketId = 20, bucketName = "Screenshots"),
+                row(4, bucketId = 10, bucketName = "Camera"),
+                row(3, bucketId = 20, bucketName = "Screenshots"),
+            ),
+        )
+
+        assertEquals(listOf(20L, 10L), folds.map { it.id })
+    }
+
+    @Test
+    fun `leere Eingabe ergibt keine Ordner`() {
+        assertEquals(0, foldIntoBuckets(emptyList()).size)
     }
 }

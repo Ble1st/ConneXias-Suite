@@ -1,5 +1,6 @@
 package de.ble1st.files.ui.browser
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -11,30 +12,33 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import de.ble1st.files.data.fs.FileEntry
+import de.ble1st.files.ui.categoryLabelRes
 import de.ble1st.files.util.FileCategory
 import de.ble1st.files.util.VideoThumbnails
 import kotlinx.coroutines.Dispatchers
@@ -93,7 +97,13 @@ private fun FileGridCell(
     Surface(
         modifier = Modifier
             .padding(4.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            // Auswahlzustand als Standard-Semantik an der Kachel, nicht als Beschreibung am
+            // Häkchen — s. FileEntryRow. Nur im Auswahlmodus, sonst wäre im Normalbetrieb jede
+            // Kachel fälschlich "nicht ausgewählt".
+            .then(
+                if (isSelectionMode) Modifier.semantics { selected = isSelected } else Modifier,
+            ),
         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.medium,
     ) {
@@ -102,6 +112,9 @@ private fun FileGridCell(
                 if (entry.category == FileCategory.IMAGE) {
                     AsyncImage(
                         model = entry.file,
+                        // Ohne Beschreibung: der Dateiname steht als Text in derselben Kachel,
+                        // alles Weitere wäre Doppelung. Nur der Platzhalter unten ersetzt eine
+                        // Information, die sonst nirgends steht (Ordner oder Datei?).
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -168,7 +181,7 @@ private fun PlaceholderIcon(entry: FileEntry) {
     ) {
         Icon(
             imageVector = iconFor(entry),
-            contentDescription = null,
+            contentDescription = stringResource(id = categoryLabelRes(entry.category)),
             modifier = Modifier.padding(16.dp),
         )
     }

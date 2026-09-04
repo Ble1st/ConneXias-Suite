@@ -32,9 +32,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import de.ble1st.files.R
 import de.ble1st.files.util.FileActions
 import de.ble1st.files.util.formatFileSize
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +65,9 @@ private enum class TextLoadState { LOADING, LOADED, TOO_LARGE, ERROR }
 @Composable
 fun TextEditorScreen(file: File, onBack: () -> Unit) {
     val context = LocalContext.current
+    // s. FileBrowserScreen: die Meldungen aus save() entstehen in einer Coroutine, deshalb
+    // LocalResources statt LocalContext.
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -100,7 +106,7 @@ fun TextEditorScreen(file: File, onBack: () -> Unit) {
             // alte oder die neue vollständige Version sichtbar, nie ein Zwischenzustand.
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val parent = file.parentFile ?: throw IOException("Kein übergeordneter Ordner: ${file.path}")
+                    val parent = file.parentFile ?: throw IOException(resources.getString(R.string.editor_error_no_parent, file.path))
                     val temp = File.createTempFile(".crx-edit-", null, parent)
                     runCatching { temp.writeText(text, Charsets.UTF_8) }
                         .onFailure { temp.delete() }
@@ -113,9 +119,13 @@ fun TextEditorScreen(file: File, onBack: () -> Unit) {
             isSaving = false
             result.onSuccess {
                 originalText = text
-                snackbarHostState.showSnackbar("Gespeichert")
+                snackbarHostState.showSnackbar(resources.getString(R.string.editor_saved))
             }.onFailure { error ->
-                snackbarHostState.showSnackbar("Speichern fehlgeschlagen: ${error.message}")
+                // Meldungen aus save() entstehen in einer Coroutine, nicht in einem
+                // Composable-Aufruf — deshalb context.getString() statt stringResource().
+                snackbarHostState.showSnackbar(
+                    resources.getString(R.string.editor_save_failed, error.message.orEmpty()),
+                )
             }
         }
     }
@@ -130,13 +140,19 @@ fun TextEditorScreen(file: File, onBack: () -> Unit) {
                 title = { Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = handleBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(id = R.string.content_desc_back),
+                        )
                     }
                 },
                 actions = {
                     if (loadState == TextLoadState.LOADED) {
                         IconButton(onClick = ::save, enabled = isDirty && !isSaving) {
-                            Icon(Icons.Filled.Save, contentDescription = "Speichern")
+                            Icon(
+                                Icons.Filled.Save,
+                                contentDescription = stringResource(id = R.string.action_save),
+                            )
                         }
                     }
                 },
@@ -152,14 +168,13 @@ fun TextEditorScreen(file: File, onBack: () -> Unit) {
             TextLoadState.TOO_LARGE -> EditorFallback(
                 padding = padding,
                 file = file,
-                message = "Diese Datei ist größer als ${formatFileSize(MAX_EDITABLE_BYTES)} und zu groß " +
-                    "für den eingebauten Texteditor.",
+                message = stringResource(id = R.string.editor_too_large, formatFileSize(MAX_EDITABLE_BYTES)),
             )
 
             TextLoadState.ERROR -> EditorFallback(
                 padding = padding,
                 file = file,
-                message = "Datei konnte nicht als Text gelesen werden.",
+                message = stringResource(id = R.string.editor_not_text),
             )
 
             TextLoadState.LOADED -> TextField(
@@ -174,13 +189,17 @@ fun TextEditorScreen(file: File, onBack: () -> Unit) {
     if (showDiscardDialog) {
         AlertDialog(
             onDismissRequest = { showDiscardDialog = false },
-            title = { Text("Änderungen verwerfen?") },
-            text = { Text("Es gibt ungespeicherte Änderungen an „${file.name}“.") },
+            title = { Text(stringResource(id = R.string.editor_discard_title)) },
+            text = { Text(stringResource(id = R.string.editor_discard_message, file.name)) },
             confirmButton = {
-                TextButton(onClick = { showDiscardDialog = false; onBack() }) { Text("Verwerfen") }
+                TextButton(onClick = { showDiscardDialog = false; onBack() }) {
+                    Text(stringResource(id = R.string.action_discard))
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showDiscardDialog = false }) { Text("Weiter bearbeiten") }
+                TextButton(onClick = { showDiscardDialog = false }) {
+                    Text(stringResource(id = R.string.action_continue_editing))
+                }
             },
         )
     }
@@ -196,7 +215,7 @@ private fun EditorFallback(padding: androidx.compose.foundation.layout.PaddingVa
     ) {
         Text(text = message, style = MaterialTheme.typography.bodyLarge)
         Button(onClick = { FileActions.openWithOtherApp(context, file) }) {
-            Text("Mit anderer App öffnen")
+            Text(stringResource(id = R.string.action_open_with))
         }
     }
 }

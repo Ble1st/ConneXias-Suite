@@ -11,7 +11,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
@@ -40,10 +39,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import de.ble1st.files.R
 import de.ble1st.files.data.fs.FileEntry
+import de.ble1st.files.data.fs.QuickAccessFolder
 import de.ble1st.files.data.fs.StorageRoot
 import de.ble1st.files.data.fs.StorageRoots
 import de.ble1st.files.data.recent.RecentFilesStore
@@ -129,8 +130,10 @@ fun HomeScreen(
                     // "Teilen"-Ergebnis nicht spurlos verschwindet, ohne dass klar ist, wo es
                     // gelandet ist.
                     ListItem(
-                        headlineContent = { Text("${uris.size} geteilte Datei(en) empfangen") },
-                        supportingContent = { Text("Ordner öffnen, um sie dort zu speichern") },
+                        headlineContent = {
+                            Text(pluralStringResource(R.plurals.home_share_received, uris.size, uris.size))
+                        },
+                        supportingContent = { Text(stringResource(id = R.string.home_share_received_hint)) },
                         leadingContent = { Icon(Icons.Filled.Download, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -164,9 +167,9 @@ fun HomeScreen(
             }
             items(storageRoots) { root: StorageRoot ->
                 ListItem(
-                    headlineContent = { Text(root.label) },
+                    headlineContent = { Text(storageLabel(root)) },
                     supportingContent = { Text(root.path.path) },
-                    leadingContent = { Icon(storageIcon(root.label), contentDescription = null) },
+                    leadingContent = { Icon(storageIcon(root.kind), contentDescription = null) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenFolder(root.path) },
@@ -181,8 +184,8 @@ fun HomeScreen(
             }
             items(quickAccess) { folder ->
                 ListItem(
-                    headlineContent = { Text(folder.label) },
-                    leadingContent = { Icon(quickAccessIcon(folder.label), contentDescription = null) },
+                    headlineContent = { Text(stringResource(id = quickAccessLabelRes(folder.kind))) },
+                    leadingContent = { Icon(quickAccessIcon(folder.kind), contentDescription = null) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenFolder(folder.path) },
@@ -190,7 +193,7 @@ fun HomeScreen(
             }
             item {
                 Text(
-                    text = "Netzwerkspeicher",
+                    text = stringResource(id = R.string.home_section_network),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
@@ -204,15 +207,18 @@ fun HomeScreen(
                     trailingContent = {
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "Mehr")
+                                Icon(
+                                    Icons.Filled.MoreVert,
+                                    contentDescription = stringResource(id = R.string.content_desc_more),
+                                )
                             }
                             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("Bearbeiten") },
+                                    text = { Text(stringResource(id = R.string.action_edit)) },
                                     onClick = { menuExpanded = false; dialog = HomeWebDavDialog.Edit(account) },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Entfernen") },
+                                    text = { Text(stringResource(id = R.string.action_remove)) },
                                     onClick = { menuExpanded = false; dialog = HomeWebDavDialog.Remove(account) },
                                 )
                             }
@@ -225,7 +231,7 @@ fun HomeScreen(
             }
             item {
                 ListItem(
-                    headlineContent = { Text("Server hinzufügen") },
+                    headlineContent = { Text(stringResource(id = R.string.webdav_add_server)) },
                     leadingContent = { Icon(Icons.Filled.Add, contentDescription = null) },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -255,15 +261,33 @@ fun HomeScreen(
     }
 }
 
-private fun storageIcon(label: String): ImageVector =
-    if (label.startsWith("SD")) Icons.Filled.SdCard else Icons.Filled.Smartphone
+/** Beschriftung eines Speichervolumes. Entfernbare Volumes tragen ihre laufende Nummer, damit sich
+ * zwei gleichzeitig eingelegte Karten unterscheiden lassen. */
+@Composable
+private fun storageLabel(root: StorageRoot): String = when (root.kind) {
+    StorageRoot.Kind.INTERNAL -> stringResource(id = R.string.storage_internal)
+    StorageRoot.Kind.REMOVABLE -> stringResource(id = R.string.storage_removable, root.ordinal)
+}
 
-private fun quickAccessIcon(label: String): ImageVector = when (label) {
-    "Downloads" -> Icons.Filled.Download
-    "Bilder" -> Icons.Filled.Image
-    "DCIM" -> Icons.Filled.PhotoCamera
-    "Videos" -> Icons.Filled.VideoLibrary
-    "Audio" -> Icons.Filled.MusicNote
-    "Dokumente" -> Icons.AutoMirrored.Filled.InsertDriveFile
-    else -> Icons.Filled.Folder
+private fun storageIcon(kind: StorageRoot.Kind): ImageVector = when (kind) {
+    StorageRoot.Kind.INTERNAL -> Icons.Filled.Smartphone
+    StorageRoot.Kind.REMOVABLE -> Icons.Filled.SdCard
+}
+
+private fun quickAccessLabelRes(kind: QuickAccessFolder.Kind): Int = when (kind) {
+    QuickAccessFolder.Kind.DOWNLOADS -> R.string.quick_access_downloads
+    QuickAccessFolder.Kind.PICTURES -> R.string.quick_access_pictures
+    QuickAccessFolder.Kind.DCIM -> R.string.quick_access_dcim
+    QuickAccessFolder.Kind.MOVIES -> R.string.quick_access_movies
+    QuickAccessFolder.Kind.DOCUMENTS -> R.string.quick_access_documents
+    QuickAccessFolder.Kind.MUSIC -> R.string.quick_access_music
+}
+
+private fun quickAccessIcon(kind: QuickAccessFolder.Kind): ImageVector = when (kind) {
+    QuickAccessFolder.Kind.DOWNLOADS -> Icons.Filled.Download
+    QuickAccessFolder.Kind.PICTURES -> Icons.Filled.Image
+    QuickAccessFolder.Kind.DCIM -> Icons.Filled.PhotoCamera
+    QuickAccessFolder.Kind.MOVIES -> Icons.Filled.VideoLibrary
+    QuickAccessFolder.Kind.DOCUMENTS -> Icons.AutoMirrored.Filled.InsertDriveFile
+    QuickAccessFolder.Kind.MUSIC -> Icons.Filled.MusicNote
 }

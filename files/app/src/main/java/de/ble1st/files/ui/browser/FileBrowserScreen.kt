@@ -58,6 +58,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +74,7 @@ import de.ble1st.files.data.share.IncomingShare
 import de.ble1st.files.data.share.PickSpec
 import de.ble1st.files.data.fs.SortKey
 import de.ble1st.files.data.fs.SortOrder
+import de.ble1st.files.data.fs.StorageRoot
 import de.ble1st.files.data.fs.StorageRoots
 import de.ble1st.files.data.search.RecursiveSearch
 import de.ble1st.files.util.FileActions
@@ -98,6 +100,10 @@ fun FileBrowserScreen(
     onPickMultiple: (List<File>) -> Unit = {},
 ) {
     val context = LocalContext.current
+    // LocalResources statt LocalContext.current.resources: die Snackbar-Texte weiter unten
+    // entstehen in Coroutinen, und ein über LocalContext gezogenes Resources-Objekt bekommt eine
+    // Konfigurationsänderung (Sprache, Dunkelmodus, Größe) nicht mit — lint meldet das als Fehler.
+    val resources = LocalResources.current
     val application = context.applicationContext as android.app.Application
     val viewModel: FileBrowserViewModel = viewModel(
         key = directory.path,
@@ -128,11 +134,21 @@ fun FileBrowserScreen(
     // File("/storage/emulated/0").name liefert nur "0" (letztes Pfadsegment) — für einen
     // Speicher-Root (von HomeScreen aus geöffnet) zeigt der Titel deshalb das dort schon bekannte
     // sprechende Label statt dieser Zahl (live am Gerät als "0" im Titel aufgefallen).
-    val storageRootLabel = remember(directory) {
-        StorageRoots.list(context).firstOrNull { it.path == directory }?.label
+    val storageRoot = remember(directory) {
+        StorageRoots.list(context).firstOrNull { it.path == directory }
+    }
+    val storageRootLabel = storageRoot?.let {
+        when (it.kind) {
+            StorageRoot.Kind.INTERNAL -> stringResource(id = R.string.storage_internal)
+            StorageRoot.Kind.REMOVABLE -> stringResource(id = R.string.storage_removable, it.ordinal)
+        }
     }
     val screenTitle = storageRootLabel ?: directory.name.ifEmpty { directory.path }
-    val effectiveTitle = if (pickMode) "Datei auswählen: $screenTitle" else screenTitle
+    val effectiveTitle = if (pickMode) {
+        stringResource(id = R.string.browser_pick_title, screenTitle)
+    } else {
+        screenTitle
+    }
 
     val pendingShare by IncomingShare.pending.collectAsState()
     // Sobald der Nutzer nach einem "Teilen mit ConneXias Files" (s. IncomingShare-Klassendoc)
@@ -143,7 +159,7 @@ fun FileBrowserScreen(
         val uris = IncomingShare.consume()
         if (uris.isNotEmpty()) {
             viewModel.importUris(uris)
-            snackbarHostState.showSnackbar("Import gestartet")
+            snackbarHostState.showSnackbar(resources.getString(R.string.browser_import_started))
         }
     }
 
@@ -159,21 +175,47 @@ fun FileBrowserScreen(
         when (val s = result.state) {
             is OperationState.Completed -> {
                 viewModel.refresh()
+                // Die Ergebnis-Snackbars entstehen in einer Coroutine, nicht in einem
+                // Composable-Aufruf — deshalb durchgehend resources.getString()/
+                // getQuantityString() statt stringResource().
                 val parts = buildList {
-                    add("Fertig (${s.successCount})")
-                    if (s.skippedCount > 0) add("${s.skippedCount} übersprungen")
-                    if (s.failedCount > 0) add("${s.failedCount} fehlgeschlagen")
+                    add(resources.getString(R.string.browser_op_done, s.successCount))
+                    if (s.skippedCount > 0) {
+                        add(
+                            resources.getQuantityString(
+                                R.plurals.browser_op_skipped,
+                                s.skippedCount,
+                                s.skippedCount,
+                            ),
+                        )
+                    }
+                    if (s.failedCount > 0) {
+                        add(
+                            resources.getQuantityString(
+                                R.plurals.browser_op_failed_count,
+                                s.failedCount,
+                                s.failedCount,
+                            ),
+                        )
+                    }
                 }
                 snackbarHostState.showSnackbar(parts.joinToString(", "))
             }
-            is OperationState.Failed -> snackbarHostState.showSnackbar("Fehlgeschlagen: ${s.message}")
+            is OperationState.Failed ->
+                snackbarHostState.showSnackbar(
+                    resources.getString(R.string.browser_op_failed, s.message),
+                )
             is OperationState.Cancelled -> {
                 viewModel.refresh()
                 snackbarHostState.showSnackbar(
                     if (s.droppedCount > 0) {
-                        "Abgebrochen — ${s.droppedCount} wartende Aufträge verworfen"
+                        resources.getQuantityString(
+                            R.plurals.browser_op_cancelled_dropped,
+                            s.droppedCount,
+                            s.droppedCount,
+                        )
                     } else {
-                        "Abgebrochen"
+                        resources.getString(R.string.browser_op_cancelled)
                     },
                 )
             }
@@ -222,7 +264,10 @@ fun FileBrowserScreen(
                         navigationIcon = {
                             if (canNavigateUp) {
                                 IconButton(onClick = onNavigateUp) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = stringResource(id = R.string.content_desc_back),
+                                    )
                                 }
                             }
                         },
@@ -236,18 +281,24 @@ fun FileBrowserScreen(
                                 }
                             }
                             IconButton(onClick = { searchActive = true }) {
-                                Icon(Icons.Filled.Search, contentDescription = "Suchen")
+                                Icon(
+                                    Icons.Filled.Search,
+                                    contentDescription = stringResource(id = R.string.content_desc_search),
+                                )
                             }
                             val nextMode = if (state.viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
                             IconButton(onClick = { viewModel.setViewMode(nextMode) }) {
                                 Icon(
                                     imageVector = if (state.viewMode == ViewMode.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
-                                    contentDescription = "Ansicht wechseln",
+                                    contentDescription = stringResource(id = R.string.content_desc_toggle_view),
                                 )
                             }
                             Box {
                                 IconButton(onClick = { sortMenuExpanded = true }) {
-                                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sortieren")
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Sort,
+                                        contentDescription = stringResource(id = R.string.content_desc_sort),
+                                    )
                                 }
                                 SortMenu(
                                     expanded = sortMenuExpanded,
@@ -371,7 +422,10 @@ fun FileBrowserScreen(
                                 trailingContent = {
                                     Box {
                                         IconButton(onClick = { rowMenuExpanded = true }) {
-                                            Icon(Icons.Filled.MoreVert, contentDescription = "Mehr")
+                                            Icon(
+                                                Icons.Filled.MoreVert,
+                                                contentDescription = stringResource(id = R.string.content_desc_more),
+                                            )
                                         }
                                         RowActionsMenu(
                                             expanded = rowMenuExpanded,
@@ -396,7 +450,11 @@ fun FileBrowserScreen(
             // 500 Treffern bzw. 20 000 durchlaufenen Ordnern ab (s. RecursiveSearch-Klassendoc).
             if (state.showingSearchResults && state.searchTruncated) {
                 Text(
-                    text = stringResource(id = R.string.search_truncated, RecursiveSearch.MAX_RESULTS),
+                    text = pluralStringResource(
+                        R.plurals.search_truncated,
+                        RecursiveSearch.MAX_RESULTS,
+                        RecursiveSearch.MAX_RESULTS,
+                    ),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -443,7 +501,8 @@ fun FileBrowserScreen(
         is BrowserDialog.Properties -> PropertiesDialog(entry = dialog.entry, onDismiss = { viewModel.showDialog(null) })
         is BrowserDialog.Compress -> NameInputDialog(
             title = stringResource(id = R.string.action_compress),
-            initialValue = (dialog.entries.singleOrNull()?.name ?: "Archiv") + ".zip",
+            initialValue = (dialog.entries.singleOrNull()?.name
+                ?: stringResource(id = R.string.default_archive_name)) + ".zip",
             confirmLabel = stringResource(id = R.string.action_confirm),
             onConfirm = { viewModel.compress(dialog.entries, it) },
             onDismiss = { viewModel.showDialog(null) },
@@ -477,13 +536,18 @@ private fun SelectionTopBar(
     TopAppBar(
         title = {
             Text(
-                "$selectedCount ausgewählt",
+                pluralStringResource(R.plurals.browser_selected_count, selectedCount, selectedCount),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         },
         navigationIcon = {
-            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Auswahl beenden") }
+            IconButton(onClick = onClose) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = stringResource(id = R.string.content_desc_close_selection),
+                )
+            }
         },
         actions = {
             if (onConfirmPick != null) {
@@ -491,21 +555,32 @@ private fun SelectionTopBar(
                     Icon(Icons.Filled.Check, contentDescription = stringResource(id = R.string.action_pick_confirm))
                 }
             } else {
-                IconButton(onClick = onCopy) { Icon(Icons.Filled.ContentCopy, contentDescription = "Kopieren") }
-                IconButton(onClick = onCut) { Icon(Icons.Filled.ContentCut, contentDescription = "Ausschneiden") }
-                IconButton(onClick = onShare) { Icon(Icons.Filled.Share, contentDescription = "Teilen") }
-                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Löschen") }
+                IconButton(onClick = onCopy) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(id = R.string.action_copy))
+                }
+                IconButton(onClick = onCut) {
+                    Icon(Icons.Filled.ContentCut, contentDescription = stringResource(id = R.string.action_cut))
+                }
+                IconButton(onClick = onShare) {
+                    Icon(Icons.Filled.Share, contentDescription = stringResource(id = R.string.action_share))
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = stringResource(id = R.string.action_delete))
+                }
                 Box {
                     IconButton(onClick = { overflowExpanded = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "Mehr")
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = stringResource(id = R.string.content_desc_more),
+                        )
                     }
                     DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
                         DropdownMenuItem(
-                            text = { Text("Alle auswählen") },
+                            text = { Text(stringResource(id = R.string.action_select_all)) },
                             onClick = { overflowExpanded = false; onSelectAll() },
                         )
                         DropdownMenuItem(
-                            text = { Text("Komprimieren") },
+                            text = { Text(stringResource(id = R.string.action_compress)) },
                             onClick = { overflowExpanded = false; onCompress() },
                         )
                     }
@@ -539,7 +614,12 @@ private fun SearchTopBar(
             )
         },
         navigationIcon = {
-            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Suche schließen") }
+            IconButton(onClick = onClose) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = stringResource(id = R.string.content_desc_close_search),
+                )
+            }
         },
         actions = {
             // Umschalter zwischen "nur dieser Ordner" (die bisherige, rein lokale Filterung der
@@ -577,12 +657,15 @@ private fun SortMenu(
     }
 }
 
-private fun sortKeyLabel(key: SortKey): String = when (key) {
-    SortKey.NAME -> "Name"
-    SortKey.DATE -> "Datum"
-    SortKey.SIZE -> "Größe"
-    SortKey.TYPE -> "Typ"
-}
+@Composable
+private fun sortKeyLabel(key: SortKey): String = stringResource(
+    id = when (key) {
+        SortKey.NAME -> R.string.sort_key_name
+        SortKey.DATE -> R.string.sort_key_date
+        SortKey.SIZE -> R.string.sort_key_size
+        SortKey.TYPE -> R.string.sort_key_type
+    },
+)
 
 @Composable
 private fun RowActionsMenu(
@@ -598,17 +681,38 @@ private fun RowActionsMenu(
     onExtract: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        DropdownMenuItem(text = { Text("Umbenennen") }, onClick = { onDismiss(); onRename() })
-        DropdownMenuItem(text = { Text("Kopieren") }, onClick = { onDismiss(); onCopy() })
-        DropdownMenuItem(text = { Text("Ausschneiden") }, onClick = { onDismiss(); onCut() })
+        DropdownMenuItem(
+            text = { Text(stringResource(id = R.string.action_rename)) },
+            onClick = { onDismiss(); onRename() },
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(id = R.string.action_copy)) },
+            onClick = { onDismiss(); onCopy() },
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(id = R.string.action_cut)) },
+            onClick = { onDismiss(); onCut() },
+        )
         if (de.ble1st.files.util.isExtractable(entry.file.name)) {
-            DropdownMenuItem(text = { Text("Entpacken") }, onClick = { onDismiss(); onExtract() })
+            DropdownMenuItem(
+                text = { Text(stringResource(id = R.string.action_extract)) },
+                onClick = { onDismiss(); onExtract() },
+            )
         }
         if (!entry.isDirectory) {
-            DropdownMenuItem(text = { Text("Teilen") }, onClick = { onDismiss(); onShare() })
+            DropdownMenuItem(
+                text = { Text(stringResource(id = R.string.action_share)) },
+                onClick = { onDismiss(); onShare() },
+            )
         }
-        DropdownMenuItem(text = { Text("Eigenschaften") }, onClick = { onDismiss(); onProperties() })
-        DropdownMenuItem(text = { Text("Löschen") }, onClick = { onDismiss(); onDelete() })
+        DropdownMenuItem(
+            text = { Text(stringResource(id = R.string.action_properties)) },
+            onClick = { onDismiss(); onProperties() },
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(id = R.string.action_delete)) },
+            onClick = { onDismiss(); onDelete() },
+        )
     }
 }
 
@@ -619,12 +723,18 @@ private fun PasteBar(isCut: Boolean, count: Int, onPaste: () -> Unit, onCancel: 
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(if (isCut) "$count zum Verschieben" else "$count zum Kopieren")
+            Text(
+                pluralStringResource(
+                    id = if (isCut) R.plurals.clipboard_pending_move else R.plurals.clipboard_pending_copy,
+                    count = count,
+                    count,
+                ),
+            )
             Row {
-                Button(onClick = onCancel) { Text("Verwerfen") }
+                Button(onClick = onCancel) { Text(stringResource(id = R.string.action_discard)) }
                 Button(onClick = onPaste) {
                     Icon(Icons.Filled.ContentPaste, contentDescription = null)
-                    Text(" Einfügen")
+                    Text(" " + stringResource(id = R.string.action_paste))
                 }
             }
         }

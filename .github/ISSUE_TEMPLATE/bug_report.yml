@@ -1,0 +1,76 @@
+name: Fehler melden
+description: Etwas funktioniert nicht wie beschrieben.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Bitte keine Sicherheitslücken hier melden — dafür gibt es GitHubs private Meldung,
+        s. [SECURITY.md](https://github.com/Ble1st/ConneXias-Suite/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: app
+    attributes:
+      label: Welche App?
+      options:
+        - Warden
+        - ConneXias Files
+        - ConneXias Kamera
+        - ConneXias Galerie
+        - Zusammenspiel mehrerer Apps
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        Steht im Über-Bildschirm der App (bei Warden unter Einstellungen → Updates), Format
+        "1.2.3 (1002003)". Der Versionscode in Klammern ist wichtig — er benennt genau eine APK.
+      placeholder: 1.2.3 (1002003)
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Gerät und Android-Version
+      description: >-
+        Hersteller/Modell plus Android-Version. Ein guter Teil der bisherigen Befunde war
+        OEM-spezifisch (z. B. Factory Reset Protection auf Samsung, s. analyse.md 6.1).
+      placeholder: "Samsung SM-A156B, Android 15 (One UI 7)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Schritte zum Nachstellen
+      description: Was hast du getan, in welcher Reihenfolge?
+      placeholder: |
+        1. Ordner "Downloads" öffnen
+        2. Zwei Dateien auswählen, "Kopieren"
+        3. In "Bilder" wechseln, "Einfügen"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartet vs. tatsächlich
+      description: Was sollte passieren, und was ist stattdessen passiert?
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Sonstiges
+      description: >-
+        Screenshot, `adb logcat`-Auszug oder — bei Warden — ein Ausschnitt aus dem Audit-Log.
+        **Vorher durchsehen:** ein Warden-Audit-Log-Export kann rohe GPS-Koordinaten aus einem
+        Diebstahl-Alarm enthalten (analyse.md 6.3), und ein logcat kann Datei- und Ordnernamen
+        enthalten.
+    validations:
+      required: false

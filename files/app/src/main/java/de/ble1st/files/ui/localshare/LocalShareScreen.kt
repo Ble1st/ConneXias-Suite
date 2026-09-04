@@ -73,7 +73,10 @@ fun LocalShareScreen(directory: File, onNavigateUp: () -> Unit) {
                 title = { Text(stringResource(id = R.string.local_share_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(id = R.string.content_desc_back),
+                        )
                     }
                 },
             )
@@ -153,7 +156,7 @@ private fun QrCodeCard(content: String) {
 
 private fun copyToClipboard(context: Context, text: String) {
     val manager = context.getSystemService(ClipboardManager::class.java)
-    manager.setPrimaryClip(ClipData.newPlainText("Freigabe-Link", text))
+    manager.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.clip_label_share_link), text))
 }
 
 private fun shareText(context: Context, text: String) {

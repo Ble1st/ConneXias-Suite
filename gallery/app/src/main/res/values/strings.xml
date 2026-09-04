@@ -58,6 +58,9 @@
     <string name="album_rename_title">Album umbenennen</string>
     <string name="album_delete_title">Album löschen</string>
     <string name="content_desc_more">Mehr</string>
+    <string name="content_desc_video">Video</string>
+    <string name="content_desc_favorite">Favorit</string>
+    <string name="content_desc_editor_preview">Vorschau der Bearbeitung</string>
     <string name="album_delete_body">Das Album wird gelöscht, die enthaltenen Aufnahmen bleiben erhalten.</string>
 
     <string name="slideshow_start">Diashow</string>
@@ -112,6 +115,9 @@
     <string name="about_version">Version %1$s</string>
     <string name="about_description">Freie Galerie ohne Google Play Services und ohne proprietäre Google-Dienste. Alles läuft lokal auf dem Gerät; Aufnahmen verlassen es nur, wenn Sie selbst eine Cloud-Sicherung auf einen eigenen WebDAV-Server einrichten.</string>
     <string name="about_suite">Teil der ConneXias Suite — vier eigenständige Apps (Warden, Files, Kamera, Galerie), die über Android-Intents zusammenarbeiten, aber jede für sich allein voll funktionsfähig bleiben.</string>
+    <string name="about_updates_title">Updates</string>
+    <string name="about_updates_body">Neue Versionen, Prüfsummen und Zertifikat-Fingerabdruck auf der Releases-Seite. Die App prüft nicht selbst auf Updates — antippen öffnet die Seite im Browser.</string>
+    <string name="about_updates_no_browser">Keine App gefunden, die einen Link öffnen kann.</string>
     <string name="about_license_title">Lizenz</string>
     <string name="about_license_body">Apache License 2.0</string>
     <string name="about_licenses_third_party">Fremdbibliotheken</string>

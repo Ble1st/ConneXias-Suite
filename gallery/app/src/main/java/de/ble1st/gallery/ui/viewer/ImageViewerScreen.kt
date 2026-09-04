@@ -38,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,10 +53,13 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.compose.AsyncImage
 import de.ble1st.gallery.R
 import de.ble1st.gallery.data.media.MediaType
 import de.ble1st.gallery.ui.GalleryViewModel
+import de.ble1st.gallery.ui.MediaScope
 import de.ble1st.gallery.util.DeleteOutcome
 import de.ble1st.gallery.util.MediaActions
 
@@ -82,35 +86,47 @@ fun ImageViewerScreen(
     customAlbumId: String? = null,
 ) {
     val context = LocalContext.current
-    val allItems by viewModel.allItems.collectAsState()
-    val customAlbums by viewModel.customAlbums.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
-    // Die Bucket-Auflösung läuft über itemsForBucket statt über ein eigenes Filter hier: sonst
-    // müsste jedes virtuelle Album (ALL_BUCKET_ID, seit 2026-09-03 auch FAVORITES_BUCKET_ID) an
-    // zwei Stellen bekannt sein — beim Öffnen des Favoriten-Albums lieferte ein reines
-    // `bucketId ==`-Filter eine leere Geschwisterliste, der Betrachter wäre sofort wieder
-    // zugegangen. Die dortige Sortierung nach Nutzerwahl ist hier egal, weil unten ohnehin nach
-    // Datum sortiert wird (der Wischreihenfolge im Betrachter).
-    val siblings = remember(allItems, bucketId, customAlbumId, customAlbums, favorites) {
-        val scoped = if (customAlbumId != null) {
-            viewModel.itemsForCustomAlbum(customAlbumId)
-        } else {
-            viewModel.itemsForBucket(bucketId)
-        }
-        scoped.filter { it.type == MediaType.IMAGE }.sortedByDescending { it.dateSortMillis }
+    val customAlbums by viewModel.customAlbums.collectAsState()
+
+    // Der Scope kennt die virtuellen Alben (ALL/FAVORITES) und die eigenen Alben an einer einzigen
+    // Stelle — vorher lief die Auflösung über itemsForBucket, weil sonst ein reines
+    // `bucketId ==`-Filter beim Favoriten-Album eine leere Geschwisterliste geliefert hätte und der
+    // Betrachter sofort wieder zugegangen wäre.
+    val mediaScope = remember(bucketId, customAlbumId) { MediaScope.of(bucketId, customAlbumId) }
+    // Für ID-Mengen-Scopes (Favoriten, eigenes Album) die aktuelle Menge; für Ordner null, dann
+    // läuft die Abfrage seitenweise. favorites/customAlbums gehören mit in den Schlüssel: beide
+    // ändern den Inhalt, ohne dass sich der Scope ändert.
+    val scopeIds = remember(mediaScope, favorites, customAlbums) { viewModel.idsForScope(mediaScope) }
+    val siblings = remember(mediaScope, scopeIds) { viewModel.pagedImages(mediaScope, scopeIds) }
+        .collectAsLazyPagingItems()
+
+    // Die Startposition kann nicht mehr aus einer geladenen Liste abgelesen werden — sie wird
+    // einmalig abgefragt (analyse.md 6.2). Bis sie da ist, steht hier bewusst noch kein Pager:
+    // mit initialPage = 0 gebaut, würde er auf dem ersten Bild stehen bleiben.
+    val startIndex by produceState<Int?>(null, mediaScope, scopeIds, startItemId) {
+        value = viewModel.imageIndexOf(mediaScope, scopeIds, startItemId).coerceAtLeast(0)
     }
 
-    if (siblings.isEmpty()) {
+    val refreshDone = siblings.loadState.refresh is LoadState.NotLoading
+    if (refreshDone && siblings.itemCount == 0) {
         // Letztes Bild wurde gelöscht/verschwand, während der Betrachter offen war.
         LaunchedEffect(Unit) { onBack() }
         return
     }
-
-    val initialPage = remember(siblings, startItemId) {
-        siblings.indexOfFirst { it.id == startItemId }.coerceAtLeast(0)
+    val resolvedStart = startIndex
+    if (resolvedStart == null || siblings.itemCount == 0) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+        return
     }
-    val pagerState = rememberPagerState(initialPage = initialPage) { siblings.size }
-    val currentItem = siblings[pagerState.currentPage.coerceIn(siblings.indices)]
+
+    val pagerState = rememberPagerState(initialPage = resolvedStart.coerceIn(0, siblings.itemCount - 1)) {
+        siblings.itemCount
+    }
+    // get() statt itemSnapshotList: der indizierte Zugriff meldet Paging, dass diese Position
+    // gebraucht wird, und stößt das Nachladen an. Bis dahin ist der Wert null (Platzhalter) — die
+    // Kopfzeile zeigt dann nichts an, statt dass der ganze Bildschirm wartet.
+    val currentItem = siblings[pagerState.currentPage.coerceIn(0, siblings.itemCount - 1)]
 
     var isZoomed by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState.currentPage) { isZoomed = false }
@@ -128,15 +144,17 @@ fun ImageViewerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(currentItem.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(currentItem?.displayName.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_desc_back))
                     }
                 },
                 actions = {
-                    val isFavorite = currentItem.id in favorites
-                    IconButton(onClick = { viewModel.toggleFavorite(currentItem.id) }) {
+                    // Solange die aktuelle Seite noch lädt, bleiben die Aktionen abgeschaltet
+                    // statt auf ein anderes als das gezeigte Bild zu wirken.
+                    val isFavorite = currentItem != null && currentItem.id in favorites
+                    IconButton(enabled = currentItem != null, onClick = { currentItem?.let { viewModel.toggleFavorite(it.id) } }) {
                         Icon(
                             if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                             contentDescription = stringResource(
@@ -144,19 +162,19 @@ fun ImageViewerScreen(
                             ),
                         )
                     }
-                    IconButton(onClick = { onEdit(currentItem.uri) }) {
+                    IconButton(enabled = currentItem != null, onClick = { currentItem?.let { onEdit(it.uri) } }) {
                         Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.editor_title))
                     }
-                    IconButton(onClick = { MediaActions.share(context, listOf(currentItem.uri)) }) {
+                    IconButton(enabled = currentItem != null, onClick = { currentItem?.let { MediaActions.share(context, listOf(it.uri)) } }) {
                         Icon(Icons.Filled.Share, contentDescription = stringResource(R.string.action_share))
                     }
-                    IconButton(onClick = { MediaActions.openWith(context, currentItem.uri) }) {
+                    IconButton(enabled = currentItem != null, onClick = { currentItem?.let { MediaActions.openWith(context, it.uri) } }) {
                         Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.action_open_with))
                     }
-                    IconButton(onClick = { showInfo = true }) {
+                    IconButton(enabled = currentItem != null, onClick = { showInfo = true }) {
                         Icon(Icons.Filled.Info, contentDescription = stringResource(R.string.action_info))
                     }
-                    IconButton(onClick = { showDeleteConfirm = true }) {
+                    IconButton(enabled = currentItem != null, onClick = { showDeleteConfirm = true }) {
                         Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.action_delete))
                     }
                 },
@@ -168,10 +186,16 @@ fun ImageViewerScreen(
             userScrollEnabled = !isZoomed,
             modifier = Modifier.fillMaxSize().padding(padding),
         ) { page ->
-            ZoomableImage(
-                uri = siblings[page].uri,
-                onZoomChanged = { zoomed -> if (page == pagerState.currentPage) isZoomed = zoomed },
-            )
+            val item = siblings[page]
+            if (item == null) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+            } else {
+                ZoomableImage(
+                    uri = item.uri,
+                    contentDescription = item.displayName,
+                    onZoomChanged = { zoomed -> if (page == pagerState.currentPage) isZoomed = zoomed },
+                )
+            }
         }
     }
 
@@ -183,7 +207,8 @@ fun ImageViewerScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
-                    when (val outcome = MediaActions.requestRemove(context, listOf(currentItem.uri))) {
+                    val target = currentItem ?: return@TextButton
+                    when (val outcome = MediaActions.requestRemove(context, listOf(target.uri))) {
                         is DeleteOutcome.Deleted -> { viewModel.onItemsDeleted(); onDeleted() }
                         is DeleteOutcome.NeedsConfirmation ->
                             deleteLauncher.launch(IntentSenderRequest.Builder(outcome.intentSender).build())
@@ -197,12 +222,12 @@ fun ImageViewerScreen(
     }
 
     if (showInfo) {
-        MediaInfoDialog(item = currentItem, onDismiss = { showInfo = false })
+        currentItem?.let { MediaInfoDialog(item = it, onDismiss = { showInfo = false }) }
     }
 }
 
 @Composable
-private fun ZoomableImage(uri: Uri, onZoomChanged: (Boolean) -> Unit) {
+private fun ZoomableImage(uri: Uri, contentDescription: String, onZoomChanged: (Boolean) -> Unit) {
     var scale by remember(uri) { mutableFloatStateOf(1f) }
     var offset by remember(uri) { mutableStateOf(Offset.Zero) }
 
@@ -242,7 +267,7 @@ private fun ZoomableImage(uri: Uri, onZoomChanged: (Boolean) -> Unit) {
     ) {
         AsyncImage(
             model = uri,
-            contentDescription = null,
+            contentDescription = contentDescription,
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()

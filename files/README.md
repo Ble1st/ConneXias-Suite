@@ -126,6 +126,27 @@ den angefragten Typ (`Intent.getType()`/`EXTRA_MIME_TYPES`, s. `data/share/MimeT
 und blendet nicht passende Dateien aus, und beherrscht mit `EXTRA_ALLOW_MULTIPLE` die
 Mehrfachauswahl (Rückgabe als `ClipData`).
 
+**Produktionsreife (2026-09-04, s. `../analyse.md` Abschnitt 7):** Alle nutzersichtbaren Texte
+liegen jetzt in `res/values/strings.xml` — vorher standen 56 davon als Literal direkt im
+Compose-Code, während Galerie, Kamera und Warden bereits durchgängig `stringResource` nutzten.
+Dabei fiel eine Kopplung auf, die eine spätere Übersetzung lautlos kaputtgemacht hätte:
+`HomeScreen` wählte das Icon eines Speicherorts über dessen deutschen Anzeigetext
+(`when (label) { "Bilder" -> ... }`). `StorageRoot` und `QuickAccessFolder` tragen deshalb jetzt
+eine `Kind`-Aufzählung statt einer fertigen Beschriftung; aufgelöst wird sie in der UI. Neu im
+Über-Bildschirm: die installierte Version **mit Versionscode** (bei Sideload die eindeutige
+Angabe für einen Fehlerbericht) und ein Verweis auf die Releases-Seite — die App prüft bewusst
+nicht selbst auf Updates, der Verweis wird vom Browser geöffnet.
+
+- **Barrierefreiheit (analyse.md 7-10):** Der Auswahlzustand einer Zeile bzw. Kachel steckte
+  ausschließlich im Häkchen-Symbol, das keine Beschreibung trug — für eine Vorlesehilfe war
+  nicht erkennbar, was ausgewählt ist, und der leere Kreis für „nicht ausgewählt" hätte auch mit
+  Beschreibung nichts anzusagen gehabt. Der Zustand hängt jetzt als Standard-Semantik `selected`
+  an der Zeile/Kachel selbst. Das Kategoriesymbol (lokal wie im WebDAV-Browser) sagt jetzt die
+  Dateiart an — es ist die einzige Stelle, an der „Ordner" von „Datei" zu unterscheiden ist, der
+  Name leistet das nicht, weil beide endungslos sein können. Miniaturbilder bleiben bewusst ohne
+  Beschreibung: der Dateiname steht als Text in derselben Kachel. Dabei fiel ein echter Fehler
+  auf — der **Zurück-Knopf im Papierkorb war völlig unbeschriftet**.
+
 **Noch nicht enthalten** (mögliche weitere Ausbauschritte): Volltextsuche in Dateiinhalten (die
 Suche geht über Namen, nicht über Inhalte), weitere Archivformate (RAR/7z/TAR) — echte
 Entpack-Implementierungen dafür, nicht nur das UI-Ausblenden von oben —, weitere
@@ -134,6 +155,12 @@ WLAN/Hotspot-Freigabe, ein eigener Einstellungs-Bildschirm (die wenigen Einstell
 derzeit dort, wo sie wirken), eine echte `DocumentsProvider`-Rolle (deutlich größere API-Fläche als
 der einfache Intent-Vertrag oben — ein `DocumentsProvider` würde z. B. Systemordner-Navigation
 direkt im fremden App-Picker erlauben).
+
+
+- **App-Icon (analyse.md 7-13):** Files, Kamera und Galerie teilten sich bis 2026-09-04
+  dieselbe Ordner-Grafik, im XML selbst als Platzhalter vermerkt. Files behält als Dateimanager
+  den Ordner, aber als eigene, für die 108dp-Leinwand gezeichnete Fassung mit zwei ausgesparten
+  Dokumentzeilen.
 
 ## Build
 
@@ -150,8 +177,20 @@ Debug-APK:
 ## Test
 
 ```
-./gradlew test
+./gradlew test                       # Unit-Tests (JVM)
+./gradlew connectedDebugAndroidTest  # Instrumentation-Tests (Gerät/Emulator nötig)
 ```
+
+`app/src/androidTest/` deckt seit 2026-09-04 die Teile ab, die ein JVM-Unit-Test nicht
+erreicht (s. `../analyse.md` 7-01): das Encoding der Navigations-Routen (Befund 2-18), den
+`ACTION_GET_CONTENT`-Vertrag samt Mime-Typ-Filter, den Empfang von `ACTION_SEND`/`ACTION_VIEW`
+inklusive der Namens-Sanierung beim Kopieren in den Cache, und die beiden Dialoge, an denen im
+Fehlerfall Daten verloren gehen — Papierkorb-Bestätigung und Konfliktauflösung.
+
+Faustregel für die Zuordnung: alles, was `Intent`, `Uri`, `SharedPreferences` oder Compose
+anfasst, gehört in `androidTest` — unter einem reinen JVM-Unit-Test liefert das gestubbte
+`android.jar` dort nur `RuntimeException("Stub!")`. Reine Datei-/Sortier-/Formatierungslogik
+bleibt Unit-Test, weil die ohne Gerät und in Sekunden läuft.
 
 ## Bekannte Einschränkung
 

@@ -184,6 +184,36 @@ ohne Play-Services-Laufzeitabhängigkeit); Material 3 (mit einer expressive-nahe
   aber, nimmt der Videomodus jetzt einfach stumm auf statt den Sucher zu blockieren — mit einem
   kurzen Hinweis und einer erneuten Anfrage beim manuellen Wechsel in den Videomodus.
 
+## Produktionsreife (2026-09-04)
+
+S. `../analyse.md` Abschnitt 7. Für diese App:
+
+- **Befund 3-18 (Niedrig):** `Routes.encode` kodierte weiterhin mit `URLEncoder.encode`, obwohl
+  3-16 das doppelte Decodieren bereits beseitigt hatte. Die beiden Verfahren sind nicht
+  kompatibel — `URLEncoder` schreibt ein Leerzeichen als „+", Compose Navigation dekodiert mit
+  `Uri.decode` und lässt „+" stehen. Files und Galerie hatten denselben Mismatch längst
+  mitbehoben, die Kamera nicht. Latent geblieben, weil die von `MediaStoreSaver` erzeugten
+  `content://media/...`-Uris rein numerisch sind; der Zeichensatz einer Uri liegt aber nicht in
+  der Hand dieser App. Jetzt `Uri.encode`, abgesichert durch `nav/RoutesInstrumentedTest.kt`.
+- **Über-Bildschirm:** zeigt jetzt Version **und Versionscode** (bei Sideload die eindeutige
+  Angabe für einen Fehlerbericht) und verweist auf die Releases-Seite. Die App prüft bewusst
+  nicht selbst auf Updates — sie hat dafür nicht einmal die `INTERNET`-Berechtigung; der Verweis
+  geht per `ACTION_VIEW` an den Browser.
+
+- **Barrierefreiheit (analyse.md 7-10):** Das aufgenommene Foto in der Nachschau hatte keine
+  Beschreibung, und im Extension-Menü war der aktive Modus nur am Häkchen zu erkennen — die
+  nicht aktiven Einträge haben gar kein Symbol, an dem eine Beschreibung hätte hängen können.
+  Der aktive Modus steht jetzt als Standard-Semantik `selected` am Menüeintrag.
+- **CameraX 1.5.1 → 1.6.2 (analyse.md 7-11):** `Camera2CameraControl` ist nach Kotlin portiert;
+  `setCaptureRequestOptions()` liefert jetzt ein `ListenableFuture` und ist damit kein
+  Property-Setter mehr. Die manuelle ISO-/Belichtungszeit-Steuerung in `CameraController`
+  kompilierte dadurch nicht mehr und ruft die Methode jetzt direkt auf. Das Future wird bewusst
+  nicht abgewartet — der Aufruf kommt aus dem Schieben der Regler.
+
+- **App-Icon (analyse.md 7-13):** die Kamera stand bis 2026-09-04 mit einem **Ordner**-Symbol
+  im Launcher — Files, Kamera und Galerie teilten sich dieselbe Platzhalter-Grafik. Jetzt ein
+  Kameragehäuse mit Sucherhöcker, ausgesparter Linse und Blitzfenster.
+
 ## Build
 
 ```
@@ -199,8 +229,20 @@ Debug-APK:
 ## Test
 
 ```
-./gradlew test
+./gradlew test                       # Unit-Tests (JVM)
+./gradlew connectedDebugAndroidTest  # Instrumentation-Tests (Gerät/Emulator nötig)
 ```
+
+`app/src/androidTest/` deckt seit 2026-09-04 die Teile ab, die ein JVM-Unit-Test nicht
+erreicht (s. `../analyse.md` 7-01): das Encoding der Review-Route (Befunde 3-16 und 3-18), den
+System-Kamera-Contract (`ACTION_IMAGE_CAPTURE`/`ACTION_VIDEO_CAPTURE` samt `EXTRA_OUTPUT`) und
+die dauerhaft gespeicherten Sucher-Einstellungen einschließlich ihres Verhaltens bei einem
+unbekannten gespeicherten Wert.
+
+Faustregel für die Zuordnung: alles, was `Intent`, `Uri`, `SharedPreferences` oder Compose
+anfasst, gehört in `androidTest` — unter einem reinen JVM-Unit-Test liefert das gestubbte
+`android.jar` dort nur `RuntimeException("Stub!")`. Reine Datei-/Sortier-/Formatierungslogik
+bleibt Unit-Test, weil die ohne Gerät und in Sekunden läuft.
 
 ## Bekannte Einschränkung
 
