@@ -172,13 +172,53 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 adb shell dpm set-device-owner de.ble1st.warden/de.ble1st.warden.admin.WardenDeviceAdminReceiver
 ```
 
-Alternativ läuft die Einrichtung über QR-Provisionierung.
+### Alternativ: QR-Provisionierung (analyse.md 7-16)
 
-Nach der ersten Provisionierung führt der **Ersteinrichtungs-Assistent** durch PIN, Profil,
-Sentinel-Installation und Notruf-Drill. Er startet beim ersten Öffnen automatisch, bleibt danach
-über das Menü erreichbar und liest den Stand jedes Schritts bei jedem Öffnen frisch aus dem
-echten Systemzustand — Pflicht sind nur Device Owner und PIN, alles Weitere hängt davon ab, ob das
-Gerät den Kiosk-Modus überhaupt nutzen soll.
+Ohne angeschlossenen Rechner: auf einem frischen oder werksseitig zurückgesetzten Gerät (Android
+7+, ab Android 9 mit eingebautem QR-Leser) 6× auf denselben Punkt des Willkommensbildschirms
+tippen — das öffnet den QR-Scanner der Ersteinrichtung. Der gescannte Code trägt ein JSON mit
+Komponentenname, Download-URL und Signatur-Fingerabdruck der Warden-APK; das Gerät lädt sie
+herunter, prüft den Fingerabdruck und provisioniert automatisch.
+
+`warden/scripts/qr-provisioning.sh` erzeugt dieses JSON aus einer vorhandenen, signierten
+Release-APK:
+
+```
+./scripts/qr-provisioning.sh \
+  --apk app/build/outputs/apk/release/Warden-release-1.0.0.apk \
+  --download-url https://github.com/Ble1st/ConneXias-Suite/releases/download/warden-vX.Y.Z/Warden-release-X.Y.Z.apk \
+  --out warden-provisioning.json
+
+qrencode -o warden-provisioning.png < warden-provisioning.json   # oder ein beliebiger anderer QR-Generator
+```
+
+Die `--download-url` muss https sein und ohne bestehende Anmeldung erreichbar — eine
+GitHub-Release-Asset-URL passt genau. Das Skript liest den Zertifikat-Fingerabdruck per
+`apksigner`/`keytool` aus derselben APK und kodiert ihn Base64url ohne Padding — das ist
+`PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM`, **nicht** dieselbe Kodierung wie die
+SHA-256-Zeile in `docs/RELEASE-SIGNING.md`/den Release-Notizen (die ist Hex mit Doppelpunkten,
+identischer zugrunde liegender Fingerabdruck, nur anders dargestellt).
+
+Verifiziert (2026-09-04): das Skript erzeugt aus einer echten test-signierten Release-APK ein
+korrektes JSON, dessen Fingerabdruck exakt mit `apksigner verify --print-certs` übereinstimmt;
+QR-Bild-Erzeugung und -Rückdecodierung (Python `qrcode`/OpenCV) liefert byteidentisch dasselbe
+JSON zurück. Der volle Ablauf — echtes Gerät, Werksreset, Scan während der Ersteinrichtung,
+tatsächlicher Download+Install — steht noch aus (bräuchte einen weiteren Werksreset des
+Testgeräts und eine mit dem echten Produktionsschlüssel signierte, öffentlich gehostete APK,
+s. `docs/RELEASE-SIGNING.md`).
+
+**Wichtig, aus dem 7-14-Fund:** ein so provisioniertes Gerät lässt sich später **nur per
+vollständigem Werksreset** wieder von der Device-Owner-Rolle lösen, sobald die installierte APK
+kein `testOnly`-Debug-Build mehr ist (jeder normale Release-Build) — `dpm remove-active-admin`
+scheitert dann mit `SecurityException: Attempt to remove non-test admin`, und Warden bietet keinen
+In-App-Ausweg. Das gilt unabhängig vom Provisionierungsweg (ADB oder QR) und sollte vor dem
+Ausrollen an echte Nutzer klar kommuniziert werden.
+
+Nach der ersten Provisionierung (gleich auf welchem Weg) führt der **Ersteinrichtungs-Assistent**
+durch PIN, Profil, Sentinel-Installation und Notruf-Drill. Er startet beim ersten Öffnen
+automatisch, bleibt danach über das Menü erreichbar und liest den Stand jedes Schritts bei jedem
+Öffnen frisch aus dem echten Systemzustand — Pflicht sind nur Device Owner und PIN, alles Weitere
+hängt davon ab, ob das Gerät den Kiosk-Modus überhaupt nutzen soll.
 
 `dpm remove-active-admin` funktioniert ohne Werksreset nur, wenn die *installierte* APK
 `android:testOnly="true"` trägt — und dieses Flag wird einmalig bei der Admin-Registrierung
