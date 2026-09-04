@@ -59,7 +59,7 @@ use smoltcp::wire::{
     HardwareAddress, IpAddress, IpCidr, IpProtocol, Ipv4Address, Ipv4Packet, Ipv4Repr, TcpPacket,
     UdpPacket, UdpRepr,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
@@ -69,7 +69,7 @@ use std::os::fd::{AsFd, FromRawFd, RawFd};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -929,10 +929,70 @@ fn pump_udp_listeners(
                     let _ = stream.send(data);
                     nat.touch(&key, Instant::now());
                 }
-                None => spawn_udp_connect(key, Arc::clone(socket_factory)),
+                None => {
+                    // BEHOBEN (2026-09-04, Direct-Mode-Traffic-Test/analyse.md 6.2): bis hierher
+                    // wurde `data` in diesem Zweig schlicht verworfen — bei TCP unschädlich (das
+                    // SYN trägt keine Nutzlast, der Drei-Wege-Handshake lässt `spawn_tcp_connect`
+                    // genug Zeit), bei UDP/DNS dagegen tödlich: ein Resolver schickt seine Anfrage
+                    // als einziges Datagramm auf einem neuen Flow, ohne auf den externen Socket zu
+                    // warten. Live reproduziert: ein einzelner roher DNS-Query gegen einen
+                    // frischen Flow bekam nie eine Antwort (RX zählte die Anfrage, TX blieb dafür
+                    // stumm), weil die Bytes hier schon weg waren, bevor `spawn_udp_connect`
+                    // überhaupt fertig war. Jetzt gepuffert (s. [PENDING_UDP_PAYLOADS]) und in
+                    // [drain_pending_udp_fds] nachgereicht, sobald der externe Socket steht.
+                    queue_pending_udp_payload(&key, data);
+                    // Ohne diese Wächter-Menge würde jedes weitere Datagramm auf demselben, noch
+                    // nicht verbundenen Flow (z. B. eine sofort folgende AAAA-Anfrage vom selben
+                    // Quellport) einen weiteren `spawn_udp_connect` auslösen — mehrere parallele
+                    // `protect()`-Sockets für denselben Flow, von denen `nat.insert` alle bis auf
+                    // den zuletzt eingetroffenen sang- und klanglos überschreibt (Fd-Leck).
+                    let already_connecting = UDP_CONNECTS_IN_FLIGHT
+                        .lock()
+                        .map(|mut in_flight| !in_flight.insert(key.clone()))
+                        .unwrap_or(false);
+                    if !already_connecting {
+                        spawn_udp_connect(key, Arc::clone(socket_factory));
+                    }
+                }
             }
         }
     }
+}
+
+/// Von [pump_udp_listeners] gepflegt, verhindert mehrere gleichzeitige [spawn_udp_connect]-Threads
+/// für denselben, noch nicht verbundenen Flow (s. Kommentar an der Einfügestelle). Ein Eintrag wird
+/// ausschließlich von [spawn_udp_connect] selbst wieder entfernt, unabhängig davon, ob der Connect-
+/// Versuch erfolgreich war — sonst bliebe ein einmal fehlgeschlagener Flow dauerhaft blockiert.
+static UDP_CONNECTS_IN_FLIGHT: LazyLock<Mutex<HashSet<FlowKey>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Bereits eingetroffene, aber noch unbeantwortete UDP-Payloads pro Flow — s. Kommentar an der
+/// Einfügestelle in [pump_udp_listeners]. Höchstens [MAX_PENDING_UDP_PAYLOADS_PER_FLOW] Datagramme
+/// je Flow, älteste zuerst verworfen: verhindert unbegrenztes Wachstum, falls `open_udp` nie
+/// erfolgreich zurückkehrt (z. B. eine dauerhaft blockierende Firewall-Regel).
+static PENDING_UDP_PAYLOADS: LazyLock<Mutex<HashMap<FlowKey, Vec<Vec<u8>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+const MAX_PENDING_UDP_PAYLOADS_PER_FLOW: usize = 4;
+
+fn queue_pending_udp_payload(key: &FlowKey, data: &[u8]) {
+    if let Ok(mut pending) = PENDING_UDP_PAYLOADS.lock() {
+        let queue = pending.entry(key.clone()).or_default();
+        if queue.len() >= MAX_PENDING_UDP_PAYLOADS_PER_FLOW {
+            queue.remove(0);
+        }
+        queue.push(data.to_vec());
+    }
+}
+
+/// Entfernt und liefert alle für `key` gepufferten Payloads — Aufrufer sind [drain_pending_udp_fds]
+/// (Normalfall: sofort auf den frisch verbundenen Socket schreiben) und [spawn_udp_connect]s
+/// Fehlerpfad (Aufräumen, sonst bliebe der Eintrag verwaist, s. dortiger Kommentar).
+fn take_pending_udp_payloads(key: &FlowKey) -> Vec<Vec<u8>> {
+    PENDING_UDP_PAYLOADS
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.remove(key))
+        .unwrap_or_default()
 }
 
 /// Beschafft auf einem eigenen, kurzlebigen Thread den echten `VpnService.protect()`-Socket für
@@ -941,10 +1001,20 @@ fn pump_udp_listeners(
 fn spawn_udp_connect(key: FlowKey, socket_factory: Arc<dyn ProtectedSocketFactory>) {
     thread::spawn(move || {
         let result = socket_factory.open_udp(key.dst_ip.clone(), key.dst_port);
-        if let Ok(fd) = result
-            && let Ok(mut pending) = PENDING_UDP_FDS.lock()
-        {
-            pending.push((key, fd));
+        match result {
+            Ok(fd) => {
+                if let Ok(mut pending) = PENDING_UDP_FDS.lock() {
+                    pending.push((key.clone(), fd));
+                }
+            }
+            Err(_) => {
+                // Kein Socket zustande gekommen — gepufferte Payloads (s. [PENDING_UDP_PAYLOADS])
+                // blieben sonst dauerhaft verwaist, nie von [drain_pending_udp_fds] abgeholt.
+                let _ = take_pending_udp_payloads(&key);
+            }
+        }
+        if let Ok(mut in_flight) = UDP_CONNECTS_IN_FLIGHT.lock() {
+            in_flight.remove(&key);
         }
     });
 }
@@ -962,6 +1032,13 @@ fn drain_pending_udp_fds(
     if let Ok(mut pending) = PENDING_UDP_FDS.lock() {
         for (key, fd) in pending.drain(..) {
             if flow_sockets.contains_key(&key) {
+                // Genau das nachreichen, was diesen Flow überhaupt erst ausgelöst hat (s.
+                // Kommentar in `pump_udp_listeners`) — sonst bliebe die ursprüngliche Anfrage
+                // trotz jetzt fertigem Socket unbeantwortet.
+                for payload in take_pending_udp_payloads(&key) {
+                    let stream = ManuallyDrop::new(unsafe { UdpSocket::from_raw_fd(fd) });
+                    let _ = stream.send(&payload);
+                }
                 nat.insert(
                     key,
                     NatSession {
@@ -973,6 +1050,7 @@ fn drain_pending_udp_fds(
             } else {
                 // Zugehöriger smoltcp-Socket wurde inzwischen geräumt — fd wäre verwaist, sauber
                 // schließen statt leaken (identische Begründung wie in `pump_established_sessions`).
+                let _ = take_pending_udp_payloads(&key);
                 unsafe {
                     let _ = UdpSocket::from_raw_fd(fd);
                 }
@@ -1002,6 +1080,30 @@ fn pump_udp_responses(
             continue;
         };
         let endpoint = smoltcp::wire::IpEndpoint::new(IpAddress::Ipv4(src_addr), key.src_port);
+        // BEHOBEN (2026-09-04, Direct-Mode-Traffic-Test/analyse.md 6.2): `send_slice(data,
+        // endpoint)` allein baut daraus per `From<IpEndpoint>` eine [udp::UdpMetadata] mit
+        // `local_address: None` — laut deren eigener Doku wird die Quelladresse dann NICHT vom
+        // eigentlichen Ziel dieser Antwort (dem NAT-relayten Server, hier `key.dst_ip`) übernommen,
+        // sondern über `Context::get_source_address` aus der Interface-Routingtabelle bestimmt,
+        // die für dieses Ein-Adressen-Interface immer den TUN selbst liefert (`tun_addr`,
+        // 10.64.0.1). Live reproduziert: ein roher DNS-Query kam nie beim Client an, obwohl der
+        // Engine-Loop laut Log den externen Socket verband, die Anfrage nachreichte und die
+        // Antwort erfolgreich in den smoltcp-Socket einspeiste (`send_slice -> Ok(())`) — die
+        // Antwort verließ den Tunnel also tatsächlich, aber mit `src=10.64.0.1` statt `src=1.1.1.1`
+        // (dem Server, den die App tatsächlich angefragt hatte); ein clientseitig `connect()`etes
+        // UDP-Socket (wie es u. a. `nc -u` verwendet) verwirft eine Antwort mit unerwarteter
+        // Quelladresse lautlos im Kernel, bevor die App sie je sieht. TCP war davon nie betroffen:
+        // ein `tcp::Socket` kennt seinen `local_endpoint()` fest pro Verbindung, nie "beliebige
+        // Adresse". Fix: `local_address` explizit auf `key.dst_ip` setzen — das ist exakt die
+        // Adresse, die dieser NAT-Flow gegenüber der App "ist".
+        let Ok(reply_src_addr) = Ipv4Address::from_str(&key.dst_ip) else {
+            continue;
+        };
+        let meta = udp::UdpMetadata {
+            endpoint,
+            local_address: Some(IpAddress::Ipv4(reply_src_addr)),
+            ..udp::UdpMetadata::from(endpoint)
+        };
 
         let stream = ManuallyDrop::new(unsafe { UdpSocket::from_raw_fd(session.external_fd) });
         let _ = stream.set_nonblocking(true);
@@ -1010,7 +1112,7 @@ fn pump_udp_responses(
             match stream.recv(&mut buf) {
                 Ok(n) if n > 0 => {
                     let socket = sockets.get_mut::<udp::Socket>(handle);
-                    let _ = socket.send_slice(&buf[..n], endpoint);
+                    let _ = socket.send_slice(&buf[..n], meta);
                     stats.forwarded_bytes.fetch_add(n as u64, Ordering::SeqCst);
                 }
                 Ok(_) => break,
