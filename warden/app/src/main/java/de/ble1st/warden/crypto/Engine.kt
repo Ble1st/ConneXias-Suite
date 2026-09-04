@@ -4,16 +4,13 @@ import uniffi.connexias_engine.Envelope
 import uniffi.connexias_engine.GeneratedDek
 import uniffi.connexias_engine.KeyWrapper
 import uniffi.connexias_engine.PasswordHash
-import uniffi.connexias_engine.SigningKeyPair
 import uniffi.connexias_engine.deriveKey as engineDeriveKey
 import uniffi.connexias_engine.generateAndWrapDek as engineGenerateAndWrapDek
 import uniffi.connexias_engine.generateChallenge as engineGenerateChallenge
 import uniffi.connexias_engine.generateDek as engineGenerateDek
-import uniffi.connexias_engine.generateSigningKeypair as engineGenerateSigningKeypair
 import uniffi.connexias_engine.hashPassword as engineHashPassword
 import uniffi.connexias_engine.open as engineOpen
 import uniffi.connexias_engine.seal as engineSeal
-import uniffi.connexias_engine.signMessage as engineSignMessage
 import uniffi.connexias_engine.unwrapDek as engineUnwrapDek
 import uniffi.connexias_engine.verifyPassword as engineVerifyPassword
 import uniffi.connexias_engine.verifySignature as engineVerifySignature
@@ -66,27 +63,18 @@ object Engine {
         engineUnwrapDek(wrapper, wrapped)
 
     /**
-     * Meilenstein D.1/D.2 (Konzept Abschnitt 9): erzeugt ein frisches Ed25519-Schlüsselpaar für
-     * den Offline-Failsafe. **Nie von Warden selbst aufgerufen** — nur vom Offline-Tool
-     * (`rust/engine/src/bin/failsafe_keytool.rs`) auf einer Air-Gap-Maschine, s. `rust/engine/
-     * src/signing.rs`-Moduldoc. Existiert hier trotzdem (statt nur im Rust-Binary), damit ein
-     * künftiger Kotlin-seitiger Test denselben Pfad wie [verifySignature] durchspielen kann,
-     * ohne das native CLI-Tool aufzurufen.
-     */
-    fun generateSigningKeyPair(): SigningKeyPair = engineGenerateSigningKeypair()
-
-    /** Signiert `message` mit `secretKey` (Ed25519). Wie [generateSigningKeyPair] nie Teil des
-     * Warden-Laufzeitpfads — nur für Tests/das Offline-Tool. */
-    fun signMessage(secretKey: ByteArray, message: ByteArray): ByteArray =
-        engineSignMessage(secretKey, message)
-
-    /**
      * Prüft `signature` über `message` gegen `publicKey` (Ed25519) — die einzige der
      * Signing-Funktionen, die tatsächlich auf dem Gerät läuft. Wirft
      * [uniffi.connexias_engine.SigningException] bei strukturell ungültigen Eingaben (falsche
      * Schlüssel-/Signaturlänge); liefert `false` (nicht Exception) für eine wohlgeformte, aber
      * falsche Signatur. Aufrufer siehe [OfflineFailsafeVerifier] — dort werden beide Fälle
      * einheitlich als "nicht verifiziert" behandelt (Fail-Safe, Invariante 6).
+     *
+     * **Keygen/Sign sind bewusst nicht Teil dieser Kotlin-Fassade** (2026-09-04): die
+     * entsprechenden Rust-Funktionen sind nicht mehr `#[uniffi::export]` (s. `signing.rs`), da sie
+     * laut Konzept nie auf dem Gerät laufen dürfen — nur das Offline-Tool auf der Air-Gap-Maschine
+     * nutzt sie als reine Rust-Funktionen. Eine Kotlin-Verfügbarkeit wäre ein versehentlicher
+     * Missbrauchspfad, der nun strukturell ausgeschlossen ist.
      */
     fun verifySignature(publicKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean =
         engineVerifySignature(publicKey, message, signature)

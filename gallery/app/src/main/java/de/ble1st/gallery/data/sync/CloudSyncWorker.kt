@@ -86,12 +86,18 @@ class CloudSyncWorker(
         }
 
         setProgress(progressData(pending.size, uploaded, failed, null))
-        // Auch ein Lauf mit Fehlschlägen ist "durchgelaufen" — ein Result.retry() würde den
-        // gesamten Auftrag später erneut anstoßen, obwohl die erfolgreichen Uploads bereits
-        // vermerkt sind und ein Fehlschlag (unlesbare Datei, Serverfehler) sich beim
-        // Wiederholen meist genauso verhält. Der Nutzer sieht die Fehlerzahl und entscheidet
-        // selbst, ob er nochmal sichert.
-        return Result.success(resultDataDone(pending.size, uploaded, failed))
+        // Ein Lauf mit einigen Erfolgen und einigen Fehlschlägen ist "durchgelaufen" — schon
+        // hochgeladene Elemente sind in CloudSyncState vermerkt und würden beim Wiederholen
+        // übersprungen, ein persistenter Fehlschlag (unlesbare Datei, Server 4xx) verhält sich
+        // beim Wiederholen meist genauso. Ein Lauf mit **null Erfolgen aber >0 Fehlern** ist
+        // dagegen ein starkes Signal für einen transienten Grund (Netz weg, Server kurzfristig
+        // nicht erreichbar) — Result.retry() lässt WorkManager den Auftrag nach Backoff erneut
+        // anstoßen, und da Erfolge vermerkt sind, ist ein Retry sicher und nicht verschwenderisch.
+        return if (uploaded == 0 && failed > 0) {
+            Result.retry()
+        } else {
+            Result.success(resultDataDone(pending.size, uploaded, failed))
+        }
     }
 
     /** Lädt genau ein Element hoch. `true` = erfolgreich (und in [CloudSyncState] vermerkt). */

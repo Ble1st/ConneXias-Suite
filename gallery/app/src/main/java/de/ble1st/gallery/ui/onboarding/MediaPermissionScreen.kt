@@ -24,9 +24,16 @@ import de.ble1st.gallery.R
  * Startbildschirm, solange [de.ble1st.gallery.permission.MediaPermission.hasAccess] false liefert
  * — dasselbe Muster wie ConneXias Files' StoragePermissionScreen und ConneXias Kameras
  * CameraPermissionScreen.
+ *
+ * Nach einer dauerhaften Ablehnung ("Nicht mehr fragen", API 30+) liefert der System-Dialog kein
+ * Ergebnis mehr — [permanentlyDenied] schaltet auf den Einstellungen-Tief-Link um.
  */
 @Composable
-fun MediaPermissionScreen(onRequestAccess: () -> Unit) {
+fun MediaPermissionScreen(
+    permanentlyDenied: Boolean = false,
+    onRequestAccess: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+) {
     Scaffold { padding ->
         Column(
             modifier = Modifier
@@ -38,7 +45,7 @@ fun MediaPermissionScreen(onRequestAccess: () -> Unit) {
         ) {
             Icon(
                 imageVector = Icons.Filled.PhotoLibrary,
-                contentDescription = null,
+                contentDescription = stringResource(R.string.onboarding_title),
                 modifier = Modifier.size(72.dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
@@ -48,12 +55,19 @@ fun MediaPermissionScreen(onRequestAccess: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
             Text(
-                text = stringResource(id = R.string.onboarding_body),
+                text = if (permanentlyDenied) stringResource(id = R.string.onboarding_denied_body)
+                       else stringResource(id = R.string.onboarding_body),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
             )
-            Button(onClick = onRequestAccess) {
-                Text(stringResource(id = R.string.onboarding_action_grant))
+            if (permanentlyDenied) {
+                Button(onClick = onOpenSettings) {
+                    Text(stringResource(id = R.string.onboarding_action_open_settings))
+                }
+            } else {
+                Button(onClick = onRequestAccess) {
+                    Text(stringResource(id = R.string.onboarding_action_grant))
+                }
             }
         }
     }

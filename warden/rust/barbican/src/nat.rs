@@ -89,9 +89,14 @@ impl NatTable {
     pub fn insert(&mut self, key: FlowKey, session: NatSession) -> Option<(FlowKey, NatSession)> {
         let evicted =
             if self.sessions.len() >= self.max_sessions && !self.sessions.contains_key(&key) {
-                self.oldest_key().map(|k| {
-                    let s = self.sessions.remove(&k).expect("oldest_key must exist");
-                    (k, s)
+                self.oldest_key().and_then(|k| {
+                    // `oldest_key` liefert nur Schlüssel, die in `sessions` existieren; `remove`
+                    // gibt in diesem Fall garantiert `Some`. Statt `.expect` (panikiert den
+                    // Engine-Thread bei einer zukünftigen Invarianten-Verletzung) wird hier
+                    // defensiv `?`-artig gefiltert — ein verwaister `oldest_key` überspringt
+                    // die Eviction für diesen einen Aufruf, statt den ganzen Tunnel zu reißen.
+                    let s = self.sessions.remove(&k)?;
+                    Some((k, s))
                 })
             } else {
                 None

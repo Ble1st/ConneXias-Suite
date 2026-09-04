@@ -89,13 +89,23 @@ fun GalleryNavHost(
         composable(Routes.ONBOARDING) {
             val lifecycleOwner = LocalLifecycleOwner.current
             var hasAccess by remember { mutableStateOf(MediaPermission.hasAccess(context)) }
+            var permanentlyDenied by remember { mutableStateOf(false) }
+            val activity = MediaPermission.findActivity(context)
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions(),
-            ) { results -> hasAccess = results.values.all { it } }
+            ) { results ->
+                hasAccess = results.values.all { it }
+                if (!hasAccess && activity != null) {
+                    permanentlyDenied = !MediaPermission.canStillRequestRationale(activity)
+                }
+            }
 
             DisposableEffect(lifecycleOwner) {
                 val observer = LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_RESUME) hasAccess = MediaPermission.hasAccess(context)
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        hasAccess = MediaPermission.hasAccess(context)
+                        if (hasAccess) permanentlyDenied = false
+                    }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
                 onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -121,7 +131,11 @@ fun GalleryNavHost(
             }
 
             if (!hasAccess) {
-                MediaPermissionScreen(onRequestAccess = { permissionLauncher.launch(MediaPermission.required) })
+                MediaPermissionScreen(
+                    permanentlyDenied = permanentlyDenied,
+                    onRequestAccess = { permissionLauncher.launch(MediaPermission.required) },
+                    onOpenSettings = { context.startActivity(MediaPermission.appDetailsSettingsIntent(context)) },
+                )
             }
         }
 

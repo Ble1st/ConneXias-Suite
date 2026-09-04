@@ -24,9 +24,18 @@ import de.ble1st.camera.R
  * Startbildschirm, solange [de.ble1st.camera.permission.CameraPermission.hasAccess] false liefert
  * — erklärt bewusst, wofür Kamera und Mikrofon gebraucht werden, bevor der System-Dialog aufgeht
  * (dasselbe Muster wie ConneXias Files' StoragePermissionScreen).
+ *
+ * Nach einer dauerhaften Ablehnung ("Nicht mehr fragen", API 30+) liefert der System-Dialog kein
+ * Ergebnis mehr — [permanentlyDenied] schaltet auf den Einstellungen-Tief-Link um, damit der
+ * Nutzer die Berechtigung in den System-Einstellungen manuell erteilen kann statt auf einen
+ * Knopf zu tippen, der scheinbar nichts bewirkt.
  */
 @Composable
-fun CameraPermissionScreen(onRequestAccess: () -> Unit) {
+fun CameraPermissionScreen(
+    permanentlyDenied: Boolean = false,
+    onRequestAccess: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+) {
     Scaffold { padding ->
         Column(
             modifier = Modifier
@@ -38,7 +47,7 @@ fun CameraPermissionScreen(onRequestAccess: () -> Unit) {
         ) {
             Icon(
                 imageVector = Icons.Filled.PhotoCamera,
-                contentDescription = null,
+                contentDescription = stringResource(R.string.onboarding_title),
                 modifier = Modifier.size(72.dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
@@ -48,12 +57,19 @@ fun CameraPermissionScreen(onRequestAccess: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
             Text(
-                text = stringResource(id = R.string.onboarding_body),
+                text = if (permanentlyDenied) stringResource(id = R.string.onboarding_denied_body)
+                       else stringResource(id = R.string.onboarding_body),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
             )
-            Button(onClick = onRequestAccess) {
-                Text(stringResource(id = R.string.onboarding_action_grant))
+            if (permanentlyDenied) {
+                Button(onClick = onOpenSettings) {
+                    Text(stringResource(id = R.string.onboarding_action_open_settings))
+                }
+            } else {
+                Button(onClick = onRequestAccess) {
+                    Text(stringResource(id = R.string.onboarding_action_grant))
+                }
             }
         }
     }

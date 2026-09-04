@@ -445,7 +445,8 @@ private fun WardenPinScreen(
             loadResult = currentLoadResult()
             digits = emptyList()
             runCatching { duressResponder.trigger() }
-                .onFailure { logStore.append(Log.ERROR, "WardenPin", "duress reboot failed: $it") }
+                .onSuccess { protected -> if (!protected) logStore.append(Log.ERROR, "WardenPin", "duress reboot and lockNow both failed") }
+                .onFailure { logStore.append(Log.ERROR, "WardenPin", "duress trigger threw: $it") }
             return
         }
 

@@ -71,7 +71,13 @@ impl fmt::Debug for SigningKeyPair {
 
 /// Erzeugt ein frisches Ed25519-Schlüsselpaar. **Nie von Warden selbst aufgerufen** — nur vom
 /// Offline-Tool auf der Air-Gap-Maschine (Konzept Abschnitt 9, Meilenstein D.1).
-#[uniffi::export]
+///
+/// **Bewusst nicht `#[uniffi::export]`** (2026-09-04): vorher waren Keygen/Sign in den Kotlin-
+/// Bindings erreichbar, obwohl die Doku "nie auf dem Gerät" verlangt — ein zukünftiger
+/// Kotlin-Aufrufer haette den privaten Schluessel auf dem Geraet erzeugen/signieren koennen. Das
+/// Offline-Tool nutzt diese Funktionen als reine Rust-Funktionen (nicht via FFI), deshalb ist
+/// der Export nicht noetig. `pub` bleibt, damit das Bin-Target sie erreicht; UniFFI exportiert
+/// nur noch [verify_signature]/[generate_challenge].
 pub fn generate_signing_keypair() -> SigningKeyPair {
     let mut csprng = OsRng;
     let signing_key = SigningKey::generate(&mut csprng);
@@ -84,7 +90,10 @@ pub fn generate_signing_keypair() -> SigningKeyPair {
 /// Signiert `message` mit `secret_key`. **Nie von Warden selbst aufgerufen** — nur vom
 /// Offline-Tool (s. Moduldoc); existiert hier, damit Keygen/Sign/Verify dieselbe
 /// Ed25519-Implementierung teilen statt einer zweiten, separat gepflegten Kopie im Offline-Tool.
-#[uniffi::export]
+///
+/// **Bewusst nicht `#[uniffi::export]`** — s. [generate_signing_keypair]: Signieren darf nie auf
+/// dem Geraet laufen, der private Schluessel nie dorthin gelangen. Nur Rust-intern (`pub`)
+/// fuer das Offline-Tool.
 pub fn sign_message(secret_key: Vec<u8>, message: Vec<u8>) -> Result<Vec<u8>, SigningError> {
     let bytes: [u8; SECRET_KEY_LEN] = secret_key
         .as_slice()

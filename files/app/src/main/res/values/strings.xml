@@ -22,6 +22,8 @@
     <string name="onboarding_title">Zugriff auf den Speicher</string>
     <string name="onboarding_body">ConneXias Files braucht Zugriff auf den kompletten lokalen Speicher, um Dateien zu durchsuchen, zu kopieren, zu verschieben und zu löschen.</string>
     <string name="onboarding_action_grant">Zugriff erlauben</string>
+    <string name="onboarding_action_open_settings">In Einstellungen öffnen</string>
+    <string name="onboarding_denied_body">Der Zugriff wurde abgelehnt. ConneXias Files braucht Zugriff auf den Speicher, um Dateien zu verwalten. Bitte in den System-Einstellungen erlauben.</string>
 
     <string name="home_section_recent">Zuletzt verwendet</string>
     <string name="home_section_storage">Speicher</string>

@@ -46,6 +46,14 @@ fun CameraNavHost(
         composable(Routes.ONBOARDING) {
             val lifecycleOwner = LocalLifecycleOwner.current
             var hasAccess by remember { mutableStateOf(CameraPermission.hasAccess(context)) }
+            // "Nicht mehr fragen" (dauerhaft abgelehnt) — dann liefert der System-Dialog kein
+            // Ergebnis mehr, der "Zugriff erlauben"-Knopf wäre wirkungslos. Der Zustand wird im
+            // ActivityResult-Callback anhand shouldShowRequestPermissionRationale erkannt und
+            // beim ON_RESUME-Re-Check mitgeführt (falls die Berechtigung zwischenzeitlich in den
+            // System-Einstellungen erteilt wurde, fällt hasAccess auf true und der Zustand spielt
+            // keine Rolle mehr).
+            var permanentlyDenied by remember { mutableStateOf(false) }
+            val activity = CameraPermission.findActivity(context)
             // analyse.md ("RECORD_AUDIO Pflicht für Foto"): der Dialog fragt weiterhin auch
             // RECORD_AUDIO mit an (initialRequestSet, s. dortiges Klassendoc), aber ob das
             // Onboarding abgeschlossen ist, wird jetzt gegen CameraPermission.hasAccess()
@@ -54,7 +62,12 @@ fun CameraNavHost(
             // blockiert, obwohl [required] selbst RECORD_AUDIO gar nicht mehr enthält.
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions(),
-            ) { hasAccess = CameraPermission.hasAccess(context) }
+            ) {
+                hasAccess = CameraPermission.hasAccess(context)
+                if (!hasAccess && activity != null) {
+                    permanentlyDenied = !CameraPermission.canStillRequestRationale(activity)
+                }
+            }
 
             // CAMERA/RECORD_AUDIO können auch über die System-Einstellungen (statt den Dialog
             // oben) nachträglich gewährt werden, z. B. nach einem vorherigen "Nicht mehr
@@ -62,7 +75,10 @@ fun CameraNavHost(
             // ConneXias Files' Onboarding-Route.
             DisposableEffect(lifecycleOwner) {
                 val observer = LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_RESUME) hasAccess = CameraPermission.hasAccess(context)
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        hasAccess = CameraPermission.hasAccess(context)
+                        if (hasAccess) permanentlyDenied = false
+                    }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
                 onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -77,7 +93,11 @@ fun CameraNavHost(
             }
 
             if (!hasAccess) {
-                CameraPermissionScreen(onRequestAccess = { permissionLauncher.launch(CameraPermission.initialRequestSet) })
+                CameraPermissionScreen(
+                    permanentlyDenied = permanentlyDenied,
+                    onRequestAccess = { permissionLauncher.launch(CameraPermission.initialRequestSet) },
+                    onOpenSettings = { context.startActivity(CameraPermission.appDetailsSettingsIntent(context)) },
+                )
             }
         }
 

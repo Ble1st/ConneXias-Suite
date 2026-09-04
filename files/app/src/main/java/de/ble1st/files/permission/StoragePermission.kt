@@ -1,5 +1,6 @@
 package de.ble1st.files.permission
 
+import android.app.Activity
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -44,4 +45,27 @@ object StoragePermission {
         Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, "package:${context.packageName}".toUri())
 
     const val legacyPermission: String = Manifest.permission.WRITE_EXTERNAL_STORAGE
+
+    /** Liefert die einschließende Activity aus einem Context (Compose `LocalContext` ist eine
+     *  Activity-Wrapper). Liefert null, falls die Context-Hierarchie unerwartet keine Activity
+     *  enthält (z. B. Service-Context). */
+    fun findActivity(context: Context): Activity? {
+        var ctx = context
+        while (ctx is android.content.ContextWrapper) {
+            if (ctx is Activity) return ctx
+            ctx = ctx.baseContext
+        }
+        return ctx as? Activity
+    }
+
+    /** Intent in die Detail-Einstellungen dieser App, wo der Nutzer nach einer dauerhaften
+     *  Ablehnung ("Nicht mehr fragen") die Berechtigung manuell erteilen kann. */
+    fun appDetailsSettingsIntent(context: Context): Intent =
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())
+
+    /** Liefert true, wenn für die Legacy-Berechtigung (API < 30) noch eine erneute System-Anfrage
+     *  möglich ist (rationale zeigbar). False bedeutet "dauerhaft abgelehnt" — dann bleibt nur
+     *  [appDetailsSettingsIntent]. Auf API 30+ (MANAGE_EXTERNAL_STORAGE) nicht anwendbar. */
+    fun canStillRequestRationale(activity: Activity): Boolean =
+        activity.shouldShowRequestPermissionRationale(legacyPermission)
 }

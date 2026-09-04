@@ -74,10 +74,21 @@ class EnvelopeFile(
 
     /** Deletes both ciphertext and wrapped DEK. Used by failsafe PIN recovery so a corrupted
      * blob becomes [de.ble1st.warden.domain.pin.WardenPinStateDecision.LoadResult.NotYetConfigured]
-     * instead of staying [de.ble1st.warden.domain.pin.WardenPinStateDecision.LoadResult.Corrupted]. */
+     * instead of staying [de.ble1st.warden.domain.pin.WardenPinStateDecision.LoadResult.Corrupted].
+     *
+     * **Atomar in Bezug auf beide Dateien:** ein partieller Delete (eine Datei gelöscht, die andere
+     * bleibt) hinterlässt genau den "corrupted"-Zustand, den diese Methode heilen soll. Deshalb
+     * wird geprüft, dass danach *beide* weg sind — sonst wird eine [java.io.IOException] geworfen,
+     * statt still einen halbgelöschten Zustand zu hinterlassen, der bei einem späteren [read]
+     * als "kaputt" statt "nicht konfiguriert" interpretiert würde. */
     fun clearStorage() {
         dataFile.delete()
         wrappedDekFile.delete()
+        if (dataFile.exists() || wrappedDekFile.exists()) {
+            throw java.io.IOException(
+                "clearStorage unvollständig: dataFile exists=${dataFile.exists()}, dekFile exists=${wrappedDekFile.exists()}",
+            )
+        }
     }
 
     /** Geschwister-Envelope im selben Verzeichnis unter [dataFileName], mit demselben gewrappten

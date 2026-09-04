@@ -26,9 +26,16 @@ import de.ble1st.files.R
  * aufgeht — eine kommentarlose Sonderberechtigungs-Anfrage direkt beim ersten App-Start wäre für
  * die meisten Nutzer nicht nachvollziehbar (MANAGE_EXTERNAL_STORAGE hat keinen normalen
  * Runtime-Permission-Dialogtext, der das von selbst erklärt).
+ *
+ * Nach einer Ablehnung (Legacy-Pfad API < 30: "Nicht mehr fragen"; Settings-Pfad API 30+:
+ * Zurückkehren ohne Gewährung) schaltet [permanentlyDenied] auf den Einstellungen-Tief-Link um.
  */
 @Composable
-fun StoragePermissionScreen(onRequestAccess: () -> Unit) {
+fun StoragePermissionScreen(
+    permanentlyDenied: Boolean = false,
+    onRequestAccess: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+) {
     Scaffold { padding ->
         Column(
             modifier = Modifier
@@ -40,7 +47,7 @@ fun StoragePermissionScreen(onRequestAccess: () -> Unit) {
         ) {
             Icon(
                 imageVector = Icons.Filled.Folder,
-                contentDescription = null,
+                contentDescription = stringResource(R.string.onboarding_title),
                 modifier = Modifier.size(72.dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
@@ -50,12 +57,19 @@ fun StoragePermissionScreen(onRequestAccess: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
             Text(
-                text = stringResource(id = R.string.onboarding_body),
+                text = if (permanentlyDenied) stringResource(id = R.string.onboarding_denied_body)
+                       else stringResource(id = R.string.onboarding_body),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
             )
-            Button(onClick = onRequestAccess) {
-                Text(stringResource(id = R.string.onboarding_action_grant))
+            if (permanentlyDenied) {
+                Button(onClick = onOpenSettings) {
+                    Text(stringResource(id = R.string.onboarding_action_open_settings))
+                }
+            } else {
+                Button(onClick = onRequestAccess) {
+                    Text(stringResource(id = R.string.onboarding_action_grant))
+                }
             }
         }
     }

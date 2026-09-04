@@ -2,6 +2,7 @@ package de.ble1st.files.data.localshare
 
 import java.io.File
 import java.io.IOException
+import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLConnection
@@ -24,6 +25,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Token-Pflicht statt eines völlig offenen Servers: jeder im selben WLAN/Hotspot könnte sonst den
  * freigegebenen Ordner erraten/scannen und mitlesen, solange die Freigabe aktiv ist — das Token
  * steht nur in der Freigabe-URL, die der Nutzer selbst per Kopieren/Teilen weitergibt.
+ *
+ * **Härtung:** der Server lehnt Verbindungen von öffentlich routbaren IP-Adressen ab
+ * ([isLocalNetworkIp]) — ein Nutzer, der versehentlich in einem öffentlichen WLAN teilt, würde
+ * sonst dem ganzen Netz ausgesetzt sein. Das ist eine Heuristik (RFC1918/loopback/link-local),
+ * kein echter Schutz gegen ARP-Spoofing im selben Netz, aber sie verhindert den einfachsten
+ * Fremd-Zugriff. Zusätzlich: begrenzter Thread-Pool (DoS-Schutz), `X-Content-Type-Options: nosniff`
+ * gegen MIME-Sniffing und vollständiges HTML-Escaping (inkl. einfacher Anführungszeichen).
  */
 class LocalHttpServer(private val rootDir: File, private val token: String) {
 
@@ -35,6 +43,11 @@ class LocalHttpServer(private val rootDir: File, private val token: String) {
     var port: Int = 0
         private set
 
+    /** Begrenzter Thread-Pool statt newCachedThreadPool — ein unbegrenzter Pool wäre durch eine
+     *  einfache `while true; do curl …; done`-Schleife von einem einzelnen Host ressourcenerschöpfend
+     *  (DoS). 8 parallele Verbindungen decken jedes realistische Heimnetz-Szenario. */
+    private val maxConcurrentConnections: Int = 8
+
     /** Port 0 lässt das Betriebssystem einen freien Port wählen — eine feste Portnummer könnte
      * bereits belegt sein (z. B. von einer anderen App oder einem vorherigen, noch nicht ganz
      * geschlossenen Lauf dieses Servers). */
@@ -44,7 +57,7 @@ class LocalHttpServer(private val rootDir: File, private val token: String) {
         serverSocket = socket
         port = socket.localPort
         running.set(true)
-        val pool = Executors.newCachedThreadPool()
+        val pool = Executors.newFixedThreadPool(maxConcurrentConnections)
         executor = pool
         pool.execute {
             while (running.get()) {
@@ -66,6 +79,14 @@ class LocalHttpServer(private val rootDir: File, private val token: String) {
 
     private fun handleClient(client: Socket) {
         client.use { socket ->
+            // Nur Verbindungen aus lokalen Netzwerken zulassen — öffentliche IPs (z. B. wenn der
+            // Nutzer versehentlich in einem öffentlichen WLAN teilt) werden abgewiesen, bevor
+            // irgendein Pfad/Token ausgewertet wird. Loopback (Tests/lokaler Zugriff) und
+            // RFC1918/link-local sind erlaubt.
+            if (!isLocalNetworkIp(socket.inetAddress)) {
+                runCatching { socket.close() }
+                return
+            }
             runCatching {
                 socket.soTimeout = 10_000
                 val input = socket.getInputStream().bufferedReader(Charsets.ISO_8859_1)
@@ -165,6 +186,7 @@ class LocalHttpServer(private val rootDir: File, private val token: String) {
         val output = client.getOutputStream()
         val header = "HTTP/1.1 200 OK\r\n" +
             "Content-Type: $contentType\r\n" +
+            "X-Content-Type-Options: nosniff\r\n" +
             "Content-Length: ${file.length()}\r\n" +
             "Connection: close\r\n\r\n"
         output.write(header.toByteArray(Charsets.ISO_8859_1))
@@ -177,6 +199,7 @@ class LocalHttpServer(private val rootDir: File, private val token: String) {
         val output = client.getOutputStream()
         val header = "HTTP/1.1 $statusCode $statusText\r\n" +
             "Content-Type: $contentType\r\n" +
+            "X-Content-Type-Options: nosniff\r\n" +
             "Content-Length: ${bodyBytes.size}\r\n" +
             "Connection: close\r\n\r\n"
         output.write(header.toByteArray(Charsets.ISO_8859_1))
@@ -184,9 +207,16 @@ class LocalHttpServer(private val rootDir: File, private val token: String) {
         output.flush()
     }
 
+    /** Liefert true für Loopback-, RFC1918- und link-local-Adressen — die einzigen Adressen, die
+     *  bei einer Heimnetz-/Hotspot-Freigabe legitim sind. Öffentliche IPs werden abgewiesen, damit
+     *  ein versehentliches Teilen in einem öffentlichen WLAN nicht dem ganzen Netz aussetzt. */
+    private fun isLocalNetworkIp(address: InetAddress): Boolean =
+        address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress
+
     private fun htmlEscape(text: String): String = text
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace("\"", "&quot;")
+        .replace("'", "&#39;")
 }

@@ -10,6 +10,7 @@ import de.ble1st.warden.domain.presence.SensitiveActionDecisionResult
 import de.ble1st.warden.domain.presence.SensitiveActionOutcome
 import de.ble1st.warden.logging.HashChainLogStore
 import de.ble1st.warden.registry.MasterSwitchResult
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Meilenstein F.3 (Konzept Abschnitt 8/9/19): "`wipeData()`/`reboot()`/Masterschalter-Revert
@@ -75,6 +76,12 @@ class DestructiveActionExecutor(
     private val performLockdownArm: () -> Unit = {},
     private val performLockTaskEngage: () -> Boolean = { false },
 ) {
+    /** Verhindert, dass eine destruktive Aktion zweimal läuft, wenn der Nutzer "Bestätigen"
+     *  schnell doppelt tippt, bevor der erste Aufruf zurückkehrt (z. B. weil `performReboot`
+     *  asynchron anstößt und der UI-Thread noch reagiert). `RateLimiter` allein erlaubt bis zu
+     *  5 Aufrufe pro Fenster — das ist für eine versehentliche Doppel-Eingabe kein Schutz. */
+    private val actionInProgress = AtomicBoolean(false)
+
     fun execute(action: SensitiveAction, confirmationText: String, proof: PresenceProof): SensitiveActionOutcome =
         executeInternal(action, confirmationText, presenceConsumed = proof.consume())
 
@@ -113,24 +120,36 @@ class DestructiveActionExecutor(
         confirmationText: String,
         presenceConsumed: Boolean,
     ): SensitiveActionOutcome {
-        val executionAllowed = DestructiveCommandGuard.isExecutionAllowed(isDebugBuild)
-        val rateLimitOk = rateLimiter.allow(action.name)
-        val confirmationTextMatches = confirmationText == action.confirmationPhrase
+        // Doppel-Tap-Schutz: ein zweiter Bestätigen-Tipp, bevor der erste Aufruf (z. B. Reboot)
+        // zurückkehrt, würde dieselbe Aktion zweimal anstoßen. AtomicBoolean.compareAndSet liefert
+        // false, wenn schon ein Aufruf läuft — der zweite Tipp wird abgewiesen, statt doppelt zu
+        // wirken. Freigegeben wird unten im finally-Block von [runAction].
+        if (!actionInProgress.compareAndSet(false, true)) {
+            logStore.append(Log.INFO, TAG, "sensitive action $action denied — another action already in progress")
+            return SensitiveActionOutcome.Denied(SensitiveActionDecisionResult.RateLimited)
+        }
+        try {
+            val executionAllowed = DestructiveCommandGuard.isExecutionAllowed(isDebugBuild)
+            val rateLimitOk = rateLimiter.allow(action.name)
+            val confirmationTextMatches = confirmationText == action.confirmationPhrase
 
-        val decision = SensitiveActionDecision.evaluate(executionAllowed, rateLimitOk, confirmationTextMatches, presenceConsumed)
+            val decision = SensitiveActionDecision.evaluate(executionAllowed, rateLimitOk, confirmationTextMatches, presenceConsumed)
 
-        // "Logging vor Ausführung" (Konzept Abschnitt 8) — die Entscheidung selbst wird geloggt,
-        // bevor (im Approved-Fall) die eigentliche Aktion überhaupt läuft.
-        logStore.append(
-            priority = if (decision == SensitiveActionDecisionResult.Approved) Log.WARN else Log.INFO,
-            tag = TAG,
-            message = "sensitive action $action -> $decision",
-        )
+            // "Logging vor Ausführung" (Konzept Abschnitt 8) — die Entscheidung selbst wird geloggt,
+            // bevor (im Approved-Fall) die eigentliche Aktion überhaupt läuft.
+            logStore.append(
+                priority = if (decision == SensitiveActionDecisionResult.Approved) Log.WARN else Log.INFO,
+                tag = TAG,
+                message = "sensitive action $action -> $decision",
+            )
 
-        return if (decision == SensitiveActionDecisionResult.Approved) {
-            runAction(action)
-        } else {
-            SensitiveActionOutcome.Denied(decision)
+            return if (decision == SensitiveActionDecisionResult.Approved) {
+                runAction(action)
+            } else {
+                SensitiveActionOutcome.Denied(decision)
+            }
+        } finally {
+            actionInProgress.set(false)
         }
     }
 

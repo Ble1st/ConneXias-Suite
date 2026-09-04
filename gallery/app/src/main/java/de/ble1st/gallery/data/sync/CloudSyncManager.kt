@@ -1,7 +1,9 @@
 package de.ble1st.gallery.data.sync
 
 import android.content.Context
+import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -39,10 +41,18 @@ object CloudSyncManager {
     private const val WORK_NAME = "cloud_sync"
 
     fun startSync(context: Context) {
+        // NetworkType.CONNECTED verhindert, dass der Worker sofort startet und jedes Element mit
+        // "fehlgeschlagen" zählt, wenn das Gerät gar kein Netz hat — vorher lief ein Lauf ohne
+        // jegliche Constraint und markierte bei offline-Gerät die ganze Mediathek als fehlgeschlagen.
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             WORK_NAME,
             ExistingWorkPolicy.KEEP,
-            OneTimeWorkRequestBuilder<CloudSyncWorker>().build(),
+            OneTimeWorkRequestBuilder<CloudSyncWorker>()
+                .setConstraints(constraints)
+                .build(),
         )
     }
 

@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.util.LruCache
 import java.io.File
+import java.util.concurrent.Semaphore
 
 /**
  * Miniaturbilder für Videodateien in der Grid-Ansicht. Die Grid-Ansicht zeigte bis 2026-09-03 nur
@@ -69,8 +70,15 @@ object VideoThumbnails {
                     TARGET_SIZE_PX,
                 )
             } else {
-                retriever.getFrameAtTime(FRAME_TIME_MICROS, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    ?.let { full -> scaleDown(full) }
+                // API 26: getScaledFrameAtTime fehlt, getFrameAtTime dekodiert Full-Resolution.
+                // Semaphor verhindert mehrere parallele 33-MB-Frames beim Grid-Scrollen (OOM).
+                api26DecodePermit.acquire()
+                try {
+                    retriever.getFrameAtTime(FRAME_TIME_MICROS, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        ?.let { full -> scaleDown(full) }
+                } finally {
+                    api26DecodePermit.release()
+                }
             }
             frame
         } finally {
@@ -97,6 +105,13 @@ object VideoThumbnails {
     /** Erste Sekunde statt Position 0: viele Videos beginnen mit einem schwarzen oder fast
      * schwarzen Bild, das als Vorschau nichts aussagt. */
     private const val FRAME_TIME_MICROS = 1_000_000L
+
+    /** Begrenzt gleichzeitige API-26-Dekodierungen auf 1 — `getFrameAtTime` (ohne `getScaled…`)
+     *  dekodiert einen Full-Resolution-Frame (~33 MB für 4K ARGB_8888), bevor [scaleDown] verkleinert.
+     *  Mehrere parallele Anfragen beim schnellen Grid-Scrollen konnten auf Geräten mit knappem
+     *  Heap OOM auslösen, bevor der 8-MiB-Cache-Cap griff. API 27+ nutzt `getScaledFrameAtTime`
+     *  (skaliert im Decoder) und braucht die Sperre nicht. */
+    private val api26DecodePermit = Semaphore(1)
 }
 
 /** 8 MiB — bei 256×256 in ARGB_8888 (256 KiB je Bild) rund 32 Vorschaubilder, also deutlich mehr

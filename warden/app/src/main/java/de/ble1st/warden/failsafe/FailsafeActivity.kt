@@ -171,12 +171,25 @@ class FailsafeActivity : FragmentActivity() {
                 verifier = OfflineFailsafeVerifier(),
                 revertAllSafeguards = { masterSwitch.disarm() },
                 resetDeviceCredential = { newPassword ->
-                    credentialResetter.ensureActive()
-                    credentialResetter.reset(newPassword)
+                    // ensureActive() liefert false, wenn das Reset-Token nicht aktiviert werden
+                    // konnte (z. B. Token-Persistenz korrupt) — in diesem Fall schlägt reset()
+                    // ohnehin fehl, der vorherige Code ignorierte den Rückgabewert und rief
+                    // reset() blind auf. Frühzeitiger Abbruch liefert ein klares false statt
+                    // false-von-resetPasswordWithToken zu erraten.
+                    if (!credentialResetter.ensureActive()) {
+                        false
+                    } else {
+                        credentialResetter.reset(newPassword)
+                    }
                 },
                 resetLocalPinSecrets = {
-                    pinStore.clearForRecovery()
-                    duressStore.clearForRecovery()
+                    // revertAllSafeguards/resetDeviceCredential sind bereits gelaufen — ein
+                    // geworfener Fehler aus clearForRecovery() darf den gesamten
+                    // submitResponse-Aufruf nicht crashen lassen, sonst sieht der Nutzer ein
+                    // generisches Fehler-Template, obwohl die eigentliche Failsafe-Aktion schon
+                    // stattgefunden hat. Fehler werden protokolliert statt propagiert.
+                    runCatching { pinStore.clearForRecovery() }.onFailure { Log.w(TAG, "pinStore.clearForRecovery failed", it) }
+                    runCatching { duressStore.clearForRecovery() }.onFailure { Log.w(TAG, "duressStore.clearForRecovery failed", it) }
                 },
                 onEvent = { event -> logEvent(logStore, event) },
             )

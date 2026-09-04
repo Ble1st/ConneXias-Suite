@@ -4,6 +4,8 @@
     <string name="onboarding_title">Zugriff auf Fotos und Videos</string>
     <string name="onboarding_body">ConneXias Galerie braucht Zugriff auf Fotos und Videos, um sie anzuzeigen, zu sortieren und zu verwalten.</string>
     <string name="onboarding_action_grant">Zugriff erlauben</string>
+    <string name="onboarding_action_open_settings">In Einstellungen öffnen</string>
+    <string name="onboarding_denied_body">Der Zugriff wurde abgelehnt. ConneXias Galerie braucht Zugriff auf Fotos und Videos, um sie anzuzeigen. Bitte in den System-Einstellungen erlauben.</string>
 
     <string name="albums_title">Alben</string>
     <string name="album_all">Alle</string>

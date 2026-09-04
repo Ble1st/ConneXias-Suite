@@ -4,6 +4,8 @@
     <string name="onboarding_title">Zugriff auf Kamera und Mikrofon</string>
     <string name="onboarding_body">ConneXias Kamera braucht Zugriff auf die Kamera, um Fotos und Videos aufzunehmen, und auf das Mikrofon, um Videos mit Ton aufzuzeichnen.</string>
     <string name="onboarding_action_grant">Zugriff erlauben</string>
+    <string name="onboarding_action_open_settings">In Einstellungen öffnen</string>
+    <string name="onboarding_denied_body">Der Zugriff wurde abgelehnt. ConneXias Kamera braucht die Kamera-Berechtigung, um Fotos und Videos aufzunehmen. Bitte in den System-Einstellungen erlauben.</string>
 
     <string name="capture_mode_photo">Foto</string>
     <string name="capture_mode_video">Video</string>

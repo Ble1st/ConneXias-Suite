@@ -70,9 +70,20 @@ fun FilesNavHost(onPicked: (List<Uri>) -> Unit = {}) {
         composable(Routes.ONBOARDING) {
             val lifecycleOwner = LocalLifecycleOwner.current
             var hasAccess by remember { mutableStateOf(StoragePermission.hasFullAccess(context)) }
+            var permanentlyDenied by remember { mutableStateOf(false) }
+            // Verfolgt, ob der Nutzer mindestens einmal den Settings-Bildschirm (API 30+) geöffnet
+            // hat — erst danach ist "In Einstellungen öffnen" sinnvoller als "Zugriff erlauben",
+            // weil der erste Knopfdruck die App verlässt und der Nutzer ohne Gewährung zurückkommt.
+            var settingsAttempted by remember { mutableStateOf(false) }
+            val activity = StoragePermission.findActivity(context)
             val legacyPermissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission(),
-            ) { granted -> hasAccess = granted }
+            ) { granted ->
+                hasAccess = granted
+                if (!granted && activity != null) {
+                    permanentlyDenied = !StoragePermission.canStillRequestRationale(activity)
+                }
+            }
 
             // MANAGE_EXTERNAL_STORAGE (API 30+) wird nicht über einen ActivityResult-Contract
             // gewährt, sondern über einen normalen Settings-Bildschirm, den der Nutzer mit "Zurück"
@@ -82,6 +93,16 @@ fun FilesNavHost(onPicked: (List<Uri>) -> Unit = {}) {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_RESUME) {
                         hasAccess = StoragePermission.hasFullAccess(context)
+                        if (hasAccess) {
+                            permanentlyDenied = false
+                            settingsAttempted = false
+                        } else if (settingsAttempted) {
+                            // Nach dem ersten Settings-Versuch ohne Gewährung bleibt nur der
+                            // erneute Aufruf der Einstellungen — der "erlauben"-Knopf würde
+                            // denselben Settings-Bildschirm öffnen, ein klarer "In Einstellungen
+                            // öffnen"-Text vermeidet die Sackgasse-Wirkung.
+                            permanentlyDenied = true
+                        }
                     }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
@@ -98,11 +119,21 @@ fun FilesNavHost(onPicked: (List<Uri>) -> Unit = {}) {
 
             if (!hasAccess) {
                 StoragePermissionScreen(
+                    permanentlyDenied = permanentlyDenied,
                     onRequestAccess = {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            settingsAttempted = true
                             context.startActivity(StoragePermission.manageAllFilesIntent(context))
                         } else {
                             legacyPermissionLauncher.launch(StoragePermission.legacyPermission)
+                        }
+                    },
+                    onOpenSettings = {
+                        settingsAttempted = true
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            context.startActivity(StoragePermission.manageAllFilesIntent(context))
+                        } else {
+                            context.startActivity(StoragePermission.appDetailsSettingsIntent(context))
                         }
                     },
                 )
