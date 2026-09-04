@@ -50,12 +50,13 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
             // R8 bleibt hier bewusst aus — anders als bei Warden (dort seit 2026-08-25 aktiv, mit
-            // eigenen Keep-Regeln für JNA/UniFFI). Diese App bündelt mit Coil, Media3, OkHttp und
-            // EncryptedSharedPreferences mehrere reflektionslastige Bibliotheken, und R8s
-            // Umbenennung bricht so etwas typischerweise erst zur Laufzeit, nicht beim Bauen. Ohne
-            // Testgerät in dieser Umgebung wäre das ungeprüft ausgeliefert — dieselbe Abwägung wie
-            // bei den nicht umgesetzten Kamera-Features. Einschaltbar, sobald ein Gerätetest gegen
-            // eine minifizierte Release-APK laufen kann.
+            // eigenen Keep-Regeln für JNA/UniFFI). Diese App bündelt mit Coil, Media3 und OkHttp
+            // mehrere reflektionslastige Bibliotheken, und R8s Umbenennung bricht so etwas
+            // typischerweise erst zur Laufzeit, nicht beim Bauen. (Mit security-crypto/Tink ist
+            // seit 2026-09-04 eine davon weg — s. data/crypto/SecretStore.kt —, die übrigen
+            // bleiben.) Ohne Testgerät in dieser Umgebung wäre das ungeprüft ausgeliefert —
+            // dieselbe Abwägung wie bei den nicht umgesetzten Kamera-Features. Einschaltbar,
+            // sobald ein Gerätetest gegen eine minifizierte Release-APK laufen kann.
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -119,7 +120,6 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     // WebDAV-Netzwerkspeicher-Anbindung — s. data/webdav/.
     implementation(libs.okhttp)
-    implementation(libs.androidx.security.crypto)
     implementation(libs.zxing.core)
 
     testImplementation(libs.junit)

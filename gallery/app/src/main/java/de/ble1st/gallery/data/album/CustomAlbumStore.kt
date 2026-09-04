@@ -15,8 +15,9 @@ import org.json.JSONObject
  * Dateien, keine zusätzliche Speicherkopie), sondern nur eine hier gespeicherte Liste von
  * Referenzen — verschwindet ein referenziertes Element aus MediaStore (gelöscht), verschwindet es
  * beim nächsten Laden automatisch auch aus jedem Album, ohne dass diese Klasse davon wissen muss.
- * Klartext-`SharedPreferences` statt `EncryptedSharedPreferences` (anders als ConneXias Files'
- * `WebDavAccountStore`) — hier werden keine Zugangsdaten abgelegt, nur Namen/IDs.
+ * Klartext-`SharedPreferences` statt [de.ble1st.gallery.data.crypto.SecretStore] (anders als
+ * [de.ble1st.gallery.data.webdav.WebDavAccountStore]) — hier werden keine Zugangsdaten abgelegt,
+ * nur Namen/IDs.
  */
 object CustomAlbumStore {
     private const val PREFS_FILE = "custom_albums"

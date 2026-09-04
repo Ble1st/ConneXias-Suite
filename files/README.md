@@ -25,7 +25,8 @@ expressive-nahen Formsprache, s. `ui/theme/Theme.kt`), Jetpack Compose.
   von Textdateien bis 2 MB, mit Verwerfen-Rückfrage bei ungespeicherten Änderungen.
 - Netzwerkspeicher per WebDAV (`data/webdav/`, `ui/webdav/`): eigener OkHttp-Client
   (PROPFIND/GET/PUT/DELETE/MKCOL/MOVE, Basic Auth), beliebig viele Server-Konten
-  mit verschlüsselt gespeicherten Zugangsdaten (`EncryptedSharedPreferences`).
+  mit verschlüsselt gespeicherten Zugangsdaten (`data/crypto/SecretStore.kt`,
+  AES-256/GCM mit Schlüssel aus dem Android-Keystore).
   Durchsuchen, Herunterladen, Hochladen (SAF-Picker), Umbenennen, Löschen, Neuer
   Ordner. Bild-/Video-Dateien werden in einen Cache-Ordner geladen und im
   vorhandenen Bild-/Videobetrachter geöffnet; alle anderen Dateitypen werden

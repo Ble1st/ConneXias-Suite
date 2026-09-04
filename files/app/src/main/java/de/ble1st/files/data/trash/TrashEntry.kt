@@ -29,8 +29,9 @@ data class TrashEntry(
 }
 
 /**
- * Persistiert die Papierkorb-Metadaten. Klartext-SharedPreferences (kein `EnvelopeFile`/
- * `EncryptedSharedPreferences` wie bei den WebDAV-Zugangsdaten) — Pfade/Zeitstempel sind kein
+ * Persistiert die Papierkorb-Metadaten. Klartext-SharedPreferences (kein
+ * [de.ble1st.files.data.crypto.SecretStore] wie bei den WebDAV-Zugangsdaten) — Pfade/Zeitstempel
+ * sind kein
  * Geheimnis, dasselbe Argument wie bei [de.ble1st.files.data.webdav.WebDavAccountStore] für die
  * unverschlüsselten Felder dort. Gleiches org.json-Array-Muster wie dort: eine Handvoll bis
  * einige Dutzend Einträge rechtfertigen kein eigenes Room-Schema.

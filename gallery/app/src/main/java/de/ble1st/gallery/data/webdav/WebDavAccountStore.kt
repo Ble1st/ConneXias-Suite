@@ -1,19 +1,18 @@
 package de.ble1st.gallery.data.webdav
 
 import android.content.Context
-import androidx.core.content.edit
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import de.ble1st.gallery.data.crypto.SecretStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Persistiert das eine konfigurierte WebDAV-Backup-Konto. [EncryptedSharedPreferences] statt
- * Klartext-Prefs, weil hier – anders als beim Rest der App – tatsächlich ein Passwort abgelegt
- * wird (dieselbe Wahl wie ConneXias Files' `WebDavAccountStore`).
+ * Persistiert das eine konfigurierte WebDAV-Backup-Konto. [SecretStore] statt Klartext-Prefs,
+ * weil hier – anders als beim Rest der App – tatsächlich ein Passwort abgelegt wird (dieselbe
+ * Wahl wie ConneXias Files' `WebDavAccountStore`).
  */
 object WebDavAccountStore {
-    private const val PREFS_FILE = "webdav_account_encrypted"
+    private const val PREFS_FILE = "webdav_account"
+    private const val KEY_ALIAS = "de.ble1st.gallery.webdav"
     private const val KEY_BASE_URL = "baseUrl"
     private const val KEY_USERNAME = "username"
     private const val KEY_PASSWORD = "password"
@@ -37,34 +36,36 @@ object WebDavAccountStore {
     }
 
     fun save(context: Context, account: WebDavAccount) {
-        prefs(context).edit {
-            putString(KEY_BASE_URL, account.baseUrl)
-            putString(KEY_USERNAME, account.username)
-            putString(KEY_PASSWORD, account.password)
-        }
+        store(context).putStrings(
+            mapOf(
+                KEY_BASE_URL to account.baseUrl,
+                KEY_USERNAME to account.username,
+                KEY_PASSWORD to account.password,
+            ),
+        )
         _account.value = account
         initialized = true
     }
 
     fun clear(context: Context) {
-        prefs(context).edit { clear() }
+        store(context).clear()
         _account.value = null
         initialized = true
     }
 
-    private fun prefs(context: Context) = EncryptedSharedPreferences.create(
-        context,
-        PREFS_FILE,
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    @Volatile
+    private var store: SecretStore? = null
+
+    private fun store(context: Context): SecretStore =
+        store ?: synchronized(this) {
+            store ?: SecretStore(context, PREFS_FILE, KEY_ALIAS).also { store = it }
+        }
 
     private fun read(context: Context): WebDavAccount? {
-        val prefs = prefs(context)
-        val baseUrl = prefs.getString(KEY_BASE_URL, null) ?: return null
-        val username = prefs.getString(KEY_USERNAME, null) ?: return null
-        val password = prefs.getString(KEY_PASSWORD, null) ?: return null
+        val store = store(context)
+        val baseUrl = store.getString(KEY_BASE_URL) ?: return null
+        val username = store.getString(KEY_USERNAME) ?: return null
+        val password = store.getString(KEY_PASSWORD) ?: return null
         return WebDavAccount(baseUrl, username, password)
     }
 }

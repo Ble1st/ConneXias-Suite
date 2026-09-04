@@ -30,16 +30,13 @@ androidx.media3:media3-exoplayer, media3-ui
 org.jetbrains.kotlin:kotlin-stdlib
 org.jetbrains.kotlinx:kotlinx-coroutines-android
 androidx.documentfile:documentfile
-androidx.security:security-crypto
-com.google.crypto.tink:tink-android (transitiv über security-crypto)
 com.squareup.okhttp3:okhttp
 com.squareup.okio:okio (transitiv über okhttp)
 com.google.zxing:core
 ```
 
-okhttp trägt den eigenen WebDAV-Client (data/webdav/); security-crypto
-verschlüsselt die WebDAV-Zugangsdaten (EncryptedSharedPreferences) und zieht
-dafür Tink nach; zxing:core erzeugt den QR-Code der Netzwerkfreigabe
+okhttp trägt den eigenen WebDAV-Client (data/webdav/); zxing:core erzeugt den
+QR-Code der Netzwerkfreigabe
 (ui/localshare/) und hat selbst keine Abhängigkeiten.
 
 ## Nur zur Bauzeit / in Tests

@@ -30,17 +30,14 @@ androidx.media3:media3-exoplayer, media3-ui
 org.jetbrains.kotlin:kotlin-stdlib
 org.jetbrains.kotlinx:kotlinx-coroutines-android
 androidx.exifinterface:exifinterface
-androidx.security:security-crypto
-com.google.crypto.tink:tink-android (transitiv über security-crypto)
 com.squareup.okhttp3:okhttp
 com.squareup.okio:okio (transitiv über okhttp)
 androidx.work:work-runtime-ktx
 androidx.startup:startup-runtime (transitiv über work-runtime)
 ```
 
-okhttp trägt den eigenen WebDAV-Client der Cloud-Sicherung (data/webdav/);
-security-crypto verschlüsselt die dortigen Zugangsdaten und zieht dafür Tink
-nach. exifinterface liest/schreibt die Aufnahme-Rotation im Bildeditor;
+okhttp trägt den eigenen WebDAV-Client der Cloud-Sicherung (data/webdav/).
+exifinterface liest/schreibt die Aufnahme-Rotation im Bildeditor;
 work-runtime führt die Cloud-Sicherung als persistenten Hintergrundauftrag aus
 (data/sync/CloudSyncWorker.kt) und zieht dafür androidx.startup nach.
 
