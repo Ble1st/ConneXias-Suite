@@ -3,12 +3,16 @@ package de.ble1st.warden.crypto
 import android.content.Context
 import android.content.pm.PackageManager
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
+import de.ble1st.warden.domain.encryption.KeystoreSecurityLevel
 import java.security.Key
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import uniffi.connexias_engine.Envelope
 import uniffi.connexias_engine.KeyWrapper
@@ -65,6 +69,30 @@ class KeystoreKek(
             .setKeySize(256)
             .setIsStrongBoxBacked(strongBoxBacked)
             .build()
+
+    /**
+     * Feature 5 "Storage Encryption Verification" (`warden/docs/phase-0-design-features-2-7.md`,
+     * nachgeholt 2026-09-04, s. [de.ble1st.warden.domain.encryption.EncryptionRecommendationDecision]
+     * für den vollständigen Realitätsabgleich): `hasStrongBox`/`FEATURE_STRONGBOX_KEYSTORE` sagt
+     * nur, ob StrongBox auf diesem Gerät grundsätzlich *möglich* wäre, nicht ob dieser konkrete
+     * Schlüssel tatsächlich so gelandet ist (s. den `StrongBoxUnavailableException`-Fallback
+     * oben). `KeyInfo.securityLevel` (API 31+, unter minSdk 35 immer verfügbar) ist der einzige
+     * Weg, das am tatsächlichen Schlüssel nachzuprüfen statt nur die Geräte-Fähigkeit zu raten.
+     * Für [de.ble1st.warden.integrity.KeystoreSecurityLevelReader].
+     */
+    fun securityLevel(): KeystoreSecurityLevel = try {
+        val factory = SecretKeyFactory.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+        val info = factory.getKeySpec(existingOrNewKey() as SecretKey, KeyInfo::class.java) as KeyInfo
+        when (info.securityLevel) {
+            KeyProperties.SECURITY_LEVEL_STRONGBOX,
+            KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT,
+            -> KeystoreSecurityLevel.HARDWARE_BACKED
+            KeyProperties.SECURITY_LEVEL_SOFTWARE -> KeystoreSecurityLevel.SOFTWARE
+            else -> KeystoreSecurityLevel.UNKNOWN
+        }
+    } catch (e: Exception) {
+        KeystoreSecurityLevel.UNKNOWN
+    }
 
     override fun wrap(dek: ByteArray): Envelope {
         try {

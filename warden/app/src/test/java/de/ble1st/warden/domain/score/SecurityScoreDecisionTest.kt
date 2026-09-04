@@ -1,5 +1,6 @@
 package de.ble1st.warden.domain.score
 
+import de.ble1st.warden.domain.encryption.KeystoreSecurityLevel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,6 +25,7 @@ class SecurityScoreDecisionTest {
             adbEnabled = false,
             developerOptionsEnabled = false,
             storageEncrypted = true,
+            keystoreSecurityLevel = KeystoreSecurityLevel.HARDWARE_BACKED,
             activeSafeguards = 32,
             totalSafeguards = 32,
         )
@@ -64,20 +66,23 @@ class SecurityScoreDecisionTest {
             adbEnabled = true,
             developerOptionsEnabled = true,
             storageEncrypted = false,
+            keystoreSecurityLevel = KeystoreSecurityLevel.SOFTWARE,
         )
-        // 100 - 50 (root) - 15 (adb) - 10 (dev options) - 25 (keine Verschlüsselung) = 0
+        // 100 - 50 (root) - 15 (adb) - 10 (dev options) - 25 (keine Verschlüsselung) - 15 (Software-KeyStore) = -15 -> 0
         assertEquals(0, score)
     }
 
     @Test
     fun integrityScoreNeverGoesNegative() {
-        // mehr Abzüge als möglich absichtlich nicht erreichbar über die vier Booleans/Root-Zahl,
-        // aber coerceIn muss trotzdem greifen falls die Gewichte sich künftig ändern.
+        // mehr Abzüge als möglich absichtlich nicht erreichbar über die Booleans/Root-Zahl/den
+        // KeyStore-Zustand, aber coerceIn muss trotzdem greifen falls die Gewichte sich künftig
+        // ändern.
         val score = SecurityScoreDecision.integrityScore(
             rootIndicatorCount = 5,
             adbEnabled = true,
             developerOptionsEnabled = true,
             storageEncrypted = false,
+            keystoreSecurityLevel = KeystoreSecurityLevel.SOFTWARE,
         )
         assertTrue(score >= 0)
     }
@@ -89,8 +94,36 @@ class SecurityScoreDecisionTest {
             adbEnabled = true,
             developerOptionsEnabled = false,
             storageEncrypted = true,
+            keystoreSecurityLevel = KeystoreSecurityLevel.HARDWARE_BACKED,
         )
         assertEquals(85, score)
+    }
+
+    @Test
+    fun softwareKeystoreCostsFifteenPoints() {
+        val score = SecurityScoreDecision.integrityScore(
+            rootIndicatorCount = 0,
+            adbEnabled = false,
+            developerOptionsEnabled = false,
+            storageEncrypted = true,
+            keystoreSecurityLevel = KeystoreSecurityLevel.SOFTWARE,
+        )
+        assertEquals(85, score)
+    }
+
+    @Test
+    fun unknownKeystoreSecurityLevelIsNotPenalized() {
+        // Unsicherheit über dieses eine Signal wird nicht bestraft (Fail-Safe-Haltung, s.
+        // SecurityScoreDecision-Klassendoc) — nur ein bestätigt software-basierter KeyStore kostet
+        // Punkte.
+        val score = SecurityScoreDecision.integrityScore(
+            rootIndicatorCount = 0,
+            adbEnabled = false,
+            developerOptionsEnabled = false,
+            storageEncrypted = true,
+            keystoreSecurityLevel = KeystoreSecurityLevel.UNKNOWN,
+        )
+        assertEquals(100, score)
     }
 
     @Test
@@ -123,6 +156,7 @@ class SecurityScoreDecisionTest {
             adbEnabled = true,
             developerOptionsEnabled = true,
             storageEncrypted = false,
+            keystoreSecurityLevel = KeystoreSecurityLevel.SOFTWARE,
             activeSafeguards = 0,
             totalSafeguards = 32,
         )
