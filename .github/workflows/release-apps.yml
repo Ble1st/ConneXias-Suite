@@ -139,7 +139,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # Derselbe Keystore wie bei Warden (dasselbe Secret) — die drei Apps koppeln zwar nicht über
       # signature-Permissions aneinander (das tun nur Warden und Sentinel), aber ein einheitliches
