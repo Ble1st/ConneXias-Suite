@@ -33,7 +33,7 @@ sha2 = "0.11"
 argon2 = "0.5"
 # Direkt als Dependency gepinnt (statt nur transitiv über argon2), um das "getrandom"-Feature
 # zu erzwingen — sonst fehlt password_hash::rand_core::OsRng (Feature-Unifikation, siehe B.1-Notizen).
-password-hash = { version = "0.5", features = ["getrandom"] }
+password-hash = { version = "0.6", features = ["getrandom"] }
 uniffi = "0.32"
 # Erstes echtes Geheimnis der Engine (Meilenstein B.3, siehe B.1-Notiz in aead.rs/password.rs:
 # "echte Geheimnisse kommen erst mit B.3") — DEKs zeroizen statt nur öffentliche Envelope-/
