@@ -719,10 +719,6 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_connexias_engine_checksum_func_generate_challenge(
     ): Int
-    external fun uniffi_connexias_engine_checksum_func_generate_signing_keypair(
-    ): Int
-    external fun uniffi_connexias_engine_checksum_func_sign_message(
-    ): Int
     external fun uniffi_connexias_engine_checksum_func_verify_signature(
     ): Int
     external fun uniffi_connexias_engine_checksum_method_keywrapper_wrap(
@@ -775,10 +771,6 @@ internal object UniffiLib {
     external fun uniffi_connexias_engine_fn_func_verify_password(`password`: RustBuffer.ByValue,`hash`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     external fun uniffi_connexias_engine_fn_func_generate_challenge(`length`: Int,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_connexias_engine_fn_func_generate_signing_keypair(uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_connexias_engine_fn_func_sign_message(`secretKey`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_connexias_engine_fn_func_verify_signature(`publicKey`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`signature`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
@@ -907,7 +899,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_connexias_engine_checksum_func_seal() != 3208) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_connexias_engine_checksum_func_generate_dek() != 10032) {
+    if (lib.uniffi_connexias_engine_checksum_func_generate_dek() != 37982) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_connexias_engine_checksum_func_derive_key() != 50786) {
@@ -919,19 +911,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_connexias_engine_checksum_func_unwrap_dek() != 11773) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_connexias_engine_checksum_func_hash_password() != 55431) {
+    if (lib.uniffi_connexias_engine_checksum_func_hash_password() != 22188) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_connexias_engine_checksum_func_verify_password() != 23059) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_connexias_engine_checksum_func_generate_challenge() != 61496) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_connexias_engine_checksum_func_generate_signing_keypair() != 17581) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_connexias_engine_checksum_func_sign_message() != 61334) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_connexias_engine_checksum_func_verify_signature() != 49769) {
@@ -2280,9 +2266,16 @@ public object FfiConverterTypeWrapError : FfiConverterRustBuffer<WrapException> 
     
 
         /**
-         * Erzeugt `length` kryptografisch zufällige Bytes (`OsRng`, dieselbe CSPRNG-Quelle wie
-         * Argon2-Salts in [crate::password] und AEAD-Nonces in [crate::aead] — ein Zufallsquellen-Pfad
+         * Erzeugt `length` kryptografisch zufällige Bytes (`OsRng`, dieselbe direkt gepinnte
+         * `rand_core`-Instanz wie [crate::signing]s Ed25519-Schlüsselerzeugung — ein Zufallsquellen-Pfad
          * für die ganze Engine).
+         *
+         * Bis argon2 0.6 lief das über `argon2::password_hash::rand_core::OsRng` (dieselbe CSPRNG-Quelle
+         * wie Argon2-Salts in [crate::password]) — seit argon2/password-hash 0.6 ist deren `rand_core`
+         * eine andere, inkompatible Major-Version (`TryCryptoRng` statt der hier gebrauchten `RngCore`)
+         * und dort zudem hinter einem eigenen, nicht default-aktivierten Feature verborgen. Der direkt
+         * gepinnte `rand_core`-Import (bereits für [crate::signing] vorhanden) ist der sauberere, weil
+         * vom Argon2-Upgrade unabhängige Weg an dieselbe Stelle.
          *
          * Der Zwischenpuffer ist [Zeroizing] — Meilenstein B.3 ist der erste Punkt, an dem die Engine
          * ein echtes Geheimnis in der Hand hält (B.1-Notiz in [crate::aead]/[crate::password]: "echte
@@ -2364,6 +2357,10 @@ public object FfiConverterTypeWrapError : FfiConverterRustBuffer<WrapException> 
          * Hasht `password` mit Argon2id (RFC-9106-Default-Parameter der `argon2`-Crate) und einem
          * frischen Zufalls-Salt. `password` wird hier nicht genullt — das bleibt Sache des Aufrufers
          * (Kotlin-seitiger PIN-Puffer, Konzept Abschnitt 16: "kein Autofill/Logging der PIN").
+         *
+         * Salt-Erzeugung läuft seit argon2 0.6 intern über die einargumentige `hash_password`
+         * (`PasswordHasher::hash_password`, Default-Feature "getrandom") — kein eigener
+         * `SaltString`/`OsRng`-Umweg mehr nötig wie bis argon2 0.5.
          */
     @Throws(PasswordException::class) fun `hashPassword`(`password`: kotlin.ByteArray): PasswordHash {
             return FfiConverterTypePasswordHash.lift(
@@ -2407,38 +2404,6 @@ public object FfiConverterTypeWrapError : FfiConverterRustBuffer<WrapException> 
     
         
         FfiConverterUInt.lower(`length`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * Erzeugt ein frisches Ed25519-Schlüsselpaar. **Nie von Warden selbst aufgerufen** — nur vom
-         * Offline-Tool auf der Air-Gap-Maschine (Konzept Abschnitt 9, Meilenstein D.1).
-         */ fun `generateSigningKeypair`(): SigningKeyPair {
-            return FfiConverterTypeSigningKeyPair.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_connexias_engine_fn_func_generate_signing_keypair(
-    
-        _status)
-}
-    )
-    }
-    
-
-        /**
-         * Signiert `message` mit `secret_key`. **Nie von Warden selbst aufgerufen** — nur vom
-         * Offline-Tool (s. Moduldoc); existiert hier, damit Keygen/Sign/Verify dieselbe
-         * Ed25519-Implementierung teilen statt einer zweiten, separat gepflegten Kopie im Offline-Tool.
-         */
-    @Throws(SigningException::class) fun `signMessage`(`secretKey`: kotlin.ByteArray, `message`: kotlin.ByteArray): kotlin.ByteArray {
-            return FfiConverterByteArray.lift(
-    uniffiRustCallWithError(SigningException) { _status ->
-    UniffiLib.uniffi_connexias_engine_fn_func_sign_message(
-    
-        
-        FfiConverterByteArray.lower(`secretKey`),
-        FfiConverterByteArray.lower(`message`),_status)
 }
     )
     }
