@@ -230,9 +230,8 @@ eintippen) steht nicht im Verhältnis zur neu geschaffenen Angriffsfläche.
 
 ### 6.2 Offen, bewusst zurückgestellt
 
-| Punkt | App | Warum offen |
-|---|---|---|
-| Direct-Mode-Traffic-Test (`dig`/`curl` durch den Tunnel) | Warden | Braucht das physische Testgerät. ChildVPN ist seit 2026-09-01 end-to-end bestätigt (Handshake, Relay, Rückweg); Direct-Mode wurde nie unter demselben Maßstab geprüft |
+Aktuell leer — der einzige verbliebene Punkt (Direct-Mode-Traffic-Test) wurde 2026-09-04 erledigt,
+s. Tabelle unten.
 
 **Seit der letzten Fassung erledigt** (die Tabelle oben führte sie bis 2026-09-04 weiter als
 offen, obwohl sie es nicht mehr waren):
@@ -243,6 +242,7 @@ offen, obwohl sie es nicht mehr waren):
 | `GET_CONTENT` mit Mime-Typ-Filter | Files | `09a8520` — `data/share/PickRequest.kt` + `MimeTypeFilter.kt`, seit 2026-09-04 durch `PickRequestInstrumentedTest` abgesichert |
 | Process-Tod-sicherer Cloud-Sync | Galerie | `0339405` — `data/sync/CloudSyncWorker.kt` als WorkManager-Foreground-Auftrag |
 | MediaStore-Paging | Galerie | 2026-09-04 — s. 7-12 |
+| Direct-Mode-Traffic-Test (`dig`/`curl` durch den Tunnel) | Warden | 2026-09-04, am physischen Testgerät — ICMP/TCP funktionierten sofort, UDP/DNS zunächst nicht. Zwei echte, bis dahin unentdeckte Bugs in `engine.rs` gefunden und behoben: (1) das erste Datagramm eines neuen UDP-Flows wurde verworfen, bevor der externe `protect()`-Socket überhaupt bereit war — für TCP unschädlich (das SYN trägt keine Nutzlast), für eine einzelne DNS-Anfrage tödlich; gepuffert und nachgereicht, sobald der Socket steht. (2) UDP-Antworten trugen die falsche Quelladresse (`10.64.0.1`, die TUN-eigene, statt der tatsächlich angefragten Serveradresse) — `send_slice` ohne explizite `local_address` lässt smoltcp die Quelladresse über die Interface-Routingtabelle raten, die bei nur einer konfigurierten Adresse immer diese liefert; ein verbundenes Client-UDP-Socket verwirft eine Antwort mit unerwarteter Quelladresse lautlos im Kernel. Beide Bugs live per temporärer `__android_log_write`-Instrumentierung bestätigt (danach entfernt), s. `warden/CLAUDE.md`-Abschnitt „Netz-Sperre" für die volle Analyse. Direct-Mode ist damit wie ChildVPN als Ende-zu-Ende bestätigt funktionsfähig (ICMP/TCP/UDP) einzustufen |
 
 ### 6.3 Akzeptierte Risiken
 
