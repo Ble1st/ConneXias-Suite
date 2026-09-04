@@ -30,10 +30,12 @@ path = "src/bin/failsafe_keytool.rs"
 aes-gcm = "0.11"
 hkdf = "0.13"
 sha2 = "0.11"
-argon2 = "0.5"
-# Direkt als Dependency gepinnt (statt nur transitiv über argon2), um das "getrandom"-Feature
-# zu erzwingen — sonst fehlt password_hash::rand_core::OsRng (Feature-Unifikation, siehe B.1-Notizen).
-password-hash = { version = "0.6", features = ["getrandom"] }
+# 0.6 benennt das ehemalige "simple"-Feature in "password-hash" um (weiterhin Default-Feature,
+# zusammen mit "getrandom") — [password::hash_password] nutzt seitdem die eingebaute
+# Ein-Argument-Form (Salt-Erzeugung intern über "getrandom"), deshalb reicht ab hier die reine
+# Default-Konfiguration; die früher separat gepinnte `password-hash`-Dependency (B.1-Notiz, nur
+# nötig um deren "getrandom"-Feature per Feature-Unifikation zu erzwingen) entfällt komplett.
+argon2 = "0.6"
 uniffi = "0.32"
 # Erstes echtes Geheimnis der Engine (Meilenstein B.3, siehe B.1-Notiz in aead.rs/password.rs:
 # "echte Geheimnisse kommen erst mit B.3") — DEKs zeroizen statt nur öffentliche Envelope-/
