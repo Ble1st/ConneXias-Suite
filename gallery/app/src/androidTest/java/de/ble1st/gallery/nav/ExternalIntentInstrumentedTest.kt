@@ -69,9 +69,13 @@ class ExternalIntentInstrumentedTest {
 
     @Test
     fun intentTypeDecidesVideoViewer() {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("content://media/external/video/media/7"))
-            .apply { type = "video/mp4" }
+        // setDataAndType statt setType: Intent.setType() löscht eine zuvor gesetzte Daten-Uri
+        // (dokumentiertes Verhalten). Ein Intent mit Typ *und* Daten lässt sich nur so bauen —
+        // genau das tun auch die echten Aufrufer ("Öffnen mit" aus ConneXias Kamera).
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(Uri.parse("content://media/external/video/media/7"), "video/mp4")
         val result = ExternalIntent.from(intent, resolver()) as ExternalIntent.ViewItem
+        assertEquals(7L, result.itemId)
         assertTrue(result.isVideo)
     }
 
