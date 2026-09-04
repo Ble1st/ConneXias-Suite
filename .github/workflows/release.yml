@@ -34,7 +34,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -108,12 +108,12 @@ jobs:
           fi
 
       # --- Android-Release-Build ---
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: Decode signing keystore
         env:
@@ -143,7 +143,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/release.keystore"
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: warden-${{ steps.version.outputs.name }}
           path: warden/app/build/outputs/apk/release/*.apk
@@ -154,7 +154,7 @@ jobs:
       # unabhängige Prüfbarkeit (z. B. Zertifikatsvergleich gegen Wardens APK) und Runbook-Zwecke
       # (manuelle Neuinstallation ohne einen laufenden Warden, s. MANUAL_SMOKE_TEST.md).
       - name: Upload Sentinel APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sentinel-${{ steps.version.outputs.name }}
           path: warden/sentinel/build/outputs/apk/release/*.apk
@@ -167,7 +167,7 @@ jobs:
       # als CI-Artefakt (Maintainer-Zugriff über den Actions-Run), nicht als Anhang der
       # öffentlichen GitHub-Release-Seite unten — kein Geheimnis, aber auch kein Nutzer-Download.
       - name: Upload R8 mapping (Crash-Deobfuskierung für diese Version)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: warden-${{ steps.version.outputs.name }}-mapping
           path: warden/app/build/outputs/mapping/release/
@@ -176,7 +176,7 @@ jobs:
       # :sentinel hat R8 seit demselben Milestone ebenfalls aktiv (sentinel/build.gradle.kts) —
       # dieselbe Begründung wie oben, eigenes mapping.txt pro Modul.
       - name: Upload Sentinel R8 mapping (Crash-Deobfuskierung für diese Version)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sentinel-${{ steps.version.outputs.name }}-mapping
           path: warden/sentinel/build/outputs/mapping/release/
@@ -244,7 +244,7 @@ jobs:
           } > "$RUNNER_TEMP/release-body.md"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Warden ${{ steps.version.outputs.name }}

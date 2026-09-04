@@ -51,7 +51,7 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -132,14 +132,14 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # Derselbe Keystore wie bei Warden (dasselbe Secret) — die drei Apps koppeln zwar nicht über
       # signature-Permissions aneinander (das tun nur Warden und Sentinel), aber ein einheitliches
@@ -168,7 +168,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/release.keystore"
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.app }}-${{ matrix.name }}
           path: ${{ matrix.app }}/app/build/outputs/apk/release/*.apk
@@ -230,7 +230,7 @@ jobs:
       # Versionsnummern festlegen. Entwurf (draft), damit vor dem Veröffentlichen noch ein
       # Changelog eingetragen werden kann — wie bei Warden.
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ matrix.tag }}
           name: ${{ matrix.label }} ${{ matrix.name }}
