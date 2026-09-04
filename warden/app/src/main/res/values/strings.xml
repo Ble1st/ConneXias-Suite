@@ -1,0 +1,671 @@
+<resources>
+    <string name="app_name">Warden</string>
+
+    <!-- Generisches UI-Vokabular, absichtlich datei-übergreifend geteilt statt pro Bildschirm
+         dupliziert (U-10-Nachreichung, 2026-08-30) — z. B. "Ja"/"Nein" als Dialog-Antwort meint
+         überall dasselbe. -->
+    <string name="action_yes">Ja</string>
+    <string name="action_no">Nein</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="action_confirm">Bestätigen</string>
+    <string name="action_save">Speichern</string>
+    <string name="action_delete">Löschen</string>
+    <string name="action_apply">Anwenden</string>
+    <string name="action_reset">Zurücksetzen</string>
+    <string name="content_description_back">Zurück</string>
+    <string name="error_status_unreadable_headline">Status konnte nicht gelesen werden</string>
+    <string name="error_status_no_device_owner_detail">Vermutlich kein Device Owner aktiv.</string>
+
+    <!-- de/ble1st/warden/ui/WardenStatusActivity.kt -->
+    <string name="kiosk_confirm_title">Kiosk jetzt aktivieren?</string>
+    <string name="kiosk_confirm_body">Startet sofort den Sentinel-Kiosk-Modus. Ausstieg nur über Sentinels eigene PIN.</string>
+    <string name="content_description_settings">Einstellungen</string>
+    <string name="section_device_protection">Geräteschutz</string>
+    <string name="section_app_security">App-Sicherheit</string>
+    <string name="section_access_confirmation">Zugriff &amp; Bestätigung</string>
+    <string name="section_recovery">Wiederherstellung</string>
+    <string name="menu_safeguards_title">Safeguards</string>
+    <string name="menu_safeguards_subtitle">Profile, Reset-Schutz, Sperrbildschirm</string>
+    <string name="menu_app_management_title">App-Verwaltung</string>
+    <string name="menu_security_scanner_title">Sicherheits-Scanner</string>
+    <string name="menu_permission_audit_title">Permission-Audit</string>
+    <string name="menu_permission_audit_subtitle">Rechte-Klassifizierung je installierter App</string>
+    <string name="menu_performance_monitor_title">Performance-Monitor</string>
+    <string name="menu_performance_monitor_subtitle">Speicher, Akku-Drain, App-Aktivität</string>
+    <string name="menu_network_title">Netzwerk</string>
+    <string name="menu_network_subtitle">Netz-Sperre, Firewall-Policy, DNS-Filter</string>
+    <string name="menu_security_score_title">Sicherheits-Score</string>
+    <string name="menu_security_score_subtitle">Bedrohungen, Rechte, Integrität, Härtung in einer Zahl</string>
+    <string name="menu_system_diagnostics_title">Systemdiagnose</string>
+    <string name="menu_system_diagnostics_subtitle">Worker eingeplant, Berechtigungen erteilt, Empfänger aktiv?</string>
+    <string name="menu_pin_management_title">Warden-PIN verwalten</string>
+    <string name="menu_lock_now_title">Jetzt sperren</string>
+    <string name="menu_lock_now_subtitle">Sofort, ohne Bestätigung</string>
+    <string name="menu_kiosk_now_title">Kiosk jetzt</string>
+    <string name="menu_kiosk_now_subtitle">Sentinel-Lock-Task sofort aktivieren</string>
+    <string name="menu_sensitive_action_title">Sensible Aktion</string>
+    <string name="menu_log_viewer_title">Log-Einsicht</string>
+    <string name="section_clipboard_guard">Zwischenablage</string>
+    <string name="clipboard_guard_toggle_title">Automatisch leeren</string>
+    <string name="clipboard_guard_toggle_subtitle">Nur wenn Warden selbst geöffnet ist — kein Einblick in andere Apps (Android erlaubt das keiner App, s. docs/design-clipboard-guard.md)</string>
+    <string name="menu_clipboard_clear_now_title">Zwischenablage jetzt leeren</string>
+    <string name="clipboard_guard_last_cleared">Zuletzt geleert: %1$s</string>
+    <string name="menu_clipboard_cross_app_title">Cross-App-Erkennung</string>
+    <string name="menu_clipboard_cross_app_subtitle">Liest Text in fremden Apps — vor dem Aktivieren lesen</string>
+    <string name="clipboard_cross_app_title">Cross-App-Erkennung</string>
+    <string name="clipboard_cross_app_disclosure_title">Das solltest du vorher wissen</string>
+    <string name="clipboard_cross_app_disclosure_body">Diese Funktion nutzt eine Bedienungshilfe, um in fremden Apps Texteinfügungen zu erkennen. Sie liest dabei den tatsächlichen eingefügten Text im Klartext mit — aus jedem sichtbaren, nicht als Passwortfeld markierten Eingabefeld jeder App, nicht nur beim Einfügen aus der Zwischenablage. Das ist dieselbe Rechte-Kategorie, die Warden bei anderen Apps als Warnsignal einstuft. Der erfasste Text wird verschlüsselt nur auf diesem Gerät gespeichert und verlässt es nie.</string>
+    <string name="clipboard_cross_app_toggle_title">Cross-App-Erkennung aktivieren</string>
+    <string name="clipboard_cross_app_toggle_subtitle">Wirkt erst zusammen mit der Bedienungshilfen-Freigabe unten</string>
+    <string name="clipboard_cross_app_system_status_on">Bedienungshilfe freigegeben</string>
+    <string name="clipboard_cross_app_system_status_off">Bedienungshilfe NICHT freigegeben — Erkennung wirkt nicht</string>
+    <string name="clipboard_cross_app_open_settings_action">Bedienungshilfen-Einstellungen öffnen</string>
+    <string name="clipboard_cross_app_history_label">Beobachtete Zugriffe</string>
+    <string name="clipboard_cross_app_refresh_action">Aktualisieren</string>
+    <string name="clipboard_cross_app_clear_history_action">Verlauf löschen</string>
+    <string name="clipboard_cross_app_loading">Lädt…</string>
+    <string name="clipboard_cross_app_empty_headline">Noch keine Zugriffe beobachtet</string>
+    <string name="clipboard_cross_app_empty_detail">Sobald ein paste-artiger Einfügevorgang in einer fremden App erkannt wird, erscheint er hier.</string>
+    <string name="clipboard_cross_app_tap_to_reveal">Antippen zum Anzeigen</string>
+    <string name="clipboard_cross_app_tap_to_hide">Antippen zum Verbergen</string>
+    <string name="clipboard_accessibility_service_label">Warden Zwischenablage-Wächter</string>
+    <string name="clipboard_accessibility_service_description">Erkennt paste-artige Texteinfügungen in anderen Apps für Wardens Zwischenablage-Wächter (docs/design-clipboard-guard.md). Liest dabei den eingefügten Text aus dem jeweiligen Eingabefeld.</string>
+    <string name="menu_offline_failsafe_title">Offline-Failsafe</string>
+    <string name="status_do_active">DO aktiv</string>
+    <string name="status_do_inactive">DO NICHT aktiv</string>
+    <string name="status_version">Version %1$s</string>
+    <string name="status_profile">Profil: %1$s</string>
+    <string name="status_profile_none">keins angewandt</string>
+    <string name="status_debuggable_os_warning">⚠ Debuggable OS (Build.TYPE=%1$s) — Vertrauensmodell setzt user-Build voraus</string>
+    <string name="status_pin_not_configured_warning">⚠ Keine Warden-PIN eingerichtet — Dashboard ohne Nachweis erreichbar. Antippen zum Einrichten.</string>
+    <string name="menu_security_scanner_highest_severity">Höchster Schweregrad: %1$s</string>
+    <string name="kiosk_outcome_execution_blocked">⚠ Debug-Build — destruktive Kommandos hart abgeschaltet (F.4).</string>
+    <string name="kiosk_outcome_rate_limited">⚠ Zu viele Versuche — bitte kurz warten.</string>
+    <string name="kiosk_outcome_wrong_confirmation">⚠ Interner Fehler: Bestätigungstext stimmte nicht.</string>
+    <string name="kiosk_outcome_presence_not_proven">⚠ Presence-Nachweis fehlgeschlagen.</string>
+    <string name="kiosk_outcome_executed_successfully">✓ Bestätigt — real ausgeführt und protokolliert.</string>
+    <string name="kiosk_outcome_executed_with_error">⚠ Bestätigt, aber Ausführung fehlgeschlagen: %1$s</string>
+
+    <!-- de/ble1st/warden/ui/SafeguardsScreen.kt -->
+    <string name="safeguards_intro">Geräteweite DevicePolicyManager-Sperren — sofort wirksam, jederzeit reversibel.</string>
+    <string name="safeguards_profile_apply_warning">⚠ %1$s</string>
+    <string name="safeguards_search_label">Schalter suchen</string>
+    <string name="safeguards_search_clear">Leeren</string>
+    <string name="safeguards_search_no_match">Kein Schalter passt zu \"%1$s\".</string>
+    <string name="safeguards_lockdown_intro">Lockdown-Modus — presence-gated, kein einfacher Schalter (2026-08-22).</string>
+    <string name="safeguards_applock_intro">App-Lock (LockMode) — echter Kiosk-Modus über die separate Sentinel-App.</string>
+    <string name="safeguards_sentinel_label">Sentinel (Kiosk-App)</string>
+    <string name="safeguards_sentinel_not_installed">Nicht installiert — ohne Sentinel bleibt App-Lock wirkungslos (SentinelLockdownEngager meldet \"nicht installiert\").</string>
+    <string name="safeguards_sentinel_installed">Installiert, Version %1$s (%2$s).</string>
+    <string name="safeguards_check_status_action">Status prüfen</string>
+    <string name="safeguards_update_install_action">Update installieren</string>
+    <string name="safeguards_install_action">Installieren</string>
+    <string name="safeguards_sentinel_pin_configured_label">Sentinel-PIN eingerichtet</string>
+    <string name="safeguards_sentinel_pin_yes">Ja — Sentinel hat eine benutzbare PIN gemeldet. Sie ist der einzige Ausstieg aus dem Kiosk.</string>
+    <string name="safeguards_sentinel_pin_no">NEIN — Sentinel würde jedes Scharfschalten ablehnen. Sentinel öffnen und eine PIN einrichten.</string>
+    <string name="safeguards_sentinel_pin_unknown">Unbekannt — Sentinel hat sich noch nicht gemeldet. Einmal öffnen genügt; der Zustand wird dabei automatisch übermittelt.</string>
+    <string name="safeguards_applock_active_label">App-Lock AKTIV (Sentinel autorisiert)</string>
+    <string name="safeguards_applock_active_detail">Notruf/Keyguard bleiben erreichbar — sonst nur Sentinels PIN-Bildschirm. Ausstieg ausschließlich über Sentinels eigene PIN auf dem Gerät selbst.</string>
+    <string name="safeguards_drill_label">Notruf-Drill bestätigt</string>
+    <string name="safeguards_drill_confirmed_detail">Seit %1$s — Voraussetzung für jedes echte App-Lock (manuell oder automatisch).</string>
+    <string name="safeguards_drill_unconfirmed_detail">Erst nach einem echten, manuell durchgeführten Test bestätigen: Notruf (112/911) während App-Lock aktiv wählen und Erreichbarkeit prüfen.</string>
+    <string name="safeguards_drill_dialog_title">Notruf-Drill wirklich bestätigen?</string>
+    <string name="safeguards_drill_dialog_body">Nur bestätigen, wenn der Notruf-Test auf DIESEM Gerät tatsächlich durchgeführt wurde. Ohne echten Test riskiert ein späteres App-Lock, dass ein Notruf nicht mehr funktioniert.</string>
+    <string name="safeguards_drill_dialog_type_phrase">Tippe %1$s</string>
+    <string name="safeguards_auto_engage_label">App-Lock automatisch bei kritischem Fund</string>
+    <string name="safeguards_auto_engage_supporting">Nur wirksam nach bestätigtem Notruf-Drill und scharf geschaltetem Lockdown-Modus (Sensible Aktion). Alarmiert per Benachrichtigung, aktiviert das App-Lock beim nächsten Öffnen von Warden.</string>
+    <string name="safeguards_trigger_profile_title">Lockdown-Auslöse-Profil</string>
+    <string name="safeguards_trigger_profile_description">Steuert Dashboard-Button \"Kiosk jetzt\" und die Quick-Settings-Kachel. Streng: kein Schnellauslöser, volle Presence-Prüfung + Kühlzeit in \"Sensible Aktion\". Standard: Schnellauslöser mit Ja/Nein-Bestätigung. Schnell: sofort, ohne Rückfrage.</string>
+    <string name="safeguards_trigger_profile_requires_drill"> Erst nach bestätigtem Notruf-Drill wirksam.</string>
+    <string name="safeguards_profile_section_title">Profil</string>
+    <string name="safeguards_profile_section_description">Alltag / Reise / Maximal in einem Schritt. Lockdown und Werksreset-Ausführung bleiben unberührt.</string>
+    <string name="safeguards_profile_active_none">Aktiv: keins — seit der Installation wurde nie ein Profil angewandt. Einzelne Schalter unten können trotzdem gesetzt sein.</string>
+    <string name="safeguards_profile_active">Aktiv: %1$s. Eine automatische Umschaltung (Nachtfenster, Eskalation bei kritischem Fund) ändert diese Anzeige mit.</string>
+    <string name="safeguards_profile_apply_dialog_title">%1$s anwenden?</string>
+    <string name="safeguards_profile_apply_dialog_suffix"> Andere reversible Schalter gehen aus.</string>
+    <string name="safeguards_state_description_active">aktiv</string>
+    <string name="safeguards_state_description_inactive">inaktiv</string>
+    <string name="safeguards_state_description_unknown">unbekannt</string>
+    <string name="safeguards_lockdown_state_active">AKTIV</string>
+    <string name="safeguards_lockdown_state_inactive">inaktiv</string>
+    <string name="safeguards_lockdown_state_unknown">unbekannt</string>
+    <string name="safeguards_lockdown_row_label">Lockdown-Modus</string>
+    <string name="safeguards_lockdown_row_detail">Scharf-/Zurückschalten unter \"Sensible Aktion\"</string>
+    <string name="safeguards_frp_accounts_label">Entsperrkonto nach Wipe</string>
+    <string name="safeguards_frp_accounts_description">Google-Konto-E-Mail, mit der du das Gerät nach einem Recovery-Wipe wieder einrichten darfst. Eine Adresse pro Zeile. Ohne gespeichertes Konto wird die Kontosperre nicht gesetzt (kein Brick). ⚠ Es muss ein echtes Google-Konto sein — Samsung- oder andere Herstellerkonten werden vom FRP-Agenten nicht akzeptiert. Halte Passwort UND zweiten Faktor außerhalb dieses Geräts bereit: die Ersteinrichtung nach dem Wipe verlangt genau dieses Konto, und wenn der zweite Faktor nur auf diesem Gerät liegt, sperrst du dich selbst aus. Das Konto muss zum Zeitpunkt des Wipes noch existieren — ein gelöschtes Google-Konto macht das Gerät nicht wieder frei, sondern unbrauchbar.</string>
+    <string name="safeguards_frp_accounts_field_label">Konto-E-Mail</string>
+    <string name="safeguards_disable_confirm_title">\"%1$s\" deaktivieren?</string>
+    <string name="safeguards_disable_confirm_body_default">Dieser Schalter gehört zum Reset-Schutz. Ohne ihn lässt sich das Gerät nach einem Wipe leichter wieder in Betrieb nehmen.</string>
+    <string name="safeguards_lock_action">Sperren</string>
+    <string name="safeguards_disable_action">Deaktivieren</string>
+    <string name="safeguards_frp_no_agent_suffix"> ⚠ Google-Play-Dienste nicht gefunden — Schalter zeigt \"aktiv\", wird vom FRP-Agenten aber vermutlich nicht durchgesetzt.</string>
+    <string name="safeguards_toggle_no_profile">In keinem Profil — eine Profilanwendung schaltet ihn wieder aus.</string>
+    <string name="safeguards_toggle_state_locked">gesperrt</string>
+    <string name="safeguards_toggle_state_unlocked">entsperrt</string>
+
+    <!-- de/ble1st/warden/presence/WardenPinActivity.kt -->
+    <string name="pin_screen_title">Warden-PIN</string>
+    <string name="pin_presence_requested_label">Präsenznachweis angefordert</string>
+    <string name="pin_presence_not_yet_configured">⚠ Noch keine PIN eingerichtet — Presence-Nachweis nicht möglich. Zuerst eine PIN festlegen.</string>
+    <string name="pin_setup_subtitle">PIN festlegen (6–8 Ziffern)</string>
+    <string name="pin_setup_confirm_subtitle">PIN zur Bestätigung erneut eingeben</string>
+    <string name="pin_change_setup_subtitle">Neue PIN festlegen (6–8 Ziffern)</string>
+    <string name="pin_change_confirm_subtitle">Neue PIN zur Bestätigung erneut eingeben</string>
+    <string name="pin_duress_setup_subtitle">Duress-PIN festlegen (6–8 Ziffern)</string>
+    <string name="pin_duress_confirm_subtitle">Duress-PIN zur Bestätigung erneut eingeben</string>
+    <string name="pin_unlocked_label">Entsperrt</string>
+    <string name="pin_relock_action">Erneut sperren</string>
+    <string name="pin_change_action">PIN ändern</string>
+    <string name="pin_duress_change_action">Duress-PIN ändern</string>
+    <string name="pin_duress_setup_action">Duress-PIN einrichten</string>
+    <string name="pin_duress_delete_action">Duress-PIN löschen</string>
+    <string name="pin_duress_delete_dialog_title">Duress-PIN löschen?</string>
+    <string name="pin_duress_delete_dialog_body">Danach gibt es keine PIN mehr, die unter Zwang eingegeben werden kann, ohne dass es auffällt — das Gerät startet dann nicht mehr unbemerkt in den BFU-Zustand neu. Erneut einrichten geht jederzeit.</string>
+    <string name="pin_enter_subtitle">PIN eingeben</string>
+    <string name="pin_locked_remaining">Gesperrt — noch %1$ds warten.</string>
+    <string name="pin_corrupted_message">⚠ Zustand beschädigt — Wiederherstellung über den Offline-Failsafe</string>
+    <string name="pin_open_failsafe_action">Zum Offline-Failsafe</string>
+    <string name="pin_confirm_again_message">Jetzt zur Bestätigung erneut eingeben.</string>
+    <string name="pin_changed_message">PIN geändert.</string>
+    <string name="pin_saved_message">PIN gespeichert.</string>
+    <string name="pin_mismatch_message">PINs stimmten nicht überein — von vorn.</string>
+    <string name="pin_duress_matches_main_message">Duress-PIN darf nicht der Haupt-PIN entsprechen — von vorn.</string>
+    <string name="pin_duress_saved_message">Duress-PIN gespeichert.</string>
+    <string name="pin_duress_cleared_message">Duress-PIN gelöscht.</string>
+    <string name="pin_wrong_with_backoff">Falsche PIN — Sperre für %1$ds.</string>
+    <string name="pin_wrong_message">Falsche PIN.</string>
+    <string name="pin_not_configured_message">Keine PIN eingerichtet.</string>
+    <string name="pin_dots_content_description">%1$d von %2$d Ziffern eingegeben</string>
+    <string name="pin_digit_content_description">Ziffer %1$d</string>
+    <string name="pin_backspace_content_description">Löschen</string>
+
+    <!-- de/ble1st/warden/ui/SecurityScannerScreen.kt -->
+    <string name="security_scanner_title">Sicherheits-Scanner</string>
+    <string name="security_scanner_autofreeze_label">Automatisch einfrieren</string>
+    <string name="security_scanner_autofreeze_state_on">an</string>
+    <string name="security_scanner_autofreeze_state_off">aus</string>
+    <string name="security_scanner_autofreeze_state_unknown">unbekannt</string>
+    <string name="security_scanner_status_unreadable_headline">Scanner-Status konnte nicht gelesen werden</string>
+    <string name="security_scanner_status_unreadable_detail">Schalter deaktiviert, bis der Zustand wieder lesbar ist.</string>
+    <string name="security_scanner_intro">Scannt installierte Apps auf im Manifest deklarierte Geräteadministrator-Rechte oder Bedienungshilfen-Dienste — bekannte Maschen bösartiger Apps, erkannt bevor die Rechte überhaupt aktiviert wurden. Systemapps sind ausgenommen. Bei jedem Fund erscheint sofort eine Sicherheitsbenachrichtigung mit den Optionen \"Einfrieren\"/\"Deinstallieren\" — unabhängig vom Schalter unten, der zusätzlich stilles Auto-Einfrieren aktiviert. Wirkt erst ab Stufe Warnung — eine reine Info (z. B. unbekannte Installationsquelle) friert nichts automatisch ein, ist aber weiterhin sichtbar. Jederzeit reversibel über \"Vertrauen\" unten oder die App-Verwaltung.</string>
+    <string name="security_scanner_run_now_action">Jetzt scannen</string>
+    <string name="security_scanner_integrity_title">Geräte-Integrität</string>
+    <string name="security_scanner_findings_title">Aktuelle Funde</string>
+    <string name="security_scanner_findings_unreadable_headline">Funde-Liste konnte nicht geladen werden</string>
+    <string name="security_scanner_no_device_owner_detail">Vermutlich kein Device Owner aktiv — s. Statusanzeige.</string>
+    <string name="security_scanner_findings_empty_headline">Keine verdächtigen Apps gefunden</string>
+    <string name="security_scanner_integrity_unreadable_headline">Geräte-Integritätsstatus konnte nicht geladen werden</string>
+    <string name="security_scanner_adb_label">ADB-Debugging</string>
+    <string name="security_scanner_developer_options_label">Entwickleroptionen</string>
+    <string name="security_scanner_state_active">aktiv</string>
+    <string name="security_scanner_state_inactive">inaktiv</string>
+    <string name="security_scanner_root_indicators_empty">Keine Root-/Magisk-/Custom-ROM-Indikatoren gefunden</string>
+    <string name="security_scanner_root_indicators_prefix">Root-Indikatoren: %1$s</string>
+    <string name="security_scanner_encryption_label">Speicherverschlüsselung</string>
+    <string name="security_scanner_finding_content_description">Verdachtsfund %1$s, %2$s, Schweregrad %3$s</string>
+    <string name="security_scanner_finding_frozen_state">eingefroren</string>
+    <string name="security_scanner_finding_not_frozen_state">nicht eingefroren</string>
+    <string name="security_scanner_finding_frozen_suffix"> · eingefroren</string>
+    <string name="security_scanner_trust_action">Vertrauen</string>
+
+    <!-- de/ble1st/warden/presence/SensitiveActionActivity.kt -->
+    <string name="sensitive_action_describe_wipe_data">Nur Protokoll — wipeData() bleibt bewusst unverkabelt</string>
+    <string name="sensitive_action_describe_reboot">Startet das Gerät neu, wenn die Debug-Build-Sperre nicht greift</string>
+    <string name="sensitive_action_describe_master_switch_revert">Setzt alle Safeguards inklusive Lockdown zurück</string>
+    <string name="sensitive_action_describe_lock_now">Sperrt das Gerät sofort</string>
+    <string name="sensitive_action_describe_lockdown_mode_arm">USB aus, Safe Boot/Werksreset/OEM-Unlock/Debugging blockiert. Rückweg: Alle Safeguards zurücksetzen.</string>
+    <string name="sensitive_action_describe_lockdown_task_engage">Echter Kiosk-Modus über die separate Sentinel-App — Notruf/Keyguard bleiben erreichbar, sonst nichts. Braucht bestätigten Notruf-Drill (Safeguards ▸ Lockdown-Modus) und eine installierte Sentinel-App. Ausstieg nur über Sentinels eigene PIN auf dem Gerät selbst.</string>
+    <string name="sensitive_action_outcome_executed_as_stub">✓ Bestätigt — Stub protokolliert (wipeData() bewusst weiterhin nicht verkabelt).</string>
+    <string name="sensitive_action_denied_wrong_confirmation_text">⚠ Bestätigungstext stimmte nicht.</string>
+    <string name="sensitive_action_biometric_prompt_title">Sensible Aktion bestätigen</string>
+    <string name="sensitive_action_biometric_unavailable">⚠ Keine Biometrie eingerichtet — Aktion nicht möglich.</string>
+    <string name="sensitive_action_biometric_cancelled">Abgebrochen.</string>
+    <string name="sensitive_action_screen_title">Sensible Aktion</string>
+    <string name="sensitive_action_debug_build_warning">⚠ Debug-Build — destruktive Kommandos sind hart abgeschaltet (Konzept F.4).</string>
+    <string name="sensitive_action_wipe_data_stub_banner">⚠ Werksreset ist bewusst NICHT verkabelt. Der Bestätigen-Knopf unten löst keinen echten Wipe aus — es wird nur protokolliert, dass er ausgelöst worden wäre. Es gibt keinen Fern-Wipe-Kanal in dieser App.</string>
+    <string name="sensitive_action_lockdown_status_prefix">Lockdown-Modus: %1$s</string>
+    <string name="sensitive_action_lockdown_status_active">AKTIV</string>
+    <string name="sensitive_action_lockdown_status_inactive">inaktiv</string>
+    <string name="sensitive_action_lockdown_status_unknown">unbekannt (Lesen fehlgeschlagen)</string>
+    <string name="sensitive_action_confirmation_text_label">Bestätigungstext exakt eintippen</string>
+    <string name="sensitive_action_confirmation_text_supporting">Tippe %1$s</string>
+    <string name="sensitive_action_strict_cooldown_message">Streng-Profil: bitte warten (%1$ss)</string>
+    <string name="sensitive_action_confirm_biometric_action">Mit Biometrie bestätigen</string>
+    <string name="sensitive_action_confirm_pin_action">Mit Warden-PIN bestätigen</string>
+
+    <!-- de/ble1st/warden/failsafe/FailsafeActivity.kt -->
+    <string name="failsafe_biometric_change_title">Wartungsschlüssel-Wechsel bestätigen</string>
+    <string name="failsafe_biometric_change_subtitle">Ersetzt den Offline-Failsafe-Verify-Key</string>
+    <string name="failsafe_key_unreadable_message">⚠ Wartungsschlüssel unlesbar — nicht als unkonfiguriert behandeln.</string>
+    <string name="failsafe_presence_failed_message">⚠ Presence-Nachweis fehlgeschlagen/abgebrochen — Wartungsschlüssel NICHT geändert.</string>
+    <string name="failsafe_invalid_hex_message">Ungültiges Hex-Format.</string>
+    <string name="failsafe_error_message">Fehler: %1$s</string>
+    <string name="failsafe_screen_title">Offline-Failsafe</string>
+    <string name="failsafe_step1_title">1. Wartungsschlüssel hinterlegen (einmalig, offline erzeugt)</string>
+    <string name="failsafe_step1_body">Das Ersetzen des Verify-Keys braucht einen Presence-Nachweis — Biometrie oder Warden-PIN.</string>
+    <string name="failsafe_public_key_label">Public Key (hex, 64 Zeichen)</string>
+    <string name="failsafe_save_biometric_action">Mit Biometrie speichern</string>
+    <string name="failsafe_save_pin_action">Mit Warden-PIN speichern</string>
+    <string name="failsafe_step2_title">2. Challenge erzeugen</string>
+    <string name="failsafe_generate_challenge_action">Challenge erzeugen</string>
+    <string name="failsafe_challenge_hint">Challenge (auf Air-Gap-Maschine mit failsafe-keytool signieren):</string>
+    <string name="failsafe_challenge_sign_instructions">Die neue Geräte-PIN vorher festlegen und beim Signieren als drittes Argument mitgeben:\nfailsafe-keytool sign &lt;secret_key&gt; &lt;challenge&gt; &lt;neue Geräte-PIN&gt;\nUnten muss exakt dieselbe PIN stehen — sie ist Teil der Signatur.</string>
+    <string name="failsafe_step3_title">3. Response eingeben und ausführen</string>
+    <string name="failsafe_response_label">Response (hex, 128 Zeichen)</string>
+    <string name="failsafe_new_credential_label">Neue Geräte-PIN (16 Zeichen, keine Folge wie 1234…)</string>
+    <string name="failsafe_invalid_response_hex_message">Ungültiges Hex-Format für Response.</string>
+    <string name="failsafe_run_action">Failsafe ausführen</string>
+    <string name="failsafe_no_key_configured_status">⚠ Kein Wartungsschlüssel hinterlegt — Failsafe nicht auslösbar.</string>
+    <string name="failsafe_key_configured_status">Wartungsschlüssel konfiguriert (%1$d Byte).</string>
+    <string name="failsafe_result_no_key_configured">⚠ Kein Wartungsschlüssel hinterlegt.</string>
+    <string name="failsafe_result_no_challenge_pending">Keine Challenge ausstehend — zuerst erzeugen.</string>
+    <string name="failsafe_result_challenge_expired">Challenge abgelaufen — bitte eine neue erzeugen.</string>
+    <string name="failsafe_result_weak_credential">Neue Geräte-PIN erfüllt die Vorgabe nicht (16 Zeichen, keine einfache Ziffernfolge). Challenge bleibt bestehen.</string>
+    <string name="failsafe_result_rejected">Response ungültig — nichts wurde verändert. Häufigste Ursache: die hier eingegebene Geräte-PIN weicht von der ab, die beim Signieren übergeben wurde (sie ist Teil der signierten Nachricht). Die Challenge bleibt bestehen.</string>
+    <string name="failsafe_result_accepted_success">Failsafe ausgeführt. Registry: %1$s. Geräte-PIN-Reset: OK</string>
+    <string name="failsafe_result_accepted_credential_failed">Failsafe ausgeführt, aber der Geräte-PIN-Reset ist FEHLGESCHLAGEN. Registry: %1$s. Die Challenge ist verbraucht — für einen neuen Versuch eine neue Challenge erzeugen und erneut signieren.</string>
+
+    <!-- de/ble1st/warden/ui/PermissionAuditScreen.kt -->
+    <string name="permission_audit_title">Permission-Audit</string>
+    <string name="permission_audit_intro">Klassifiziert die von jeder installierten Fremd-App deklarierten Rechte (Normal/Gefährlich/Speziell) und warnt ab %1$d gleichzeitig deklarierten gefährlichen Rechten. Systemapps sind ausgenommen.</string>
+    <string name="permission_audit_scan_action">Scannen</string>
+    <string name="permission_audit_rescan_action">Erneut scannen</string>
+    <string name="permission_audit_filter_content_description">Nur auffällige Apps zeigen. %1$d von %2$d Apps sichtbar.</string>
+    <string name="permission_audit_filter_label">Nur auffällige zeigen</string>
+    <string name="permission_audit_visible_count">%1$d von %2$d Apps</string>
+    <string name="permission_audit_not_scanned_headline">Noch nicht gescannt</string>
+    <string name="permission_audit_not_scanned_detail">Auf \"Scannen\" tippen.</string>
+    <string name="permission_audit_no_apps_headline">Keine Fremd-Apps gefunden</string>
+    <string name="permission_audit_none_flagged_headline">Keine auffällige App</string>
+    <string name="permission_audit_none_flagged_detail">Keine der %1$d Apps deklariert %2$d oder mehr gefährliche Rechte gleichzeitig. Filter ausschalten, um alle zu sehen.</string>
+    <string name="permission_audit_row_content_description">Permission-Audit %1$s, %2$s, %3$d gefährliche und %4$d spezielle Rechte</string>
+    <string name="permission_audit_row_state_flagged">zu viele gefährliche Rechte</string>
+    <string name="permission_audit_row_state_unremarkable">unauffällig</string>
+    <string name="permission_audit_row_summary">%1$d gefährlich · %2$d speziell</string>
+    <string name="permission_audit_row_revoked_suffix"> · gesperrt</string>
+    <string name="permission_audit_details_action">Details</string>
+    <string name="permission_audit_less_action">Weniger</string>
+    <string name="permission_audit_dangerous_prefix">Gefährlich: %1$s</string>
+    <string name="permission_audit_restore_action">Rechte wiederherstellen</string>
+    <string name="permission_audit_revoke_action">Gefährliche Rechte sperren</string>
+    <string name="permission_audit_special_prefix">Speziell: %1$s</string>
+
+    <!-- de/ble1st/warden/appmanagement/SuspiciousAppNotifier.kt -->
+    <string name="notification_suspicious_app_channel_name">Sicherheits-Warnungen — %1$s</string>
+    <string name="notification_suspicious_app_channel_description">Warnt vor Apps, die im Manifest gefährliche Rechte deklarieren oder deren Verhalten sich verdächtig geändert hat (Stufe %1$s).</string>
+    <string name="notification_suspicious_app_public_title">Sicherheitswarnung (%1$s)</string>
+    <string name="notification_suspicious_app_public_text">Gerät entsperren, um Details und Aktionen zu sehen.</string>
+    <string name="notification_suspicious_app_title">Verdächtige App (%1$s): %2$s</string>
+    <string name="notification_suspicious_app_action_freeze">Einfrieren</string>
+    <string name="notification_suspicious_app_action_clear_data">Daten löschen</string>
+    <string name="notification_suspicious_app_action_uninstall">Deinstallieren</string>
+    <string name="notification_suspicious_app_action_failed_title">Aktion fehlgeschlagen: %1$s</string>
+
+    <!-- de/ble1st/warden/ui/PerformanceMonitorScreen.kt -->
+    <string name="performance_monitor_title">Performance-Monitor</string>
+    <string name="performance_monitor_refresh_action">Aktualisieren</string>
+    <string name="performance_monitor_memory_title">Arbeitsspeicher</string>
+    <string name="performance_monitor_battery_title">Akku</string>
+    <string name="performance_monitor_usage_title">App-Aktivität (verdächtige Apps hervorgehoben)</string>
+    <string name="performance_monitor_usage_intro">Vordergrund-Nutzungszeit der letzten 24h — kein echter CPU-/RAM-Wert. Android gibt Drittapps (auch Device Owner) keinen Zugriff auf die tatsächliche Prozessorlast/den Speicherverbrauch fremder Apps; Nutzungszeit ist die einzige real verfügbare Aktivitäts-Näherung.</string>
+    <string name="performance_monitor_memory_unreadable_headline">Speicherstatus nicht lesbar</string>
+    <string name="performance_monitor_memory_unreadable_detail">ActivityManager nicht verfügbar.</string>
+    <string name="performance_monitor_memory_used">%1$s / %2$s belegt</string>
+    <string name="performance_monitor_memory_low_suffix"> · ⚠ System meldet Speicherknappheit</string>
+    <string name="performance_monitor_battery_unreadable_headline">Akkustatus nicht lesbar</string>
+    <string name="performance_monitor_battery_unreadable_detail">Kein ACTION_BATTERY_CHANGED-Broadcast erhalten.</string>
+    <string name="performance_monitor_battery_percent_charging">%1$d%% — lädt</string>
+    <string name="performance_monitor_battery_percent_discharging">%1$d%% — entlädt</string>
+    <string name="performance_monitor_drain_charging">Drain-Rate: lädt gerade, keine Berechnung.</string>
+    <string name="performance_monitor_drain_insufficient_data">Drain-Rate: noch nicht genug Messpunkte (Sammlung läuft alle 30 Minuten).</string>
+    <string name="performance_monitor_drain_rate">Drain-Rate: ~%1$s%%/h seit letztem Ladevorgang.</string>
+    <string name="performance_monitor_usage_access_missing">Nutzungsdatenzugriff nicht erteilt — einmalig manuell freigeben.</string>
+    <string name="performance_monitor_open_settings_action">Einstellungen öffnen</string>
+    <string name="performance_monitor_usage_unreadable_headline">Nutzungsdaten nicht lesbar</string>
+    <string name="performance_monitor_usage_unreadable_detail">UsageStatsManager nicht verfügbar.</string>
+    <string name="performance_monitor_usage_empty_headline">Keine Vordergrund-Aktivität in den letzten 24h</string>
+    <string name="performance_monitor_row_content_description">%1$s, %2$s, %3$s im Vordergrund</string>
+    <string name="performance_monitor_row_suspicious_suffix">, als verdächtig eingestuft</string>
+    <string name="performance_monitor_suspicious_marker"> ⚠</string>
+
+    <!-- de/ble1st/warden/ui/SecurityScoreScreen.kt -->
+    <string name="security_score_title">Sicherheits-Score</string>
+    <string name="security_score_intro">Fasst Verdachtsscanner, Permission-Audit, Geräte-Integrität und den Härtungsgrad der Safeguards zu einer Kennzahl zusammen. Der Verlauf unten füllt sich mit jeder Berechnung, die du selbst anstößt — kein automatischer Hintergrund-Scan.</string>
+    <string name="security_score_calculate_action">Berechnen</string>
+    <string name="security_score_recalculate_action">Neu berechnen</string>
+    <string name="security_score_failed_headline">Berechnung fehlgeschlagen</string>
+    <string name="security_score_failed_detail">Vermutlich kein Device Owner aktiv. Erneut versuchen.</string>
+    <string name="security_score_not_calculated_headline">Noch nicht berechnet</string>
+    <string name="security_score_not_calculated_detail">Auf \"Berechnen\" tippen.</string>
+    <string name="security_score_total_content_description">Sicherheits-Score %1$d von 100, Einstufung %2$s</string>
+    <string name="security_score_category_threats">Bedrohungen</string>
+    <string name="security_score_category_permissions">Rechte-Hygiene</string>
+    <string name="security_score_category_integrity">Geräte-Integrität</string>
+    <string name="security_score_category_hardening">Härtung</string>
+    <string name="security_score_category_content_description">%1$s, %2$d von 100</string>
+    <string name="security_score_history_title">Verlauf (30 Tage)</string>
+    <string name="security_score_history_content_description">%1$s, Score %2$d von 100, Einstufung %3$s</string>
+    <string name="security_score_history_summary">%1$d · %2$s</string>
+
+    <!-- de/ble1st/warden/ui/NetworkScreen.kt -->
+    <string name="network_title">Netzwerk</string>
+    <string name="network_app_access_title">App-Zugriff</string>
+    <string name="network_app_access_intro">Direktzugriff = App geht am Tunnel komplett vorbei (ungefiltertes Internet). Standard = App läuft durch die Netz-Sperre, DNS-Anfragen werden gegen die Blockliste geprüft.</string>
+    <string name="network_app_list_unreadable_headline">App-Liste konnte nicht geladen werden</string>
+    <string name="network_no_device_owner_detail">Vermutlich kein Device Owner aktiv.</string>
+    <string name="network_lockdown_state_active">scharf</string>
+    <string name="network_lockdown_state_inactive">entschärft</string>
+    <string name="network_lockdown_title">Netz-Sperre</string>
+    <string name="network_lockdown_description">Kill-Switch + DNS-Blockliste für den gesamten Gerätetraffic (Always-On-VPN, Device-Owner-erzwungen).</string>
+    <string name="network_lockdown_status_unreadable_headline">Status konnte nicht gelesen werden</string>
+    <string name="network_search_label">Suchen</string>
+    <string name="network_app_row_content_description">Netzwerk-Zugriff %1$s</string>
+    <string name="network_app_row_state_direct">Direktzugriff</string>
+    <string name="network_app_row_state_standard">Standard</string>
+    <string name="network_blocklist_title">Blockliste</string>
+    <string name="network_blocklist_summary">%1$d eingebaute Tracker-/Ad-Domains + %2$d eigene. DNS-Anfragen an gesperrte Domains (und ihre Subdomains) werden mit NXDOMAIN beantwortet.</string>
+    <string name="network_add_domain_label">Domain hinzufügen</string>
+    <string name="network_add_domain_action">Hinzufügen</string>
+    <string name="network_remove_domain_content_description">%1$s entfernen</string>
+    <string name="network_child_vpn_title">ChildVPN</string>
+    <string name="network_child_vpn_intro">Optionaler zweiter WireGuard-Tunnel zur eigenen VPS — bei Scharfschaltung läuft der gesamte Traffic dorthin, statt lokal gefiltert zu werden. wg-quick-Konfigurationstext hier einfügen.</string>
+    <string name="network_child_vpn_configured_summary">Konfiguriert: %1$s</string>
+    <string name="network_child_vpn_not_configured_summary">Nicht konfiguriert</string>
+    <string name="network_child_vpn_config_label">wg-quick-Konfiguration einfügen</string>
+    <string name="network_child_vpn_apply_action">Übernehmen</string>
+    <string name="network_child_vpn_remove_action">Entfernen</string>
+    <string name="network_child_vpn_parse_error">Konfiguration konnte nicht gelesen werden: %1$s</string>
+    <string name="network_child_vpn_scan_qr_action">QR-Code scannen</string>
+    <string name="network_child_vpn_camera_permission_denied">Kamera-Berechtigung wurde nicht erteilt — QR-Scan nicht möglich, Konfiguration kann weiterhin per Text eingefügt werden.</string>
+    <string name="network_child_vpn_scan_prompt">WireGuard-Konfiguration scannen</string>
+
+    <!-- de/ble1st/warden/presence/LogViewerActivity.kt -->
+    <string name="log_viewer_biometric_prompt_title">Log-Einsicht bestätigen</string>
+    <string name="log_viewer_biometric_prompt_subtitle">Zugriff auf das sicherheitsrelevante Log (Konzept G.4)</string>
+    <string name="log_viewer_screen_title">Log-Einsicht</string>
+    <string name="log_viewer_presence_required">Presence-Nachweis erforderlich, bevor der Log-Inhalt angezeigt wird (Konzept G.4).</string>
+    <string name="log_viewer_biometric_unavailable">⚠ Keine Biometrie eingerichtet — Log-Einsicht nicht möglich.</string>
+    <string name="log_viewer_denied">Abgebrochen oder fehlgeschlagen — kein Log-Inhalt angezeigt.</string>
+    <string name="log_viewer_retry_biometric_action">Erneut mit Biometrie versuchen</string>
+    <string name="log_viewer_retry_pin_action">Erneut mit Warden-PIN versuchen</string>
+    <string name="log_viewer_tab_audit">Warden-Audit (%1$d)</string>
+    <string name="log_viewer_tab_system">System (%1$d)</string>
+    <string name="log_viewer_chain_valid">Kette gültig (%1$d Einträge)</string>
+    <string name="log_viewer_chain_broken">⚠ Kette gebrochen bei #%1$d: %2$s</string>
+    <string name="log_viewer_discarded_notice">Ältere Einträge bis #%1$d wurden nach der Aufbewahrungsgrenze verworfen; die Kette schließt lückenlos daran an.</string>
+    <string name="log_viewer_audit_line">#%1$d [%2$s] %3$s</string>
+    <string name="log_viewer_filter_all">Alle</string>
+    <string name="log_viewer_filter_warning">Ab Warnung</string>
+    <string name="log_viewer_filter_critical">Nur kritisch</string>
+    <string name="log_viewer_system_unreadable">⚠ System-Ereignisprotokoll nicht lesbar — Datei beschädigt oder Schlüssel verloren.</string>
+    <string name="log_viewer_system_empty">Keine Ereignisse gespeichert. System-Sicherheitslog und/oder Netzwerk-Metadaten-Log müssen unter Safeguards ▸ Forensik/Audit eingeschaltet sein; das System liefert die Ereignisse danach schubweise, nicht sofort.</string>
+    <string name="log_viewer_skipped_lines">⚠ %1$d beschädigte Zeile(n) übersprungen</string>
+    <string name="log_viewer_visible_count">%1$d von %2$d Ereignissen</string>
+    <string name="log_viewer_system_line">%1$s %2$s %3$s: %4$s</string>
+    <string name="log_viewer_export_action">Audit-Log exportieren</string>
+
+    <!-- de/ble1st/warden/ui/SystemDiagnosticsScreen.kt -->
+    <string name="system_diagnostics_title">Systemdiagnose</string>
+    <string name="system_diagnostics_loading">Lade…</string>
+    <string name="system_diagnostics_section_workers">Periodische Prüfungen</string>
+    <string name="system_diagnostics_workers_description">Ob der wiederkehrende Hintergrundjob für jeden lokalen Auslöser aktuell eingeplant ist. Sagt nichts darüber aus, ob die zugehörige Reaktion eingeschaltet ist — der Job läuft immer, die Entscheidung trifft der jeweilige Controller intern bei jedem Lauf.</string>
+    <string name="system_diagnostics_section_permissions">Selbst gewährte Berechtigungen</string>
+    <string name="system_diagnostics_permissions_description">Warden gewährt sich diese Berechtigungen selbst (Geräteinhaber-Recht), damit die lokalen Auslöser ohne manuelle Freigabe funktionieren. Fehlt eine, liest der zugehörige Auslöser stattdessen null und reagiert nicht — kein Absturz, aber auch keine Erkennung.</string>
+    <string name="system_diagnostics_section_receivers">Dynamisch registrierte Empfänger</string>
+    <string name="system_diagnostics_status_ok">OK</string>
+    <string name="system_diagnostics_status_missing">Fehlt</string>
+    <string name="system_diagnostics_receiver_feature_enabled">Feature eingeschaltet — sollte registriert sein</string>
+    <string name="system_diagnostics_receiver_feature_disabled">Feature ausgeschaltet — Abmeldung ist korrekt</string>
+    <string name="system_diagnostics_refresh_action">Aktualisieren</string>
+
+    <!-- de/ble1st/warden/ui/AppManagementScreen.kt -->
+    <string name="app_management_title">App-Verwaltung</string>
+    <string name="app_management_intro">Eingefroren = App verschwindet aus Launcher/Übersicht, bleibt aber installiert (Daten bleiben erhalten, jederzeit reversibel).</string>
+    <string name="app_management_count">%1$d von %2$d Apps</string>
+    <string name="app_management_count_system_hidden_suffix"> (Systemapps ausgeblendet)</string>
+    <string name="app_management_empty_selection_headline">Keine Apps in dieser Auswahl%1$s</string>
+    <string name="app_management_empty_selection_system_hidden_suffix"> — Systemapps sind ausgeblendet.</string>
+    <string name="app_management_empty_selection_plain_suffix">.</string>
+    <string name="app_management_no_match_headline">Keine App passt zu \"%1$s\".</string>
+    <string name="app_management_swipe_activate">Aktivieren</string>
+    <string name="app_management_swipe_freeze">Einfrieren</string>
+    <string name="app_management_row_content_description">App-Verwaltung %1$s, %2$s</string>
+    <string name="app_management_row_protected_suffix">, geschützt — kann nicht eingefroren werden</string>
+    <string name="app_management_row_state_frozen">eingefroren</string>
+    <string name="app_management_row_state_active">aktiv</string>
+    <string name="app_management_protected_notice">Geschützt — kann nicht eingefroren werden</string>
+
+    <!-- de/ble1st/warden/ui/FilterControls.kt -->
+    <string name="filter_controls_show_system_apps">Systemapps anzeigen</string>
+
+    <!-- de/ble1st/warden/ui/SettingsScreen.kt -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_section_appearance">Darstellung</string>
+    <string name="settings_section_lock_screen">Sperrbildschirm</string>
+    <string name="settings_naming_title">Namensvergebung</string>
+    <string name="settings_naming_subtitle">Zusatztext, Organisationsname, Support-Hinweis</string>
+    <string name="settings_section_hardening">Härtung</string>
+    <string name="settings_section_config">Konfiguration</string>
+    <string name="settings_config_export_title">Exportieren</string>
+    <string name="settings_config_export_subtitle">Härtungskonfiguration als Textdatei sichern (ohne PIN, Schlüssel, Protokolle)</string>
+    <string name="settings_config_import_title">Importieren</string>
+    <string name="settings_config_import_subtitle">Zuvor exportierte Konfiguration wieder einspielen</string>
+    <string name="settings_section_info">Info</string>
+    <string name="settings_updates_title">Updates</string>
+    <string name="settings_updates_subtitle">Installiert: %1$s — antippen öffnet die Releases-Seite im Browser (Warden prüft nicht selbst)</string>
+    <string name="settings_updates_no_browser">Keine App gefunden, die einen Link öffnen kann.</string>
+    <string name="settings_licenses_title">Lizenzen</string>
+    <string name="settings_licenses_subtitle">Open-Source-Bestandteile dieser App</string>
+
+    <!-- de/ble1st/warden/ui/ - shared field strings -->
+    <string name="field_off_label">Aus</string>
+    <string name="field_character_counter">%1$d / %2$d</string>
+
+    <!-- de/ble1st/warden/ui/AutoRebootField.kt -->
+    <string name="auto_reboot_field_title">Auto-Reboot nach Inaktivität</string>
+    <string name="auto_reboot_field_description">Startet das Gerät automatisch neu, wenn es ununterbrochen länger als die gewählte Zeitspanne gesperrt bleibt (z. B. bei Verlust/Diebstahl) — versetzt es zurück in den Vor-Entsperr-Zustand.</string>
+    <string name="auto_reboot_field_preset_1_day">Nach 1 Tag</string>
+    <string name="auto_reboot_field_preset_2_days">Nach 2 Tagen</string>
+    <string name="auto_reboot_field_preset_3_days">Nach 3 Tagen</string>
+    <string name="auto_reboot_field_preset_1_week">Nach 1 Woche</string>
+    <string name="auto_reboot_field_preset_hours">Nach %1$d Stunden</string>
+
+    <!-- de/ble1st/warden/ui/LockScreenMessageField.kt -->
+    <string name="lock_screen_message_field_title">Sperrbildschirm-Text</string>
+    <string name="lock_screen_message_field_description">Wird auf dem echten Sperrbildschirm des Geräts angezeigt — z. B. \"Dieses Gerät wird von deiner Organisation verwaltet\" oder ein Rückgabe-/Kontakthinweis. Leer lassen, um ihn auszublenden.</string>
+    <string name="lock_screen_message_field_label">Nachricht</string>
+
+    <!-- de/ble1st/warden/ui/OrganizationNameField.kt -->
+    <string name="organization_name_field_title">Organisationsname</string>
+    <string name="organization_name_field_description">Manche Geräte (z. B. Samsung One UI auf voll verwalteten Geräten) zeigen auf dem Sperrbildschirm statt des freien Textes oben nur einen festen Satz mit diesem Namen: \"Dieses Gerät gehört zu &lt;Name&gt;\". Leer lassen für den generischen Standardtext.</string>
+    <string name="organization_name_field_label">Name</string>
+
+    <!-- de/ble1st/warden/ui/SupportMessageField.kt -->
+    <string name="support_message_field_title">Support-/Kontakthinweis</string>
+    <string name="support_message_field_description">Wird vom OS angezeigt, wenn eine Aktion durch Geräteadministrator-Richtlinien blockiert wird (z. B. unter Einstellungen &gt; Geräteadministrator-App-Info). Leer lassen, um ihn auszublenden.</string>
+    <string name="support_message_field_label">Hinweistext</string>
+
+    <!-- de/ble1st/warden/ui/FailedAttemptsRebootField.kt -->
+    <string name="failed_attempts_reboot_field_title">Neustart nach Fehlversuchen</string>
+    <string name="failed_attempts_reboot_field_description">Startet das Gerät neu, sobald am System-Sperrbildschirm so viele Versuche hintereinander fehlschlagen — zurück in den Vor-Entsperr-Zustand, ohne etwas zu löschen. Eine erfolgreiche Entsperrung setzt den Zähler zurück.</string>
+    <string name="failed_attempts_reboot_field_warning">⚠ Kein Sperrbildschirm-Code eingerichtet — ohne PIN/Muster/Passwort meldet Android keine Fehlversuche, die Einstellung bleibt wirkungslos.</string>
+    <string name="failed_attempts_reboot_field_preset">Nach %1$d Fehlversuchen</string>
+
+    <!-- de/ble1st/warden/ui/SimChangeField.kt -->
+    <string name="sim_change_field_title">Reaktion auf SIM-Wechsel</string>
+    <string name="sim_change_field_description">Prüft regelmäßig, ob noch dieselbe SIM steckt — der einzige Auslöser in Warden, der ohne dich funktioniert (kein Standort, kein Fernzugriff, kein Netz nötig). Eine entfernte SIM zählt genauso als Wechsel wie eine fremde. Der eigene Kartentausch löst dasselbe aus.</string>
+
+    <!-- de/ble1st/warden/ui/CellSecurityField.kt -->
+    <string name="cell_security_field_title">Reaktion auf Mobilfunkzellen-Auffälligkeiten</string>
+    <string name="cell_security_field_description">Prüft regelmäßig die registrierte Mobilfunkzelle auf Anzeichen, die bei einem IMSI-Catcher (Fake-Sendemast) auftreten können — z. B. eine plötzliche Funkgenerations-Herabstufung oder ein widersprüchlicher Gebietscode. Das ist ein Verdachtssignal, kein Beweis: Android erlaubt Apps keinen Zugriff auf das Basisband, echte Fehlalarme (z. B. beim Fahren durch ein Funkloch) sind möglich.</string>
+
+    <!-- de/ble1st/warden/ui/WifiTrustField.kt -->
+    <string name="wifi_trust_field_title">Reaktion auf unbekannte WLANs</string>
+    <string name="wifi_trust_field_description">Prüft regelmäßig, ob das verbundene WLAN in der Vertrauensliste unten steht. Reine SSID-Prüfung, kein Netzwerk-Fingerabdruck — ein Angreifer, der einen Netznamen kopiert, wird dadurch nicht erkannt.</string>
+    <string name="wifi_trust_list_title">Vertraute Netze</string>
+    <string name="wifi_trust_add_ssid_label">Netzname (SSID) hinzufügen</string>
+    <string name="wifi_trust_add_ssid_action">Hinzufügen</string>
+    <string name="wifi_trust_remove_ssid_content_description">%1$s entfernen</string>
+    <string name="wifi_trust_add_current_action">Aktuelles Netz „%1$s“ hinzufügen</string>
+
+    <!-- de/ble1st/warden/ui/AntiTheftField.kt -->
+    <string name="anti_theft_field_title">Diebstahlschutz-Alarm</string>
+    <string name="anti_theft_field_description">Löst einen lauten Alarm aus, der nur durch echtes Entsperren des Geräts endet. Beide Auslöser wirken ausschließlich bei gesperrtem Gerät.</string>
+    <string name="anti_theft_field_motion_label">Bewegungsalarm bei gesperrtem Gerät</string>
+    <string name="anti_theft_field_charger_label">Alarm bei Ladekabel-Abzug im gesperrten Zustand</string>
+
+    <!-- de/ble1st/warden/ui/TrackerGuardField.kt -->
+    <string name="tracker_guard_field_title">BLE-Tracker-Wächter</string>
+    <string name="tracker_guard_field_description">Prüft regelmäßig per Bluetooth-Low-Energy-Scan, ob ein nicht gekoppeltes Gerät (z. B. ein AirTag oder ähnliches Tracking-Zubehör) wiederholt in der Nähe bleibt. Verdachtssignal, kein Beweis — ein echtes AirTag rotiert seine Kennung regelmäßig, was eine zuverlässige Verfolgung über Stunden hinweg erschwert.</string>
+    <string name="tracker_guard_field_switch_label">Auf mitlaufende BLE-Geräte prüfen</string>
+
+    <!-- de/ble1st/warden/ui/AutoProfileField.kt -->
+    <string name="auto_profile_field_title">Automatische Profilumschaltung</string>
+    <string name="auto_profile_field_description">Schaltet die Härtungsprofile ohne Zutun um — nach Uhrzeit oder wenn der Sicherheits-Scanner einen kritischen Fund führt. Zurücknehmen darf die Automatik nur, was sie selbst gesetzt hat: ein von Hand gewähltes strengeres Profil bleibt stehen, bis Sie es selbst wechseln.</string>
+    <string name="auto_profile_field_escalate_label">Bei kritischem Fund auf Maximal</string>
+    <string name="auto_profile_field_night_title">Nachts</string>
+    <string name="auto_profile_field_day_title">Tagsüber</string>
+    <string name="auto_profile_field_no_switch_label">Nicht umschalten</string>
+    <string name="auto_profile_field_choice_content_description">%1$s: %2$s</string>
+    <string name="auto_profile_field_night_start_title">Nacht beginnt</string>
+    <string name="auto_profile_field_night_end_title">Nacht endet</string>
+    <string name="auto_profile_field_hour_content_description">%1$s: %2$d Uhr</string>
+    <string name="auto_profile_field_hour_label">%1$d Uhr</string>
+
+    <!-- de/ble1st/warden/appmanagement/SuspiciousAppActionConfirmActivity.kt -->
+    <string name="suspicious_app_confirm_uninstall_title">Deinstallieren bestätigen</string>
+    <string name="suspicious_app_confirm_uninstall_warning">„%1$s“ (%2$s) wird deinstalliert.</string>
+    <string name="suspicious_app_confirm_clear_data_title">Daten löschen bestätigen</string>
+    <string name="suspicious_app_confirm_clear_data_warning">Alle Daten von „%1$s“ (%2$s) werden gelöscht — das lässt sich nicht rückgängig machen.</string>
+    <string name="suspicious_app_confirm_freeze_title">Einfrieren bestätigen</string>
+    <string name="suspicious_app_confirm_freeze_warning">„%1$s“ (%2$s) wird eingefroren (jederzeit über die App-Verwaltung rückgängig zu machen).</string>
+    <string name="suspicious_app_confirm_generic_title">Aktion bestätigen</string>
+
+    <!-- de/ble1st/warden/clipboard/ClipboardSensitiveContentNotifier.kt -->
+    <string name="notification_clipboard_sensitive_channel_name">Sensible Einfügung</string>
+    <string name="notification_clipboard_sensitive_channel_description">Meldet, wenn beim Cross-App-Erkennung-Scan ein möglicherweise sensibler Wert (Seed-Phrase, Kartennummer, API-Key) in eine fremde App eingefügt wurde.</string>
+    <string name="clipboard_sensitive_notification_title">Möglicherweise sensibler Wert eingefügt</string>
+    <string name="clipboard_sensitive_notification_text">%1$s in %2$s erkannt. Prüfe, ob das beabsichtigt war.</string>
+    <string name="clipboard_sensitive_category_seed_phrase">Etwas, das wie eine Wallet-Seed-Phrase aussieht</string>
+    <string name="clipboard_sensitive_category_credit_card">Etwas, das wie eine Kartennummer aussieht</string>
+    <string name="clipboard_sensitive_category_api_key">Etwas, das wie ein API-Key/Zugangstoken aussieht</string>
+
+    <!-- de/ble1st/warden/sim/SimChangeNotifier.kt -->
+    <string name="notification_sim_change_channel_name">SIM-Wechsel</string>
+    <string name="notification_sim_change_channel_description">Meldet, wenn die eingelegte SIM-Karte wechselt oder entfernt wird.</string>
+    <string name="notification_sim_change_removed_title">SIM-Karte entfernt</string>
+    <string name="notification_sim_change_swapped_title">Andere SIM-Karte erkannt</string>
+    <string name="notification_sim_change_removed_text">Die zuvor erkannte SIM steckt nicht mehr im Gerät.</string>
+    <string name="notification_sim_change_swapped_text">Es steckt eine andere SIM im Gerät als beim letzten Prüflauf.</string>
+
+    <!-- de/ble1st/warden/cellsecurity/CellSecurityNotifier.kt -->
+    <string name="notification_cell_security_channel_name">Mobilfunkzellen-Auffälligkeit</string>
+    <string name="notification_cell_security_channel_description">Meldet ungewöhnliches Verhalten der registrierten Mobilfunkzelle (möglicher Hinweis auf einen IMSI-Catcher, kein Beweis).</string>
+    <string name="notification_cell_security_critical_title">Verdächtige Mobilfunkzelle</string>
+    <string name="notification_cell_security_warning_title">Ungewöhnliches Zellverhalten</string>
+
+    <!-- de/ble1st/warden/antitheft/AntiTheftAlarmNotifier.kt -->
+    <string name="notification_anti_theft_channel_name">Diebstahlschutz-Alarm</string>
+    <string name="notification_anti_theft_channel_description">Zeigt an, dass der Diebstahlschutz-Alarm gerade aktiv ist. Endet erst mit einer echten Geräte-Entsperrung.</string>
+    <string name="notification_anti_theft_title">Diebstahlschutz-Alarm aktiv</string>
+
+    <!-- de/ble1st/warden/wifitrust/WifiTrustNotifier.kt -->
+    <string name="notification_wifi_trust_channel_name">Unbekanntes WLAN</string>
+    <string name="notification_wifi_trust_channel_description">Meldet, wenn sich das Gerät mit einem WLAN verbindet, das nicht in der Vertrauensliste steht.</string>
+    <string name="notification_wifi_trust_title">Unbekanntes WLAN erkannt</string>
+    <string name="notification_wifi_trust_text">Verbunden mit „%1$s“, nicht in der Vertrauensliste. %2$s</string>
+
+    <!-- de/ble1st/warden/tracker/BleTrackerNotifier.kt -->
+    <string name="notification_ble_tracker_channel_name">BLE-Tracker-Verdacht</string>
+    <string name="notification_ble_tracker_channel_description">Meldet ein nicht gekoppeltes BLE-Gerät, das wiederholt über Zeit in der Nähe bleibt (möglicherweise ein Tracking-Zubehör).</string>
+    <string name="notification_ble_tracker_findmy_title">Möglicherweise ein AirTag/Find-My-Zubehör in der Nähe</string>
+    <string name="notification_ble_tracker_generic_title">Unbekanntes Gerät bleibt in der Nähe</string>
+    <string name="notification_ble_tracker_text">Adresse %1$s, %2$d Sichtungen. Prüfe, ob dir das Gerät bekannt vorkommt.</string>
+
+    <!-- de/ble1st/warden/score/ScoreReminderNotifier.kt -->
+    <string name="notification_score_reminder_channel_name">Sicherheits-Score-Erinnerung</string>
+    <string name="notification_score_reminder_channel_description">Erinnert, wenn der Sicherheits-Score seit über 30 Tagen nicht neu berechnet wurde.</string>
+    <string name="notification_score_reminder_title">Sicherheits-Score aktualisieren?</string>
+    <string name="notification_score_reminder_text">Der letzte berechnete Sicherheits-Score ist über 30 Tage alt.</string>
+
+    <!-- de/ble1st/warden/vpn/WardenVpnService.kt -->
+    <string name="notification_net_lockdown_channel_name">Warden Netz-Sperre</string>
+    <string name="notification_net_lockdown_title">Netz-Sperre aktiv</string>
+    <string name="notification_net_lockdown_text">Warden filtert und schützt den Netzwerkverkehr dieses Geräts</string>
+
+    <!-- de/ble1st/warden/netlock/NetworkLogViewerActivity.kt -->
+    <string name="network_log_viewer_presence_title">Netzwerk-Log-Einsicht bestätigen</string>
+    <string name="network_log_viewer_presence_subtitle">Zugriff auf die strukturierten DNS-/Verbindungs-Ereignisse</string>
+    <string name="network_log_viewer_screen_title">Netzwerk-Log</string>
+    <string name="network_log_viewer_presence_required">Presence-Nachweis erforderlich, bevor der Log-Inhalt angezeigt wird.</string>
+    <string name="network_log_viewer_package_filter_label">Nach Paketname filtern</string>
+    <string name="network_log_viewer_line">%1$s [%2$s] %3$s: %4$s</string>
+    <string name="network_log_viewer_unknown_package">?</string>
+
+    <!-- de/ble1st/warden/presence/WardenLockActivity.kt -->
+    <string name="warden_lock_biometric_prompt_title">Warden entsperren</string>
+    <string name="warden_lock_biometric_prompt_subtitle">Präsenznachweis für den App-Zugriff</string>
+    <string name="warden_lock_screen_title">Warden gesperrt</string>
+    <string name="warden_lock_presence_required">Präsenznachweis erforderlich, bevor der App-Inhalt angezeigt wird.</string>
+    <string name="warden_lock_biometric_unavailable">⚠ Keine Biometrie eingerichtet — mit Warden-PIN fortfahren.</string>
+    <string name="warden_lock_unlock_biometric_action">Mit Biometrie entsperren</string>
+    <string name="warden_lock_unlock_pin_action">Mit Warden-PIN entsperren</string>
+
+    <!-- de/ble1st/warden/ui/StatusStateRow.kt -->
+    <string name="status_state_row_retry_action">Erneut versuchen</string>
+
+    <!-- de/ble1st/warden/ui/AccentPickerRow.kt -->
+    <string name="accent_picker_title">Akzentfarbe</string>
+    <string name="accent_picker_content_description">Akzentfarbe %1$s</string>
+    <string name="accent_label_gruen">Terminal-Grün</string>
+    <string name="accent_label_bernstein">Bernstein</string>
+    <string name="accent_label_cyan">Cyan</string>
+    <string name="accent_label_phosphor_weiss">Phosphor-Weiß</string>
+
+    <!-- de/ble1st/warden/pin/WardenLockTaskPendingEngageStore.kt -->
+    <string name="lock_task_pending_engage_default_reason">Kritischer Verdachtsfund</string>
+
+    <!-- de/ble1st/warden/appmanagement/SuspiciousAppScanController.kt -->
+    <string name="suspicious_app_scan_critical_finding_reason">Kritischer Verdachtsfund: %1$s (%2$s)</string>
+
+    <!-- de/ble1st/warden/widget/WardenStatusWidget.kt -->
+    <string name="widget_title">Warden</string>
+    <string name="widget_description">Zeigt Lockdown-Status, aktives Profil und den zuletzt berechneten Sicherheits-Score. Tippen öffnet die App.</string>
+    <string name="widget_lockdown_active">Lockdown: aktiv</string>
+    <string name="widget_lockdown_inactive">Lockdown: inaktiv</string>
+    <string name="widget_lockdown_unknown">Lockdown: unbekannt</string>
+    <string name="widget_profile_line">Profil: %1$s</string>
+    <string name="widget_score_line">Score: %1$d (%2$s)</string>
+    <string name="widget_score_not_calculated">Score: noch nicht berechnet</string>
+    <!-- ui/SetupWizardScreen.kt — Ersteinrichtungs-Assistent -->
+    <string name="menu_setup_wizard_title">Ersteinrichtung</string>
+    <string name="setup_title">Ersteinrichtung</string>
+    <string name="setup_intro">Diese Übersicht zeigt, was Warden auf diesem Gerät bereits absichert und was noch fehlt. Jeder Schritt führt an die Stelle, an der er tatsächlich eingerichtet wird.</string>
+    <string name="setup_progress">%1$d von %2$d Schritten erledigt</string>
+    <string name="setup_state_done">Erledigt</string>
+    <string name="setup_state_open_required">Offen — ohne diesen Schritt schützt Warden nichts.</string>
+    <string name="setup_state_open_optional">Offen — optional.</string>
+    <string name="setup_state_blocked">Erst möglich, wenn Sentinel installiert ist.</string>
+    <string name="setup_action_refresh">Status prüfen</string>
+    <string name="setup_action_finish">Einrichtung abschließen</string>
+    <string name="setup_action_finish_incomplete">Später fortsetzen</string>
+
+    <string name="setup_step_device_owner_title">Device Owner</string>
+    <string name="setup_step_device_owner_description">Warden braucht Device-Owner-Rechte, um überhaupt eine Geräterichtlinie setzen zu können. Diese Rolle wird beim Einrichten des Geräts vergeben (QR-Provisionierung oder ADB) und lässt sich nachträglich nicht ohne Zurücksetzen des Geräts nachholen.</string>
+
+    <string name="setup_step_pin_title">Warden-PIN</string>
+    <string name="setup_step_pin_description">Schützt alle folgenschweren Aktionen (Neustart, Sperre, Kiosk, Zurücksetzen der Richtlinien). Ohne PIN läuft diese Absicherung ins Leere — die Aktionen sind dann ungeschützt.</string>
+    <string name="setup_step_pin_action">PIN festlegen</string>
+
+    <string name="setup_step_profile_title">Profil anwenden</string>
+    <string name="setup_step_profile_description">Alltag, Reise oder Maximal schalten in einem Schritt einen abgestimmten Satz Safeguards ein. Einzeln gesetzte Safeguards sind gleichwertig — dieser Schritt ist nur der schnellere Weg dorthin.</string>
+    <string name="setup_step_profile_action">Zu den Safeguards</string>
+
+    <string name="setup_step_sentinel_title">Sentinel installieren</string>
+    <string name="setup_step_sentinel_description">Eigenständige App, deren PIN der einzige Weg aus dem Kiosk-Modus ist. Nur nötig, wenn der Kiosk-Modus genutzt werden soll. Die Installation läuft im Hintergrund; das Ergebnis erscheint nach „Status prüfen“.</string>
+    <string name="setup_step_sentinel_action">Jetzt installieren</string>
+
+    <string name="setup_step_drill_title">Notruf-Test bestätigen</string>
+    <string name="setup_step_drill_description">Vor der ersten Kiosk-Nutzung muss einmal geprüft werden, dass ein Notruf aus dem gesperrten Gerät heraus möglich bleibt. Bestätigt wird der tatsächlich durchgeführte Test — die Bestätigung erfolgt bewusst nur in den Safeguards, mit ausgeschriebenem Bestätigungstext.</string>
+    <string name="setup_step_drill_action">Zu den Safeguards</string>
+</resources>

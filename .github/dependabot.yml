@@ -1,0 +1,59 @@
+# Vier unabhängige Gradle-Root-Projekte plus die Rust-Kette von Warden — jedes Verzeichnis
+# braucht deshalb einen eigenen Eintrag; Dependabot folgt keinen Verweisen zwischen ihnen.
+#
+# Wöchentlich statt täglich: die Suite hat einen Maintainer, und ein täglicher Schwall an
+# PRs über fünf Ökosysteme hinweg führt erfahrungsgemäß dazu, dass gar keiner mehr gelesen
+# wird. `open-pull-requests-limit` begrenzt zusätzlich, wie viele gleichzeitig offen stehen.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /warden
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Warden(deps)"
+
+  - package-ecosystem: gradle
+    directory: /files
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Files(deps)"
+
+  - package-ecosystem: gradle
+    directory: /camera
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Kamera(deps)"
+
+  - package-ecosystem: gradle
+    directory: /gallery
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Galerie(deps)"
+
+  # Wardens Krypto-Engine. Ein Cargo-Update hier zieht einen kompletten NDK-Bau über vier ABIs
+  # nach sich (s. release.yml) — deshalb bewusst nur Sicherheitsupdates statt jeder neuen
+  # Patch-Version.
+  - package-ecosystem: cargo
+    directory: /warden/rust
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "Engine(deps)"
+
+  # Die Actions in den drei Workflows selbst — ein veralteter `actions/checkout` ist genauso ein
+  # Lieferketten-Risiko wie eine veraltete Bibliothek.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "CI(deps)"

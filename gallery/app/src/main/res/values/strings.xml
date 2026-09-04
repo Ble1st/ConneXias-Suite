@@ -1,0 +1,126 @@
+<resources>
+    <string name="app_name">ConneXias Galerie</string>
+
+    <string name="onboarding_title">Zugriff auf Fotos und Videos</string>
+    <string name="onboarding_body">ConneXias Galerie braucht Zugriff auf Fotos und Videos, um sie anzuzeigen, zu sortieren und zu verwalten.</string>
+    <string name="onboarding_action_grant">Zugriff erlauben</string>
+    <string name="onboarding_action_open_settings">In Einstellungen öffnen</string>
+    <string name="onboarding_denied_body">Der Zugriff wurde abgelehnt. ConneXias Galerie braucht Zugriff auf Fotos und Videos, um sie anzuzeigen. Bitte in den System-Einstellungen erlauben.</string>
+
+    <string name="albums_title">Alben</string>
+    <string name="album_all">Alle</string>
+    <plurals name="album_item_count">
+        <item quantity="one">%1$d Element</item>
+        <item quantity="other">%1$d Elemente</item>
+    </plurals>
+
+    <string name="grid_empty">Keine Fotos oder Videos gefunden.</string>
+    <string name="grid_action_sort">Sortieren</string>
+    <string name="sort_by_date">Datum</string>
+    <string name="sort_by_name">Name</string>
+    <string name="sort_by_size">Größe</string>
+
+    <plurals name="selection_count">
+        <item quantity="one">%1$d ausgewählt</item>
+        <item quantity="other">%1$d ausgewählt</item>
+    </plurals>
+    <string name="action_select_all">Alle auswählen</string>
+    <string name="action_share">Teilen</string>
+    <string name="action_delete">Löschen</string>
+    <string name="action_info">Informationen</string>
+    <string name="action_open_with">Öffnen mit</string>
+
+    <string name="delete_confirm_title">Löschen?</string>
+    <!-- Bewusst ohne "endgültig": ab API 30 verschiebt diese Aktion nur in den Papierkorb
+         (util/MediaActions.kt requestRemove), erst dort ist ein Löschen tatsächlich endgültig
+         (s. trash_delete_forever_body). Unterhalb von API 30 ist es zwar sofort endgültig, aber
+         dieselbe neutrale Formulierung bleibt dort nicht falsch, nur weniger präzise. -->
+    <plurals name="delete_confirm_body">
+        <item quantity="one">Dieses Element wird gelöscht.</item>
+        <item quantity="other">%1$d Elemente werden gelöscht.</item>
+    </plurals>
+    <string name="action_confirm">Bestätigen</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="content_desc_back">Zurück</string>
+    <string name="action_search">Suchen</string>
+    <string name="error_no_app_found">Keine App gefunden, die das öffnen kann</string>
+
+    <string name="info_dialog_title">Informationen</string>
+    <string name="info_dimensions">Abmessungen</string>
+    <string name="info_size">Größe</string>
+    <string name="info_date">Aufnahmedatum</string>
+    <string name="info_path">Pfad</string>
+    <string name="info_close">Schließen</string>
+
+    <string name="album_create_title">Neues Album</string>
+    <string name="album_name_label">Albumname</string>
+    <string name="album_empty">Dieses Album enthält noch keine Elemente.</string>
+    <string name="album_add_to">Zu Album hinzufügen</string>
+    <string name="album_remove_item">Aus Album entfernen</string>
+    <string name="album_rename_title">Album umbenennen</string>
+    <string name="album_delete_title">Album löschen</string>
+    <string name="content_desc_more">Mehr</string>
+    <string name="content_desc_video">Video</string>
+    <string name="content_desc_favorite">Favorit</string>
+    <string name="content_desc_editor_preview">Vorschau der Bearbeitung</string>
+    <string name="album_delete_body">Das Album wird gelöscht, die enthaltenen Aufnahmen bleiben erhalten.</string>
+
+    <string name="slideshow_start">Diashow</string>
+    <string name="slideshow_pause">Pause</string>
+    <string name="slideshow_resume">Fortsetzen</string>
+
+    <string name="trash_title">Papierkorb</string>
+    <string name="trash_restore">Wiederherstellen</string>
+    <string name="trash_delete_forever">Endgültig löschen</string>
+    <string name="trash_empty">Papierkorb ist leer.</string>
+    <plurals name="trash_delete_forever_body">
+        <item quantity="one">Dieses Element wird endgültig gelöscht und kann nicht wiederhergestellt werden.</item>
+        <item quantity="other">%1$d Elemente werden endgültig gelöscht und können nicht wiederhergestellt werden.</item>
+    </plurals>
+
+    <string name="cloud_sync_title">Cloud-Sicherung</string>
+    <string name="cloud_sync_explanation">Sichert Fotos und Videos einmalig auf einen selbst gehosteten WebDAV-Server (z. B. Nextcloud). Reine Ein-Wege-Sicherung — Änderungen auf dem Server wirken sich nicht auf dieses Gerät aus.</string>
+    <string name="cloud_sync_server_url">Server-Adresse</string>
+    <string name="cloud_sync_username">Benutzername</string>
+    <string name="cloud_sync_password">Passwort</string>
+    <string name="cloud_sync_save_and_test">Speichern und Verbindung testen</string>
+    <string name="cloud_sync_test_ok">Verbindung erfolgreich</string>
+    <string name="cloud_sync_test_failed">Verbindung fehlgeschlagen</string>
+    <string name="cloud_sync_start">Jetzt sichern</string>
+    <string name="cloud_sync_progress">%1$d von %2$d gesichert (%3$d fehlgeschlagen)</string>
+    <string name="cloud_sync_remove_account">Konto entfernen</string>
+
+    <string name="editor_title">Bearbeiten</string>
+    <string name="editor_save">Speichern</string>
+    <string name="editor_saved">Bearbeitetes Foto gespeichert</string>
+    <string name="editor_save_failed">Speichern fehlgeschlagen</string>
+    <string name="editor_crop_label">Zuschnitt</string>
+    <string name="editor_crop_original">Original</string>
+    <string name="editor_filter_label">Filter</string>
+    <string name="filter_none">Original</string>
+    <string name="filter_bw">Schwarz-Weiß</string>
+    <string name="filter_sepia">Sepia</string>
+    <string name="filter_vintage">Vintage</string>
+    <string name="filter_cool">Kühl</string>
+    <string name="filter_warm">Warm</string>
+    <!-- ui/albums/AlbumsScreen.kt, ui/grid/MediaGridScreen.kt — Favoriten -->
+    <string name="album_favorites">Favoriten</string>
+    <string name="favorite_add">Zu Favoriten hinzufügen</string>
+    <string name="favorite_remove">Aus Favoriten entfernen</string>
+    <!-- data/sync/CloudSyncWorker.kt, ui/sync/CloudSyncScreen.kt -->
+    <string name="cloud_sync_notification_channel">Cloud-Sicherung</string>
+    <string name="cloud_sync_notification_title">Mediathek wird gesichert …</string>
+    <string name="cloud_sync_requires_saved_account">Erst „Verbindung testen“ — gesichert wird mit dem gespeicherten Konto.</string>
+    <string name="cloud_sync_cancelled">Sicherung abgebrochen.</string>
+    <!-- ui/about/AboutScreen.kt -->
+    <string name="about_title">Über die App</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_description">Freie Galerie ohne Google Play Services und ohne proprietäre Google-Dienste. Alles läuft lokal auf dem Gerät; Aufnahmen verlassen es nur, wenn Sie selbst eine Cloud-Sicherung auf einen eigenen WebDAV-Server einrichten.</string>
+    <string name="about_suite">Teil der ConneXias Suite — vier eigenständige Apps (Warden, Files, Kamera, Galerie), die über Android-Intents zusammenarbeiten, aber jede für sich allein voll funktionsfähig bleiben.</string>
+    <string name="about_updates_title">Updates</string>
+    <string name="about_updates_body">Neue Versionen, Prüfsummen und Zertifikat-Fingerabdruck auf der Releases-Seite. Die App prüft nicht selbst auf Updates — antippen öffnet die Seite im Browser.</string>
+    <string name="about_updates_no_browser">Keine App gefunden, die einen Link öffnen kann.</string>
+    <string name="about_license_title">Lizenz</string>
+    <string name="about_license_body">Apache License 2.0</string>
+    <string name="about_licenses_third_party">Fremdbibliotheken</string>
+</resources>

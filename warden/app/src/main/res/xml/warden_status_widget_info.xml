@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- WardenStatusWidget (widget/WardenStatusWidget.kt) — reines Status-Widget, s. dortiges
+     Klassendoc. android:updatePeriodMillis="1800000" (30 Minuten) ist das von Android selbst
+     durchgesetzte Minimum für dieses Feld (kleinere Werte werden vom System stillschweigend auf
+     30 Minuten angehoben) — deshalb kein zusätzlicher periodischer WorkManager-Worker für die
+     Basis-Aktualisierung, konsistent mit dem ehrlichen Minimum statt einem zweiten, nur
+     scheinbar feineren Mechanismus. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:previewImage="@mipmap/ic_launcher"
+    android:initialLayout="@layout/warden_status_widget_loading"
+    android:description="@string/widget_description"
+    android:widgetCategory="home_screen"
+    android:resizeMode="horizontal|vertical" />

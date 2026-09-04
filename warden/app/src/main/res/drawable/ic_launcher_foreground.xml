@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Schild mit ausgespartem Haken. Die Aussparung (fillType="evenOdd") statt eines zweiten,
+  andersfarbigen Pfades: so trägt derselbe Pfad auch die monochrome Ebene (themed icons ab
+  Android 13) korrekt — dort wird die Silhouette eingefärbt, gefüllte Teilflächen würden
+  ineinanderlaufen.
+
+  Artwork liegt vollständig im 66dp-Sicherheitskreis der 108dp-Leinwand
+  (https://developer.android.com/develop/ui/views/launch/icon_design_adaptive) — der weiteste
+  Punkt hat 31,6dp Abstand zur Mitte (54,54) bei 33dp Radius.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#33FF66"
+        android:fillType="evenOdd"
+        android:pathData="M54,26 L80,36 V56 c0,14 -11,22 -26,26 c-15,-4 -26,-12 -26,-26 V36 Z M38,54 L48,64 L70,42 L75,47 L48,74 L33,59 Z" />
+</vector>

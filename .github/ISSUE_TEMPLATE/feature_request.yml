@@ -1,0 +1,45 @@
+name: Funktion vorschlagen
+description: Eine Idee für eine der vier Apps.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: app
+    attributes:
+      label: Welche App?
+      options:
+        - Warden
+        - ConneXias Files
+        - ConneXias Kamera
+        - ConneXias Galerie
+        - Zusammenspiel mehrerer Apps
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welches Problem löst das?
+      description: >-
+        Die Situation, nicht die Lösung — daraus ergibt sich oft ein anderer, kleinerer Weg als
+        der zuerst gedachte.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Vorgeschlagene Lösung
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Passt das zu den Rahmenbedingungen der Suite?
+      description: >-
+        Die READMEs der einzelnen Apps führen unter "Noch nicht enthalten" jeweils auf, was
+        bewusst fehlt und warum — ein Blick dorthin lohnt sich vor dem Absenden.
+      options:
+        - label: Kommt ohne Google Play Services und ohne proprietäre Google-Dienste aus
+        - label: Braucht keine neue Berechtigung, oder der Vorschlag begründet, warum doch
+        - label: Braucht keinen neuen dauerhaften Netzwerkzugriff

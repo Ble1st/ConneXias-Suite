@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rust
+        working-directory: warden/rust
     steps:
       - uses: actions/checkout@v4
 
@@ -32,7 +32,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: warden/rust
 
       - name: cargo fmt --check
         run: cargo fmt --all --check
@@ -44,8 +44,19 @@ jobs:
         run: cargo test --locked
 
   android:
-    name: Android (lint, unit tests, assembleDebug)
+    name: Android (lint, unit tests, assembleDebug) — ${{ matrix.module }}
     runs-on: ubuntu-latest
+    # Matrix statt vier separater Jobs: alle vier Apps sind unabhängige Gradle-Root-Projekte mit
+    # identischem Check-Ablauf (lint/testDebugUnitTest/assembleDebug) — bis 2026-09-02 lief das
+    # hier nur für warden, Camera/Files/Gallery konnten auf main kaputtgehen, ohne dass CI es
+    # gemerkt hätte (s. analyse.md Abschnitt 5/6).
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [warden, files, camera, gallery]
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
     steps:
       - uses: actions/checkout@v4
 
@@ -69,10 +80,67 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: android-reports
+          name: android-reports-${{ matrix.module }}
           path: |
-            app/build/reports/lint-results-*.html
-            app/build/reports/tests/
-            sentinel/build/reports/lint-results-*.html
-            sentinel/build/reports/tests/
+            ${{ matrix.module }}/app/build/reports/lint-results-*.html
+            ${{ matrix.module }}/app/build/reports/tests/
+            ${{ matrix.module }}/sentinel/build/reports/lint-results-*.html
+            ${{ matrix.module }}/sentinel/build/reports/tests/
+          retention-days: 14
+
+  # Instrumentation-Tests (androidTest) auf einem Emulator. Eigener Job und nicht Teil der
+  # android-Matrix oben: ein Emulator-Start kostet mehrere Minuten pro Modul, während lint/
+  # Unit-Tests/assembleDebug in Sekunden durch sind — beides in einen Job zu werfen würde jedes
+  # schnelle Feedback auf die langsamste Stufe herunterziehen.
+  #
+  # Nur die drei Compose-Apps. Warden hat zwar selbst 14 androidTest-Klassen, die laufen aber
+  # gegen Krypto-Engine, Device-Admin und Registry — dafür bräuchte der Emulator ein per
+  # `dpm set-device-owner` provisioniertes Gerät ohne Konten, was ein Standard-AVD-Image hier
+  # nicht hergibt. Wardens Instrumentation-Tests bleiben deshalb bewusst dem echten Testgerät
+  # vorbehalten (s. analyse.md 6.2).
+  instrumented:
+    name: Instrumentation-Tests (Emulator) — ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [files, camera, gallery]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # KVM freischalten — ohne Hardwarebeschleunigung braucht der Emulator ein Vielfaches der
+      # Zeit und neigt zu Timeouts.
+      - name: KVM aktivieren
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # API 34 (nicht targetSdk 37): das ist das höchste Image, für das es hier ein stabiles
+      # google_apis-AVD gibt. Die Tests prüfen Intent-Verträge, Routen-Kodierung, Prefs und
+      # Compose-Dialoge — nichts davon hängt an einer API-Version oberhalb von 34.
+      - name: Instrumentation-Tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          working-directory: ${{ matrix.module }}
+          script: ./gradlew connectedDebugAndroidTest --stacktrace
+
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-reports-${{ matrix.module }}
+          path: ${{ matrix.module }}/app/build/reports/androidTests/
           retention-days: 14

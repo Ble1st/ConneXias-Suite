@@ -1,0 +1,7 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Reines Fenster-/Splash-Theme vor dem ersten Compose-Frame — sämtliche tatsächliche
+         Farbgebung läuft über das Compose-ColorScheme in ui/theme/Theme.kt, nie über diese Datei
+         (dieselbe Trennung wie in Warden, s. dortiges Theme.kt-Klassendoc). Kein einziges
+         MDC-/AppCompat-View in der App, daher reines Plattform-Theme als Parent. -->
+    <style name="Theme.ConneXiasFiles" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

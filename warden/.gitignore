@@ -1,0 +1,23 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build
+/sentinel/build
+/rust/target
+
+/CLAUDE.md
+/.claude/
+/analyse.md
+/docs/architektur-review-2026-08.md
+
+# Release-Signing: niemals einen lokalen Testkeystore versehentlich committen (CI/CD holt den
+# echten Signing-Key ausschließlich aus dem RELEASE_KEYSTORE_BASE64-Secret, s. release.yml).
+*.jks
+*.keystore

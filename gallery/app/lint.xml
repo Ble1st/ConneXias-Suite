@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SelectedPhotoAccess (API 34+ "Selected Photos Access") lässt sich nicht per tools:ignore am
+     einzelnen <uses-permission>-Eintrag unterdrücken (Check bleibt trotz Attribut bestehen) —
+     Projekt-weite Abschaltung stattdessen hier, mit Begründung im AndroidManifest.xml-Kommentar
+     direkt bei den betroffenen Berechtigungen: diese App ist bewusst als Vollzugriffs-Galerie
+     konzipiert, kein v1-Blocker. -->
+<lint>
+    <issue id="SelectedPhotoAccess" severity="ignore" />
+</lint>

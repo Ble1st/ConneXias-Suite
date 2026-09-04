@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- "Alle Dateioperationen unterstützen" (Nutzeranforderung) heißt: Zugriff auf den gesamten
+         lokalen Speicher, nicht nur auf app-eigene Scoped-Storage-Verzeichnisse oder einzelne
+         SAF-Bäume. MANAGE_EXTERNAL_STORAGE ist genau dafür gedacht ("file manager"-Ausnahme in
+         Googles Play-Store-Richtlinie zu Sonderberechtigungen) — die App wird aber wie Warden per
+         GitHub-Release/Sideload verteilt (kein Play Store), die Richtlinie ist also ohnehin nicht
+         bindend. Ohne diese Berechtigung könnte die App ab Android 11 nur noch per SAF-Baum-Picker
+         auf Fremd-Verzeichnisse zugreifen (StoragePermission.kt / ui/onboarding). -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <!-- Fallback für API 26–29 (vor MANAGE_EXTERNAL_STORAGE, s. StoragePermission-Klassendoc) —
+         maxSdkVersion 29, weil ab API 30 ausschließlich die Sonderberechtigung oben zählt. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
+    <!-- Fortschritts-Benachrichtigung für laufende Kopier-/Verschiebe-/Zip-Jobs
+         (FileOperationService) — ohne POST_NOTIFICATIONS bleibt der Foreground-Service ab
+         Android 13 stumm, läuft aber weiter (Berechtigung ist nutzerseitig ablehnbar). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- WebDAV-Netzwerkspeicher-Anbindung (data/webdav/) als Client sowie der eigene, lokale
+         HTTP-Server für die WLAN/Hotspot-Ordnerfreigabe (data/localshare/) als Server-Gegenstück —
+         die einzigen Stellen in dieser App, die tatsächlich das Netzwerk statt nur lokalen
+         Speicher ansprechen. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:name=".FilesApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.ConneXiasFiles">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.ConneXiasFiles">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Empfangsseite von "Teilen" aus einer fremden App (Kamera, Galerie, Browser, ...) —
+                 s. data/share/IncomingShare.kt. Bisher war die App nur Absender (FileActions.share),
+                 nie Empfänger; die Suite verhielt sich dadurch wie vier Inseln (analyse.md
+                 Abschnitt 5). Ein Wildcard-mimeType statt einzelner Typen, weil ein Dateimanager
+                 grundsätzlich jeden Dateityp entgegennehmen soll. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <!-- analyse.md Abschnitt 5 ("Files ohne ACTION_VIEW/GET_CONTENT") — "Öffnen mit
+                 ConneXias Files" aus einer Fremd-App (E-Mail-Anhang, Download-Benachrichtigung,
+                 Browser). data/share/IncomingView.kt kopiert die Ziel-Uri in einen frischen
+                 Cache-Ordner und öffnet ihn wie einen ganz normalen, nur mit dieser einen Datei
+                 gefüllten Ordner — derselbe Tap-Dispatch (eigener Betrachter/„Öffnen mit") wie
+                 überall sonst in der App, kein separater Betrachter-Pfad nötig. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <!-- Dieselbe Lücke, umgekehrte Richtung: eine Fremd-App fragt per ACTION_GET_CONTENT
+                 nach einer beliebigen Datei (Anhang auswählen, Upload-Ziel wählen). PickRequest.kt
+                 schaltet den bestehenden Datei-Browser in einen Auswahlmodus — ein Tap auf eine
+                 Datei gibt ihre content://-Uri an den Aufrufer zurück statt sie zu öffnen. Kein
+                 eigener DocumentsProvider (deutlich größere API-Fläche, s. README „Noch nicht
+                 enthalten"), nur der einfache Intent-Vertrag. -->
+            <intent-filter>
+                <action android:name="android.intent.action.GET_CONTENT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.OPENABLE" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- Läuft im Hauptprozess (anders als Wardens ausgelagerter :barbican-Prozess — hier gibt
+             es keine instabile native Engine, die den Hauptprozess mitreißen könnte). Kopier-/
+             Verschiebe-/Zip-Jobs laufen als Foreground-Service, damit Android sie nicht mitten im
+             Dateitransfer killt, sobald die App in den Hintergrund wechselt
+             (FileOperationService-Klassendoc). -->
+        <service
+            android:name=".data.fileops.FileOperationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- WLAN/Hotspot-Ordnerfreigabe (data/localshare/) — nutzer-getriggert per Umschalter,
+             kein Always-On-Dienst (s. LocalShareService-Klassendoc, warum die dataSync-Kontingent-
+             Problematik aus Wardens VPN-Historie hier nicht greift). -->
+        <service
+            android:name=".data.localshare.LocalShareService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- ACTION_VIEW/ACTION_SEND an Fremd-Apps (Öffnen mit externer App, Teilen — s.
+             ui/browser/FileActions.kt) dürfen seit Android N kein nacktes file://-Uri mehr
+             bekommen; FileProvider stellt stattdessen ein content://-Uri mit befristeter
+             Lesefreigabe für genau die geteilte Datei aus. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

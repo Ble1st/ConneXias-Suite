@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Ton bei Videoaufnahme (data/camera/CameraController.kt, VideoCapture-Use-Case) — ohne
+         diese Berechtigung nimmt CameraX Videos stumm auf statt beim Start zu scheitern, ein
+         Kamera-App ohne Videoton wäre aber unvollständig. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Fallback für API 26–28 (vor Scoped Storage): MediaStore.insert auf die
+         DCIM-Sammlung braucht dort noch die klassische Laufzeit-Berechtigung. Ab API 29 legt
+         Scoped Storage jeder App automatisch Schreibrecht auf von ihr selbst über MediaStore
+         angelegte Einträge an — keine MANAGE_EXTERNAL_STORAGE-Sonderberechtigung nötig, anders
+         als ConneXias Files, das den kompletten Speicher braucht statt nur des eigenen
+         Aufnahmeverzeichnisses (s. data/storage/MediaStoreSaver.kt-Klassendoc). -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- Kamera-Hardware ist für diese App zwingend (keine reine Galerie-/Betrachter-Funktion) —
+         schließt die App im Play-Store-Sinn für Geräte ohne Kamera aus; irrelevant für den
+         GitHub-Release-/Sideload-Vertriebsweg dieser Suite, dokumentiert aber die echte
+         Voraussetzung. Kein Autofokus-`required`, da auch Fixfokus-Kameras (ältere/günstige
+         Geräte) funktionieren. -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="true" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <application
+        android:name=".CameraApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.ConneXiasCamera">
+
+        <!-- Keine Bildschirmsperre mehr: `configChanges` fängt Dreh-Events ab, statt die Activity
+             (und damit die laufende CameraX-Bindung + eine evtl. aktive Videoaufnahme) neu zu
+             erzeugen — CaptureScreen führt den Ziel-Rotationswinkel für ImageCapture/VideoCapture
+             stattdessen live per OrientationEventListener nach (s. dortiger Kommentar), die
+             Compose-UI selbst bleibt bewusst im festen Hochformat-Layout (nur die
+             Symbol-Rotation folgt der Gerätelage) statt eines vollen Landscape-Layouts. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout"
+            android:theme="@style/Theme.ConneXiasCamera">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- System-Kamera-Contract (analyse.md Abschnitt 3/6/9): erlaubt anderen Apps (Messenger,
+                 Browser, ConneXias Files' "Foto aufnehmen"-Aktion), diese App als Aufnahmeziel per
+                 startActivityForResult zu nutzen, statt auf die Geräte-Default-Kamera beschränkt zu
+                 sein. Parsing/Ergebnis-Rückgabe s. nav/CaptureRequestInfo.kt + MainActivity.kt. -->
+            <intent-filter>
+                <action android:name="android.media.action.IMAGE_CAPTURE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.media.action.VIDEO_CAPTURE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>

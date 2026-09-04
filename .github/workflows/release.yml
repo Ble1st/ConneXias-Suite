@@ -85,7 +85,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: warden/rust
 
       - uses: nttld/setup-ndk@v1
         id: ndk
@@ -99,11 +99,11 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: ./build-android.sh
-        working-directory: rust
+        working-directory: warden/rust
 
       - name: Check generated Kotlin bindings for drift
         run: |
-          if ! git diff --quiet -- app/src/main/java/uniffi/connexias_engine/connexias_engine.kt sentinel/src/main/java/uniffi/connexias_engine/connexias_engine.kt; then
+          if ! git diff --quiet -- warden/app/src/main/java/uniffi/connexias_engine/connexias_engine.kt warden/sentinel/src/main/java/uniffi/connexias_engine/connexias_engine.kt; then
             echo "::warning::Frisch generierte UniFFI-Kotlin-Bindings weichen vom committeten Stand ab (app/ und/oder sentinel/) — rust/build-android.sh lokal laufen lassen und Ergebnis committen."
           fi
 
@@ -132,6 +132,7 @@ jobs:
           WARDEN_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           WARDEN_RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           WARDEN_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        working-directory: warden
         run: |
           ./gradlew assembleRelease --stacktrace \
             -PwardenVersionName=${{ steps.version.outputs.name }} \
@@ -145,7 +146,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: warden-${{ steps.version.outputs.name }}
-          path: app/build/outputs/apk/release/*.apk
+          path: warden/app/build/outputs/apk/release/*.apk
           retention-days: 90
 
       # Sentinels rohe APK zusätzlich als eigenständiges Artefakt/Release-Asset — nicht nur
@@ -156,7 +157,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sentinel-${{ steps.version.outputs.name }}
-          path: sentinel/build/outputs/apk/release/*.apk
+          path: warden/sentinel/build/outputs/apk/release/*.apk
           retention-days: 90
 
       # F-4-Folgearbeit (R8 seit 2026-08-25 aktiv): R8s Obfuskierung ist pro Build einzigartig
@@ -169,7 +170,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: warden-${{ steps.version.outputs.name }}-mapping
-          path: app/build/outputs/mapping/release/
+          path: warden/app/build/outputs/mapping/release/
           retention-days: 365
 
       # :sentinel hat R8 seit demselben Milestone ebenfalls aktiv (sentinel/build.gradle.kts) —
@@ -178,8 +179,69 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sentinel-${{ steps.version.outputs.name }}-mapping
-          path: sentinel/build/outputs/mapping/release/
+          path: warden/sentinel/build/outputs/mapping/release/
           retention-days: 365
+
+      # Prüfsummen + Signaturzertifikat für den Sideload-Weg — s. ausführliche Begründung in
+      # release-apps.yml. Bei Warden kommt ein zweiter Grund dazu: Sentinel **muss** dasselbe
+      # Zertifikat tragen wie :app (signature-geschützte Permission, s. sentinel/build.gradle.kts).
+      # Der Fingerabdruck wird deshalb für beide APKs ermittelt und verglichen — stimmen sie nicht
+      # überein, bricht der Release-Bau ab, statt ein Paar zu veröffentlichen, das sich auf dem
+      # Gerät gegenseitig nicht erkennt.
+      - name: Prüfsummen und Zertifikat-Fingerabdruck
+        id: checksums
+        run: |
+          set -euo pipefail
+          cd warden
+          app_apk=$(ls app/build/outputs/apk/release/*.apk | head -n1)
+          sentinel_apk=$(ls sentinel/build/outputs/apk/release/*.apk | head -n1)
+
+          sha256sum "$app_apk" "$sentinel_apk" | sed 's|.*/||' > "$RUNNER_TEMP/SHA256SUMS.txt"
+          cat "$RUNNER_TEMP/SHA256SUMS.txt"
+
+          print_fingerprint() {
+            keytool -printcert -jarfile "$1" | grep -m1 'SHA256:' | sed 's/.*SHA256: *//'
+          }
+          app_fp=$(print_fingerprint "$app_apk")
+          sentinel_fp=$(print_fingerprint "$sentinel_apk")
+          if [ "$app_fp" != "$sentinel_fp" ]; then
+            echo "::error::Warden und Sentinel tragen unterschiedliche Signaturzertifikate."
+            echo "  Warden:   $app_fp"
+            echo "  Sentinel: $sentinel_fp"
+            exit 1
+          fi
+          echo "fingerprint=$app_fp" >> "$GITHUB_OUTPUT"
+
+      - name: Release-Text zusammenstellen
+        run: |
+          {
+            echo "## Installation"
+            echo
+            echo "Sideload — kein Play Store, keine Google-Play-Dienste. Warden wird zusätzlich"
+            echo "als Device Owner eingerichtet; die Sentinel-APK bringt Warden selbst mit und"
+            echo "liegt hier nur zur unabhängigen Prüfung und für die manuelle Neuinstallation bei."
+            echo
+            echo "## Dateien prüfen"
+            echo
+            echo '```'
+            echo "sha256sum -c SHA256SUMS.txt          # Dateien unverändert?"
+            echo "keytool -printcert -jarfile *.apk    # von wem signiert?"
+            echo '```'
+            echo
+            echo "Erwarteter Zertifikat-Fingerabdruck (SHA256) — für Warden und Sentinel identisch"
+            echo "(im Release-Bau geprüft) und derselbe wie bei Files, Kamera und Galerie:"
+            echo
+            echo '```'
+            echo "${{ steps.checksums.outputs.fingerprint }}"
+            echo '```'
+            echo
+            echo "## Updates"
+            echo
+            echo "Warden prüft nicht selbst auf Updates. Neue Versionen stehen auf dieser"
+            echo "Releases-Seite; der Über-Bildschirm der App verlinkt sie direkt. Ein Update wird"
+            echo "über die neue APK installiert, Daten und Einstellungen bleiben erhalten — der"
+            echo "Device-Owner-Status ebenfalls, solange das Zertifikat dasselbe ist."
+          } > "$RUNNER_TEMP/release-body.md"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -187,6 +249,15 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Warden ${{ steps.version.outputs.name }}
           draft: true
+          body_path: ${{ runner.temp }}/release-body.md
+          # Hängt die von GitHub aus den Commits/PRs seit dem letzten Tag erzeugte Liste unter
+          # den festen Teil oben. Bewusst statt einer handgepflegten CHANGELOG.md: die
+          # App-READMEs führen die inhaltliche Historie ohnehin chronologisch (und zwar nach
+          # Befund, nicht nach Release), eine dritte Liste daneben wäre die erste, die veraltet.
+          # Was auf einer Release-Seite fehlte, war die Antwort auf "was ist seit meiner Version
+          # passiert" — genau das erzeugt GitHub hier automatisch und immer vollständig.
+          generate_release_notes: true
           files: |
-            app/build/outputs/apk/release/*.apk
-            sentinel/build/outputs/apk/release/*.apk
+            warden/app/build/outputs/apk/release/*.apk
+            warden/sentinel/build/outputs/apk/release/*.apk
+            ${{ runner.temp }}/SHA256SUMS.txt

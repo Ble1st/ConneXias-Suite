@@ -1,0 +1,97 @@
+<resources>
+    <string name="app_name">ConneXias Kamera</string>
+
+    <string name="onboarding_title">Zugriff auf Kamera und Mikrofon</string>
+    <string name="onboarding_body">ConneXias Kamera braucht Zugriff auf die Kamera, um Fotos und Videos aufzunehmen, und auf das Mikrofon, um Videos mit Ton aufzuzeichnen.</string>
+    <string name="onboarding_action_grant">Zugriff erlauben</string>
+    <string name="onboarding_action_open_settings">In Einstellungen öffnen</string>
+    <string name="onboarding_denied_body">Der Zugriff wurde abgelehnt. ConneXias Kamera braucht die Kamera-Berechtigung, um Fotos und Videos aufzunehmen. Bitte in den System-Einstellungen erlauben.</string>
+
+    <string name="capture_mode_photo">Foto</string>
+    <string name="capture_mode_video">Video</string>
+    <string name="capture_action_shutter">Auslösen</string>
+    <string name="capture_action_switch_camera">Kamera wechseln</string>
+    <string name="capture_action_flash_off">Blitz aus</string>
+    <string name="capture_action_flash_auto">Blitz automatisch</string>
+    <string name="capture_action_flash_on">Blitz an</string>
+    <string name="capture_action_torch_on">Dauerlicht an</string>
+    <string name="capture_action_torch_off">Dauerlicht aus</string>
+    <string name="capture_action_grid">Raster ein-/ausblenden</string>
+    <string name="capture_timer_off">Aus</string>
+    <string name="capture_timer_3s">3 Sekunden</string>
+    <string name="capture_timer_10s">10 Sekunden</string>
+    <string name="capture_last_capture">Letzte Aufnahme</string>
+    <string name="capture_action_extension">Aufnahmemodus (HDR/Nacht/Bokeh)</string>
+    <string name="capture_extension_none">Aus</string>
+    <string name="capture_extension_auto">Automatik</string>
+    <string name="capture_extension_hdr">HDR</string>
+    <string name="capture_extension_night">Nacht</string>
+    <string name="capture_extension_bokeh">Bokeh</string>
+    <string name="capture_action_settings">Einstellungen</string>
+    <string name="capture_action_manual">Manuelle Belichtung</string>
+    <string name="capture_label_ev">EV %+d</string>
+    <string name="capture_label_iso">ISO %d</string>
+    <string name="capture_label_shutter">%.0f ms</string>
+
+    <string name="review_action_share">Teilen</string>
+    <string name="review_action_delete">Löschen</string>
+    <string name="review_action_open_gallery">In Galerie öffnen</string>
+    <string name="review_action_use_capture">Verwenden</string>
+    <string name="review_deliver_failed">Übergabe an aufrufende App fehlgeschlagen</string>
+    <string name="review_action_filter">Filter</string>
+    <string name="review_action_save_filtered">Gefiltertes Foto speichern</string>
+    <string name="review_filtered_saved">Gefiltertes Foto gespeichert</string>
+    <string name="review_filtered_save_failed">Speichern fehlgeschlagen</string>
+    <string name="review_delete_confirm_title">Aufnahme löschen?</string>
+    <string name="review_delete_confirm_body">Diese Aufnahme wird endgültig gelöscht.</string>
+    <string name="filter_none">Original</string>
+    <string name="filter_bw">Schwarz-Weiß</string>
+    <string name="filter_sepia">Sepia</string>
+    <string name="filter_vintage">Vintage</string>
+    <string name="filter_cool">Kühl</string>
+    <string name="filter_warm">Warm</string>
+
+    <string name="action_confirm">Bestätigen</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="content_desc_back">Zurück</string>
+    <string name="content_desc_review_photo">Aufgenommenes Foto</string>
+    <string name="error_no_app_found">Keine App gefunden, die das öffnen kann</string>
+    <string name="error_camera_disabled_by_policy">Kamera durch Warden gesperrt</string>
+
+    <string name="capture_action_scan">QR-/Barcode scannen</string>
+    <string name="scan_prompt">Code im Rahmen positionieren</string>
+    <string name="scan_permission_denied">Kamerazugriff verweigert</string>
+    <string name="scan_result_title">Scan-Ergebnis</string>
+    <string name="scan_result_action_open">Öffnen</string>
+    <string name="scan_result_action_copy">Kopieren</string>
+    <string name="scan_result_action_share">Teilen</string>
+    <string name="scan_result_copied">Kopiert</string>
+    <string name="scan_result_content_desc_label">Rohtext</string>
+
+    <!-- ui/settings/CameraSettingsScreen.kt -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_section_video">Video</string>
+    <string name="settings_video_quality_hint">Meldet die Kamera die gewählte Auflösung nicht, wird automatisch auf die nächstniedrigere unterstützte heruntergestuft.</string>
+    <string name="settings_video_quality_sd">SD (480p)</string>
+    <string name="settings_video_quality_hd">HD (720p)</string>
+    <string name="settings_video_quality_fhd">Full HD (1080p)</string>
+    <string name="settings_video_quality_uhd">4K (2160p)</string>
+    <string name="settings_section_storage">Speicherort</string>
+    <string name="settings_storage_hint">Aufnahmen liegen im gemeinsamen Gerätespeicher und sind für jede Galerie-App sichtbar. Der Ordner lässt sich nicht ändern.</string>
+    <string name="settings_section_viewfinder">Sucher</string>
+    <string name="settings_viewfinder_reset_hint">Blitz, Raster, Selbstauslöser, Aufnahmemodus und Objektiv werden beim Beenden gemerkt. Dauerlicht bewusst nicht.</string>
+    <string name="settings_viewfinder_reset">Sucher-Einstellungen zurücksetzen</string>
+    <string name="settings_viewfinder_reset_done">Sucher-Einstellungen zurückgesetzt</string>
+
+    <!-- ui/about/AboutScreen.kt -->
+    <string name="about_title">Über die App</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_description">Freie Kamera-App ohne Google Play Services und ohne proprietäre Google-Dienste. Aufnahmen bleiben auf dem Gerät; die App überträgt nichts an einen Server.</string>
+    <string name="about_suite">Teil der ConneXias Suite — vier eigenständige Apps (Warden, Files, Kamera, Galerie), die über Android-Intents zusammenarbeiten, aber jede für sich allein voll funktionsfähig bleiben.</string>
+    <string name="about_updates_title">Updates</string>
+    <string name="about_updates_body">Neue Versionen, Prüfsummen und Zertifikat-Fingerabdruck auf der Releases-Seite. Die App prüft nicht selbst auf Updates — antippen öffnet die Seite im Browser.</string>
+    <string name="about_updates_no_browser">Keine App gefunden, die einen Link öffnen kann.</string>
+    <string name="about_license_title">Lizenz</string>
+    <string name="about_license_body">Apache License 2.0</string>
+    <string name="about_licenses_third_party">Fremdbibliotheken</string>
+</resources>

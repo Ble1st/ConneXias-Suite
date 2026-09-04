@@ -1,0 +1,426 @@
+// androidx.annotation.OptIn statt Kotlin-eigenem kotlin.OptIn: ExperimentalCamera2Interop trägt
+// die Java-Annotation androidx.annotation.RequiresOptIn (nicht Kotlins kotlin.RequiresOptIn) —
+// nur die AndroidX-eigene OptIn-Variante wird von Lints UnsafeOptInUsageError-Check erkannt.
+@file:androidx.annotation.OptIn(markerClass = [androidx.camera.camera2.interop.ExperimentalCamera2Interop::class])
+
+package de.ble1st.camera.data.camera
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CaptureRequest
+import android.net.Uri
+import android.util.Range
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.core.Camera
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
+import androidx.camera.extensions.ExtensionMode
+import androidx.camera.extensions.ExtensionsManager
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.FallbackStrategy
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleOwner
+import de.ble1st.camera.permission.CameraPermission
+
+enum class LensFacing { BACK, FRONT }
+enum class CaptureMode { PHOTO, VIDEO }
+
+/** Sensorbereiche für manuelle ISO-/Verschlusszeit-Regler — `null`, wenn das gebundene Gerät
+ * keine `MANUAL_SENSOR`-Fähigkeit meldet (z. B. `LEGACY`-Hardwarelevel), dann bleibt der Regler
+ * in der UI ausgeblendet statt Werte anzubieten, die die Hardware ohnehin ignoriert. */
+data class ManualSensorRanges(val isoRange: Range<Int>, val shutterNanosRange: Range<Long>)
+
+/**
+ * Kapselt sämtliches CameraX-Use-Case-Wiring hinter einer schlanken API für [de.ble1st.camera.ui.capture.CaptureViewModel]
+ * — Preview/ImageCapture/VideoCapture werden bewusst nicht alle drei gleichzeitig gebunden: einige
+ * Geräte mit `LEGACY`-Camera2-Hardwarelevel unterstützen diese Kombination nicht gleichzeitig
+ * (CameraX wirft dort eine `IllegalArgumentException` beim Binden). Stattdessen wird je nach
+ * [CaptureMode] neu gebunden (Preview+ImageCapture ODER Preview+VideoCapture) — funktioniert
+ * dadurch auf alle Geräteklassen, kostet nur einen kurzen Preview-Reset beim Moduswechsel.
+ *
+ * HDR, Nacht- und Bokeh-Modus laufen über [ExtensionsManager] (Camera2-Extensions, vom
+ * Gerätehersteller im HAL bereitgestellt) statt über eigene Bildverarbeitung — nur für den
+ * Foto-Modus verfügbar (die Extension-Selektoren unterstützen keine gleichzeitige
+ * `VideoCapture`-Bindung), s. [CameraExtension].
+ * Manuelle ISO-/Verschlusszeit-Kontrolle läuft über [Camera2CameraControl]/[CaptureRequestOptions]
+ * (Camera2-Interop) statt einer eigenen Camera2-Session — bleibt dadurch innerhalb von CameraX'
+ * Lifecycle-Bindung statt eine parallele Camera2-Pipeline aufzubauen.
+ */
+class CameraController(private val context: Context) {
+
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var extensionsManager: ExtensionsManager? = null
+    private var camera: Camera? = null
+    private var imageCapture: ImageCapture? = null
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var activeRecording: Recording? = null
+    // Hält den Zoom-Regler in der UI (CaptureViewModel-State) mit der tatsächlichen
+    // Kamera-Zoomstufe synchron, egal ob die Änderung vom Regler selbst oder von der
+    // Pinch-Geste in attachGestures() kommt — eine einzelne Quelle der Wahrheit statt zweier
+    // unabhängig driftender Zoom-Werte.
+    private var onZoomChanged: ((Float) -> Unit)? = null
+
+    // analyse.md (2. Durchgang, Hoch): bind() hängt zwei verschachtelte Future-Callbacks
+    // (ProcessCameraProvider, ExtensionsManager) an, ohne einen vorherigen, noch laufenden
+    // bind()-Aufruf abzubrechen. CaptureScreen ruft bindPreview sowohl aus einem
+    // LaunchedEffect(mode, lensFacing, hdrEnabled) als auch bei jedem ON_RESUME auf — ein
+    // schneller Foto/Video- oder Objektivwechsel konnte dadurch zwei sich überlappende Binds
+    // auslösen, von denen der zuletzt ANKOMMENDE (nicht der zuletzt ANGEFORDERTE) gewinnt: UI-
+    // Modus und tatsächlich gebundene Use-Cases liefen auseinander. Jeder bind()-Aufruf erhöht
+    // diesen Zähler und merkt sich seinen eigenen Stand; jeder Callback prüft vor dem Fortfahren,
+    // ob inzwischen ein neuerer bind()-Aufruf gestartet wurde, und bricht sonst kommentarlos ab
+    // (der neuere Aufruf bindet ohnehin frisch).
+    private var bindGeneration = 0
+
+    val hasActiveRecording: Boolean get() = activeRecording != null
+
+    fun bind(
+        lifecycleOwner: LifecycleOwner,
+        previewView: PreviewView,
+        lensFacing: LensFacing,
+        mode: CaptureMode,
+        extensionRequested: CameraExtension,
+        videoQuality: VideoQuality,
+        onZoomChanged: (Float) -> Unit,
+        onBound: (Camera) -> Unit,
+        onAvailableExtensions: (Set<CameraExtension>) -> Unit,
+        onManualSensorSupport: (ManualSensorRanges?) -> Unit,
+        onError: (Throwable) -> Unit,
+    ) {
+        this.onZoomChanged = onZoomChanged
+        val generation = ++bindGeneration
+        val providerFuture = ProcessCameraProvider.getInstance(context)
+        providerFuture.addListener(
+            {
+                if (generation != bindGeneration) return@addListener
+                try {
+                    val provider = providerFuture.get().also { cameraProvider = it }
+                    val baseSelector = CameraSelector.Builder()
+                        .requireLensFacing(
+                            if (lensFacing == LensFacing.FRONT) CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK,
+                        )
+                        .build()
+
+                    // ExtensionsManager wird bei jedem Bind neu abgefragt (statt einmalig
+                    // gecacht): Verfügbarkeit hängt vom `baseSelector` (Front/Rückkamera) ab, ein
+                    // Kamerawechsel kann die Extension-Verfügbarkeit also ändern.
+                    val extFuture = ExtensionsManager.getInstanceAsync(context, provider)
+                    extFuture.addListener(
+                        {
+                            if (generation != bindGeneration) return@addListener
+                            try {
+                                val extManager = extFuture.get().also { extensionsManager = it }
+                                val available = CameraExtension.selectable
+                                    .filter { extManager.isExtensionAvailable(baseSelector, extensionModeOf(it)) }
+                                    .toSet()
+                                onAvailableExtensions(available)
+                                val useExtension = mode == CaptureMode.PHOTO &&
+                                    extensionRequested != CameraExtension.NONE &&
+                                    extensionRequested in available
+                                val selector = if (useExtension) {
+                                    extManager.getExtensionEnabledCameraSelector(
+                                        baseSelector,
+                                        extensionModeOf(extensionRequested),
+                                    )
+                                } else {
+                                    baseSelector
+                                }
+                                continueBind(
+                                    lifecycleOwner,
+                                    previewView,
+                                    provider,
+                                    selector,
+                                    mode,
+                                    videoQuality,
+                                    generation,
+                                    onBound,
+                                    onManualSensorSupport,
+                                    onError,
+                                )
+                            } catch (t: Throwable) {
+                                onError(t)
+                            }
+                        },
+                        ContextCompat.getMainExecutor(context),
+                    )
+                } catch (t: Throwable) {
+                    onError(t)
+                }
+            },
+            ContextCompat.getMainExecutor(context),
+        )
+    }
+
+    private fun continueBind(
+        lifecycleOwner: LifecycleOwner,
+        previewView: PreviewView,
+        provider: ProcessCameraProvider,
+        selector: CameraSelector,
+        mode: CaptureMode,
+        videoQuality: VideoQuality,
+        generation: Int,
+        onBound: (Camera) -> Unit,
+        onManualSensorSupport: (ManualSensorRanges?) -> Unit,
+        onError: (Throwable) -> Unit,
+    ) {
+        if (generation != bindGeneration) return
+        try {
+            val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
+            val useCases = mutableListOf<UseCase>(preview)
+            when (mode) {
+                CaptureMode.PHOTO -> {
+                    val capture = ImageCapture.Builder().build()
+                    imageCapture = capture
+                    videoCapture = null
+                    useCases += capture
+                }
+                CaptureMode.VIDEO -> {
+                    // Auflösung kommt seit 2026-09-03 aus den Einstellungen (Default weiterhin
+                    // FHD — hält Dateigröße/Encoder-Last moderat), mit unverändertem automatischem
+                    // Downgrade auf ein von der Hardware unterstütztes niedrigeres Profil statt
+                    // eines harten Fehlers auf schwacher Hardware.
+                    val recorder = Recorder.Builder()
+                        .setQualitySelector(
+                            QualitySelector.from(
+                                qualityOf(videoQuality),
+                                FallbackStrategy.higherQualityOrLowerThan(Quality.SD),
+                            ),
+                        )
+                        .build()
+                    val capture = VideoCapture.withOutput(recorder)
+                    videoCapture = capture
+                    imageCapture = null
+                    useCases += capture
+                }
+            }
+
+            provider.unbindAll()
+            val boundCamera = provider.bindToLifecycle(lifecycleOwner, selector, *useCases.toTypedArray())
+            camera = boundCamera
+            attachGestures(previewView)
+            // Jeder Rebind (Modus-/Kamerawechsel) startet wieder bei 1x statt der alten
+            // Zoomstufe der vorherigen Kamera — Front-/Rückkamera haben oft
+            // unterschiedliche min/max-Zoombereiche, ein übernommener Wert könnte
+            // außerhalb des neuen Bereichs liegen.
+            onZoomChanged?.invoke(1f)
+            onManualSensorSupport(manualSensorRanges(boundCamera))
+            onBound(boundCamera)
+        } catch (t: Throwable) {
+            onError(t)
+        }
+    }
+
+    fun setFlashMode(@ImageCapture.FlashMode mode: Int) {
+        imageCapture?.flashMode = mode
+    }
+
+    fun setTorch(enabled: Boolean) {
+        camera?.cameraControl?.enableTorch(enabled)
+    }
+
+    fun currentZoomRatio(): Float = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1f
+
+    fun setZoomRatio(ratio: Float) {
+        val zoomState = camera?.cameraInfo?.zoomState?.value ?: return
+        val clamped = ratio.coerceIn(zoomState.minZoomRatio, zoomState.maxZoomRatio)
+        camera?.cameraControl?.setZoomRatio(clamped)
+        onZoomChanged?.invoke(clamped)
+    }
+
+    /** Aktueller Belichtungskorrektur-Bereich (in EV-Schritten, geräteabhängig) — `0..0`, wenn das
+     * Gerät keine Korrektur unterstützt; die UI blendet den Regler dann aus. */
+    fun exposureCompensationRange(): Range<Int> =
+        camera?.cameraInfo?.exposureState?.exposureCompensationRange ?: Range(0, 0)
+
+    fun setExposureCompensationIndex(index: Int) {
+        val range = exposureCompensationRange()
+        // setExposureCompensationIndex wirft IllegalArgumentException außerhalb des Bereichs —
+        // ein Regler, der kurz einen ungültigen Zwischenwert meldet (Compose-Recomposition-Timing),
+        // soll die Kamera-Session nicht zum Absturz bringen.
+        runCatching { camera?.cameraControl?.setExposureCompensationIndex(index.coerceIn(range.lower, range.upper)) }
+    }
+
+    /** Liest ISO-/Verschlusszeit-Bereiche direkt aus den Camera2-Characteristics des gebundenen
+     * Geräts — `null`, wenn `REQUEST_AVAILABLE_CAPABILITIES` kein `MANUAL_SENSOR` enthält (z. B.
+     * `LEGACY`-Hardwarelevel), dann würden gesetzte Werte ohnehin von der Hardware ignoriert. */
+    private fun manualSensorRanges(boundCamera: Camera): ManualSensorRanges? {
+        val characteristics = Camera2CameraInfo.from(boundCamera.cameraInfo)
+        val capabilities = characteristics.getCameraCharacteristic(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
+        val supportsManualSensor = capabilities
+            ?.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR) == true
+        if (!supportsManualSensor) return null
+        val isoRange = characteristics.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+        val shutterRange = characteristics.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)
+        if (isoRange == null || shutterRange == null) return null
+        return ManualSensorRanges(isoRange, shutterRange)
+    }
+
+    /** `iso`/`shutterNanos` beide `null` schaltet zurück auf automatische Belichtung
+     * (`CONTROL_AE_MODE_ON`) — ein einzelner `null`-Wert bei aktivem manuellem Modus wird nicht
+     * unterstützt (Camera2 verlangt AE entweder ganz an oder ganz aus), die UI bietet daher beide
+     * Regler immer gemeinsam an. */
+    fun setManualSensorControls(iso: Int?, shutterNanos: Long?) {
+        val cameraControl = camera?.cameraControl ?: return
+        val camera2Control = Camera2CameraControl.from(cameraControl)
+        val options = CaptureRequestOptions.Builder().apply {
+            if (iso != null && shutterNanos != null) {
+                setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+                setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
+                setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, shutterNanos)
+            } else {
+                setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+            }
+        }.build()
+        // CameraX 1.6 hat Camera2CameraControl nach Kotlin portiert: setCaptureRequestOptions()
+        // liefert jetzt ein ListenableFuture und ist damit kein Property-Setter mehr (bis 1.5
+        // stand hier `camera2Control.captureRequestOptions = options`). Das Future wird bewusst
+        // nicht abgewartet — der Aufruf kommt aus der UI beim Schieben der ISO-/Zeit-Regler, ein
+        // Warten würde den Regler blockieren, und das Ergebnis ist ohnehin unmittelbar im
+        // Sucherbild zu sehen.
+        camera2Control.setCaptureRequestOptions(options)
+    }
+
+    fun updateTargetRotation(rotation: Int) {
+        imageCapture?.targetRotation = rotation
+        videoCapture?.targetRotation = rotation
+    }
+
+    fun takePhoto(
+        outputOptions: ImageCapture.OutputFileOptions,
+        onSaved: (Uri?) -> Unit,
+        onError: (ImageCaptureException) -> Unit,
+    ) {
+        // analyse.md (2. Durchgang, Hoch): kehrte hier vorher still zurück, wenn ein Tap auf den
+        // Auslöser genau in das Fenster eines noch laufenden Rebinds fiel (Moduswechsel, ON_RESUME)
+        // — CaptureViewModel hatte isCapturingPhoto bereits auf true gesetzt, bekam aber nie einen
+        // onSaved/onError-Callback, der es zurücksetzt: der Auslöser blieb bis zum nächsten
+        // releaseCamera() (App-Hintergrund/-Verlassen) tot. Jetzt über onError sichtbar.
+        val capture = imageCapture ?: run {
+            onError(
+                ImageCaptureException(
+                    ImageCapture.ERROR_CAPTURE_FAILED,
+                    "Kamera ist gerade nicht aufnahmebereit (Rebind läuft noch)",
+                    null,
+                ),
+            )
+            return
+        }
+        capture.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(context),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) = onSaved(output.savedUri)
+                override fun onError(exception: ImageCaptureException) = onError(exception)
+            },
+        )
+    }
+
+    // analyse.md ("weiterhin gültig" — "RECORD_AUDIO Pflicht für Foto"): RECORD_AUDIO ist seit
+    // diesem Fix nicht mehr Teil von CameraPermission.required — der Sucher/Fotomodus ist auch
+    // ohne Mikrofonzugriff nutzbar (s. CameraPermission.kt-Klassendoc). withAudioEnabled() darf
+    // deshalb nicht mehr blind aufgerufen werden; die Berechtigung wird hier bei jedem
+    // Aufnahmestart real geprüft (CameraPermission.hasAudioAccess ist selbst nur ein
+    // ContextCompat.checkSelfPermission-Wrapper, für Lint aber nicht als Guard erkennbar — der
+    // SuppressLint bleibt deshalb nötig, ist jetzt aber sachlich korrekt statt auf eine Erreichbar-
+    // keitsannahme gestützt).
+    @SuppressLint("MissingPermission")
+    fun startVideoRecording(
+        outputOptions: MediaStoreOutputOptions,
+        onError: () -> Unit = {},
+        onAudioUnavailable: () -> Unit = {},
+        onEvent: (VideoRecordEvent) -> Unit,
+    ) {
+        // Derselbe stille No-Op wie takePhoto vorher (s. dortiger Kommentar) — hier harmloser,
+        // weil isRecording erst in VideoRecordEvent.Start gesetzt wird (kein dauerhaft blockierter
+        // Auslöser), aber immer noch ein Tap ohne jede Rückmeldung. onError erlaubt der ViewModel,
+        // wenigstens eine Fehlermeldung zu zeigen statt kommentarlos nichts zu tun.
+        val capture = videoCapture ?: run { onError(); return }
+        val hasAudio = CameraPermission.hasAudioAccess(context)
+        if (!hasAudio) onAudioUnavailable()
+        val pending = capture.output.prepareRecording(context, outputOptions)
+        activeRecording = (if (hasAudio) pending.withAudioEnabled() else pending)
+            .start(ContextCompat.getMainExecutor(context), onEvent)
+    }
+
+    fun stopVideoRecording() {
+        activeRecording?.stop()
+        activeRecording = null
+    }
+
+    /** Pinch-Zoom (ScaleGestureDetector auf `cameraControl.setZoomRatio`) + Tap-to-Focus
+     * (GestureDetector auf `cameraControl.startFocusAndMetering`) — beide über denselben
+     * `setOnTouchListener`, weil PreviewView nur einen einzigen Touch-Listener gleichzeitig
+     * erlaubt. */
+    private fun attachGestures(previewView: PreviewView) {
+        val scaleDetector = ScaleGestureDetector(
+            context,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    setZoomRatio(currentZoomRatio() * detector.scaleFactor)
+                    return true
+                }
+            },
+        )
+        val tapDetector = GestureDetector(
+            context,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    val point = previewView.meteringPointFactory.createPoint(e.x, e.y)
+                    camera?.cameraControl?.startFocusAndMetering(FocusMeteringAction.Builder(point).build())
+                    return true
+                }
+            },
+        )
+        previewView.setOnTouchListener { view, event ->
+            scaleDetector.onTouchEvent(event)
+            tapDetector.onTouchEvent(event)
+            view.performClick()
+            true
+        }
+    }
+
+    fun shutdown() {
+        stopVideoRecording()
+        cameraProvider?.unbindAll()
+    }
+
+    companion object {
+        /** Zuordnung [CameraExtension] → CameraX-Konstante. Steht hier statt als Feld im Enum,
+         * damit [CameraExtension] framework-frei bleibt (s. dortiges Klassendoc). Als
+         * erschöpfendes `when` ohne `else`: ein neuer Enum-Wert bricht die Übersetzung, statt
+         * still auf einen Default zu fallen. */
+        private fun extensionModeOf(extension: CameraExtension): Int = when (extension) {
+            CameraExtension.NONE -> ExtensionMode.NONE
+            CameraExtension.AUTO -> ExtensionMode.AUTO
+            CameraExtension.HDR -> ExtensionMode.HDR
+            CameraExtension.NIGHT -> ExtensionMode.NIGHT
+            CameraExtension.BOKEH -> ExtensionMode.BOKEH
+        }
+
+        /** Zuordnung [VideoQuality] → CameraX-Konstante, gleiche Begründung wie oben. */
+        private fun qualityOf(videoQuality: VideoQuality): Quality = when (videoQuality) {
+            VideoQuality.SD -> Quality.SD
+            VideoQuality.HD -> Quality.HD
+            VideoQuality.FHD -> Quality.FHD
+            VideoQuality.UHD -> Quality.UHD
+        }
+    }
+}

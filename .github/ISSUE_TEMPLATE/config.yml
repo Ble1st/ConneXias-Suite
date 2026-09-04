@@ -1,0 +1,10 @@
+# Kein "leeres Issue" — die beiden Formulare decken alles ab, was hier sinnvoll ankommt, und ein
+# freies Textfeld führt bei einer Sideload-App fast immer zu einem Bericht ohne Version, Gerät
+# und Android-Fassung, also zu einer Rückfrage statt zu einer Analyse.
+blank_issues_enabled: false
+contact_links:
+  - name: Sicherheitslücke melden
+    url: https://github.com/Ble1st/ConneXias-Suite/security/advisories/new
+    about: >-
+      Bitte NICHT als öffentliches Issue. GitHubs private Meldung erzeugt ein Advisory, das nur
+      der Maintainer sieht — s. SECURITY.md.
