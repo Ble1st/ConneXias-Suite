@@ -65,7 +65,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: Lint
         run: ./gradlew lint --stacktrace
@@ -113,7 +113,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # KVM freischalten — ohne Hardwarebeschleunigung braucht der Emulator ein Vielfaches der
       # Zeit und neigt zu Timeouts.
