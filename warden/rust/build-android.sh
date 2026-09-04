@@ -48,9 +48,18 @@ cargo ndk \
     build --release -p connexias-engine
 echo "   -> $JNILIBS_DIR/{arm64-v8a,armeabi-v7a,x86,x86_64}/libconnexias_engine.so"
 
+# Gezielt nur libconnexias_engine.so je ABI kopieren, nicht das ganze $JNILIBS_DIR: seit die
+# Netz-Sperre reaktiviert ist, landet dort (build-android-barbican.sh) auch
+# libconnexias_barbican.so — ein pauschales `cp -r`/`rm -rf` würde das WireGuard/Firewall-Modul in
+# die bewusst schlanke, eigenständige Sentinel-Kiosk-APK schleppen (s. CLAUDE.md "Sentinel: eigenes,
+# unabhängiges Crypto-Duplikat" — kein anderer geteilter Code, erst recht kein VPN-Modul, das
+# Sentinel nie aufruft).
 mkdir -p "$SENTINEL_JNILIBS_DIR"
-rm -rf "$SENTINEL_JNILIBS_DIR"
-cp -r "$JNILIBS_DIR" "$SENTINEL_JNILIBS_DIR"
+for abi_dir in "$JNILIBS_DIR"/*/; do
+    abi="$(basename "$abi_dir")"
+    mkdir -p "$SENTINEL_JNILIBS_DIR/$abi"
+    cp "$abi_dir/libconnexias_engine.so" "$SENTINEL_JNILIBS_DIR/$abi/"
+done
 echo "   -> $SENTINEL_JNILIBS_DIR/{arm64-v8a,armeabi-v7a,x86,x86_64}/libconnexias_engine.so"
 
 echo "Fertig."
