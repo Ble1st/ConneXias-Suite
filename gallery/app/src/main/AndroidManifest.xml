@@ -106,6 +106,19 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
 
+        <!-- FileProvider für das Teilen von Fotos ohne GPS-EXIF-Daten: `shareWithoutLocation`
+             kopiert das Bild in eine temporäre Datei, entfernt GPS-EXIF-Tags, und teilt die
+             temporäre Datei über diesen Provider. Der Cache-Pfad ist bewusst eng gefasst. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>

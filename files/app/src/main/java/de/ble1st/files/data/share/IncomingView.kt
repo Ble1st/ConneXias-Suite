@@ -37,6 +37,7 @@ object IncomingView {
     fun setFromIntent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
+        if (uri.scheme != "content") return
         _pending.value = uri
     }
 

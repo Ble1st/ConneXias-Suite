@@ -501,7 +501,10 @@ fn run_engine_loop(
             continue;
         }
 
-        let now = SmolInstant::from_millis(Instant::now().elapsed().as_millis() as i64);
+        // Monoton wachsende Zeit seit Schleifenstart — `Instant::now().elapsed()` ergäbe ~0
+        // jeden Tick (die Zeit seit dem gerade zurückgekehrten `now()`), smoltcp bekäme eine
+        // statische Zeit und TCP-Timer (Retransmission, Keepalive, FIN-Timeout) liefen nicht.
+        let now = SmolInstant::from_millis(last_housekeeping.elapsed().as_millis() as i64);
 
         // IMMER ZUERST poll aufrufen (smoltcp benoetigt regelmassiges Polling
         // für Timeout-Handling, Socket-Updates, NAT-Session-Management)
@@ -571,9 +574,13 @@ fn try_fast_path_dns_reply(packet: &[u8], stats: &StatsInner) -> Option<Vec<u8>>
         return None;
     }
     let query_payload = udp_packet.payload();
-    let name = dns_filter::parse_query_name(query_payload)?;
     let blocklist = current_blocklist();
-    if !dns_filter::is_blocked(&name, &blocklist) {
+    let should_block = match dns_filter::parse_query_name(query_payload) {
+        dns_filter::ParseResult::Name(name) => dns_filter::is_blocked(&name, &blocklist),
+        dns_filter::ParseResult::Blocked => true,
+        dns_filter::ParseResult::Invalid => false,
+    };
+    if !should_block {
         return None;
     }
     stats.blocked_dns_count.fetch_add(1, Ordering::SeqCst);
@@ -672,9 +679,16 @@ fn ensure_listener_for_packet(
             // braucht deshalb keine Sonderbehandlung mehr.
             //
             // Port 853 dagegen bewusst weiterhin blockiert — DNS-over-QUIC (das UDP-Gegenstück zu
-            // DNS-over-TLS) unterliefe sonst die Blockliste auf demselben Weg wie DoT im
+            // DNS-over-TLS) unterläuft sonst die Blockliste auf demselben Weg wie DoT im
             // TCP-Zweig oben (s. dortiger Kommentar für die volle Begründung).
-            if port == 853 || udp_listeners.contains_key(&port) {
+            //
+            // Port 443 (UDP) ebenfalls blockiert — DNS-over-HTTP/3 (DoH über QUIC) nutzt UDP/443
+            // und unterliefe sonst die Blockliste genauso wie DoT/DoQ. TCP/443 bleibt relayt,
+            // da es normaler HTTPS-Traffic ist und nicht blockiert werden kann, ohne das Web
+            // zu brechen. DoH über TCP/443 ist ein bewusst akzeptierter Rest-Bypass (wie in
+            // analyse.md Abschnitt 6 dokumentiert), da eine Unterscheidung von DoH und normalem
+            // HTTPS auf Layer 3 nicht möglich ist.
+            if port == 853 || port == 443 || udp_listeners.contains_key(&port) {
                 return;
             }
             let rx_buffer = udp::PacketBuffer::new(
@@ -796,9 +810,12 @@ fn pump_established_sessions(
             } else {
                 // Der zugehörige smoltcp-Socket wurde inzwischen geräumt (z. B. App hat die
                 // Verbindung sofort wieder geschlossen) — der frisch beschaffte fd wäre verwaist;
-                // sauber schließen statt leaken.
+                // sauber schließen statt leaken. `libc::close` statt `TcpStream::from_raw_fd`,
+                // da `from_raw_fd` beim Drop den fd schließt und ein Double-Close (falls der fd
+                // bereits geschlossen wurde) Undefined Behavior wäre. `libc::close` toleriert
+                // EBADF (fd bereits geschlossen) ohne UB.
                 unsafe {
-                    let _ = TcpStream::from_raw_fd(fd);
+                    let _ = libc::close(fd);
                 }
             }
         }
@@ -1050,9 +1067,10 @@ fn drain_pending_udp_fds(
             } else {
                 // Zugehöriger smoltcp-Socket wurde inzwischen geräumt — fd wäre verwaist, sauber
                 // schließen statt leaken (identische Begründung wie in `pump_established_sessions`).
+                // `libc::close` statt `from_raw_fd` um Double-Close-UB zu vermeiden.
                 let _ = take_pending_udp_payloads(&key);
                 unsafe {
-                    let _ = UdpSocket::from_raw_fd(fd);
+                    let _ = libc::close(fd);
                 }
             }
         }
@@ -1145,6 +1163,7 @@ fn close_session(
     unsafe {
         // Externen Socket schließen: Ownership ging beim Callback-Rückgabewert an Rust über (s.
         // `callback.rs`-Klassendoc) — anders als der Tun-fd wird dieser hier real geschlossen.
-        let _ = File::from_raw_fd(session.external_fd);
+        // `libc::close` statt `from_raw_fd` um Double-Close-UB zu vermeiden.
+        let _ = libc::close(session.external_fd);
     }
 }

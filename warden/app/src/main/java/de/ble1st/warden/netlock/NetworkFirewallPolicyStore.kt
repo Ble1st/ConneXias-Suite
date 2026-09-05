@@ -33,15 +33,17 @@ class NetworkFirewallPolicyStore(private val envelopeFile: EnvelopeFile) {
     fun modeFor(packageName: String): FirewallMode = load()[packageName] ?: FirewallMode.CAPTURED
 
     fun setMode(packageName: String, mode: FirewallMode) {
-        val current = load().toMutableMap()
-        if (mode == FirewallMode.CAPTURED) {
-            // CAPTURED ist der Default — ein expliziter Eintrag dafür wäre nur totes Gewicht,
-            // das bei jedem Reload/Diff unnötig mitgeschleppt würde.
-            current.remove(packageName)
-        } else {
-            current[packageName] = mode
+        synchronized(WRITE_LOCK) {
+            val current = load().toMutableMap()
+            if (mode == FirewallMode.CAPTURED) {
+                // CAPTURED ist der Default — ein expliziter Eintrag dafür wäre nur totes Gewicht,
+                // das bei jedem Reload/Diff unnötig mitgeschleppt würde.
+                current.remove(packageName)
+            } else {
+                current[packageName] = mode
+            }
+            save(current)
         }
-        save(current)
     }
 
     /** Paketnamen, die aktuell am Tunnel vorbeigehen sollen — direkte Eingabe für
@@ -51,6 +53,7 @@ class NetworkFirewallPolicyStore(private val envelopeFile: EnvelopeFile) {
         load().filterValues { it == FirewallMode.ALLOWED }.keys
 
     companion object {
+        private val WRITE_LOCK = Any()
         private const val KEYSTORE_PURPOSE = "net_firewall_policy"
         private const val ENVELOPE_CONTEXT = "warden:net_firewall_policy:v1"
         private const val DATA_FILE_NAME = "net_firewall_policy.envelope"

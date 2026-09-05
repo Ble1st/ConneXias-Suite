@@ -31,7 +31,20 @@ class AdminPolicyComplianceActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         runCatching { applyAlltagDefaults() }
-            .onFailure { Log.e(TAG, "Alltag-Grundkonfiguration fehlgeschlagen", it) }
+            .onFailure {
+                Log.e(TAG, "Alltag-Grundkonfiguration fehlgeschlagen", it)
+                // Operator-sichtbarer Eintrag — ein frisch provisioniertes Gerät mit komplett
+                // fehlgeschlagener Härtung ist ein Sicherheitsrisiko, das im Warden-Status
+                // erkennbar sein muss. Ohne diesen Eintrag gäbe es nur einen Logcat-Fehler,
+                // der für den Operator unsichtbar ist.
+                runCatching {
+                    wardenAuditLog(this).append(
+                        priority = Log.ERROR,
+                        tag = TAG,
+                        message = "provisioning: Alltag-Grundkonfiguration fehlgeschlagen: ${it.message}",
+                    )
+                }
+            }
         setResult(RESULT_OK)
         finish()
     }

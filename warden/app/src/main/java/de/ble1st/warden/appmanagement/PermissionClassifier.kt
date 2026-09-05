@@ -30,7 +30,12 @@ object PermissionClassifier {
      * vergleichbarer oder höherer Tragweite — dieselbe Handvoll, die dieser Scanner bereits über
      * eigene, ältere Signale kennt ([SuspiciousSignal.OVERLAY_PERMISSION_DECLARED]/
      * [SuspiciousSignal.NOTIFICATION_LISTENER_DECLARED]), hier zu einer generischen Klassifizierung
-     * erweitert statt weiterer Einzel-Scanner. */
+     * erweitert statt weiterer Einzel-Scanner.
+     *
+     * `MANAGE_EXTERNAL_STORAGE` bewusst NICHT hier — es hat `protectionLevel = dangerous|appop`
+     * und wird über die `protectionLevel`-Prüfung unten korrekt als DANGEROUS klassifiziert.
+     * Würde es hier stehen, griffe die SPECIAL-Prüfung zuerst und die DANGEROUS-Erkennung
+     * (Permission-Eskalation, Auto-Revoke) würde es verfehlen. */
     private val SPECIAL_PERMISSIONS = setOf(
         Manifest.permission.SYSTEM_ALERT_WINDOW,
         Manifest.permission.WRITE_SETTINGS,
@@ -39,7 +44,6 @@ object PermissionClassifier {
         Manifest.permission.BIND_ACCESSIBILITY_SERVICE,
         Manifest.permission.BIND_DEVICE_ADMIN,
         Manifest.permission.BIND_NOTIFICATION_LISTENER_SERVICE,
-        "android.permission.MANAGE_EXTERNAL_STORAGE",
         "android.permission.SCHEDULE_EXACT_ALARM",
     )
 

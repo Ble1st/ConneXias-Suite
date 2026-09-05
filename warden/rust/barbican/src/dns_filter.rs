@@ -10,29 +10,52 @@
 
 use std::collections::HashSet;
 
+/// Ergebnis des DNS-Query-Parsens.
+pub enum ParseResult {
+    /// Gültiger Domainname — gegen die Blockliste prüfen.
+    Name(String),
+    /// Strukturell ungültiges Paket — Aufrufer behandelt als "nicht blockiert" (fail-open für
+    /// die Parse-Ebene; die Sicherheitsentscheidung ist ohnehin nur "diese Domain sperren").
+    Invalid,
+    /// Nicht-UTF8-konforme Labels — Fail-closed: blockieren, um Bypass über kodierte Labels
+    /// zu verhindern.
+    Blocked,
+}
+
+impl std::fmt::Debug for ParseResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseResult::Name(n) => write!(f, "Name({n})"),
+            ParseResult::Invalid => write!(f, "Invalid"),
+            ParseResult::Blocked => write!(f, "Blocked"),
+        }
+    }
+}
+
 /// Liest den QNAME aus der Question-Section eines DNS-Query-Pakets (roher UDP-Payload, Port 53).
-/// `None` bei jedem strukturell ungültigen/zu kurzen Paket — Aufrufer behandeln das wie "nicht
-/// blockiert" (fail-open für die Parse-Ebene; die eigentliche Sicherheitsentscheidung ist ohnehin
-/// nur "diese eine Domain sperren", kein Fail-Safe-kritischer Pfad wie z. B. `crypto/`).
+/// `Invalid` bei jedem strukturell ungültigen/zu kurzen Paket. `Blocked` bei nicht-UTF8-Labels.
 ///
 /// DNS-Namenskompression (Zeiger, oberste zwei Bits `11`) wird in der *Question*-Section laut
 /// RFC 1035 nicht verwendet (es gibt noch keine vorherigen Namen, auf die verwiesen werden
 /// könnte) — ein Kompressions-Zeiger hier gilt deshalb als ungültig, nicht als zu behandelnder
 /// Sonderfall.
-pub fn parse_query_name(udp_payload: &[u8]) -> Option<String> {
+pub fn parse_query_name(udp_payload: &[u8]) -> ParseResult {
     const HEADER_LEN: usize = 12;
     if udp_payload.len() < HEADER_LEN + 1 {
-        return None;
+        return ParseResult::Invalid;
     }
     let qdcount = u16::from_be_bytes([udp_payload[4], udp_payload[5]]);
     if qdcount == 0 {
-        return None;
+        return ParseResult::Invalid;
     }
 
     let mut pos = HEADER_LEN;
     let mut labels: Vec<&str> = Vec::new();
     loop {
-        let len = *udp_payload.get(pos)? as usize;
+        let len = match udp_payload.get(pos) {
+            Some(&b) => b as usize,
+            None => return ParseResult::Invalid,
+        };
         if len == 0 {
             pos += 1;
             break;
@@ -40,20 +63,31 @@ pub fn parse_query_name(udp_payload: &[u8]) -> Option<String> {
         if len >= 0xC0 {
             // Kompressions-Zeiger in der Question-Section — laut RFC 1035 hier nie gültig, s.
             // Doc oben.
-            return None;
+            return ParseResult::Invalid;
         }
         pos += 1;
-        let label_bytes = udp_payload.get(pos..pos + len)?;
-        let label = std::str::from_utf8(label_bytes).ok()?;
+        let label_bytes = match udp_payload.get(pos..pos + len) {
+            Some(bytes) => bytes,
+            None => return ParseResult::Invalid,
+        };
+        // Fail-closed: nicht-UTF8-konforme Labels werden als blockiert behandelt, nicht als
+        // "ungültig" verworfen. Ein Angreifer könnte sonst die Blockliste über absichtlich
+        // nicht-UTF8-konforme Labels umgehen.
+        let label = match std::str::from_utf8(label_bytes) {
+            Ok(s) => s,
+            Err(_) => return ParseResult::Blocked,
+        };
         labels.push(label);
         pos += len;
     }
     if labels.is_empty() {
-        return None;
+        return ParseResult::Invalid;
     }
     // QTYPE/QCLASS (4 Bytes) müssen noch folgen, sonst ist die Question-Section unvollständig.
-    udp_payload.get(pos..pos + 4)?;
-    Some(labels.join("."))
+    if udp_payload.get(pos..pos + 4).is_none() {
+        return ParseResult::Invalid;
+    }
+    ParseResult::Name(labels.join("."))
 }
 
 /// Suffix-Match: `sub.ads.example.com` ist blockiert, wenn `ads.example.com` (oder `example.com`,
@@ -126,12 +160,15 @@ mod tests {
     #[test]
     fn parses_simple_query_name() {
         let query = build_query("ads.example.com");
-        assert_eq!(parse_query_name(&query).as_deref(), Some("ads.example.com"));
+        match parse_query_name(&query) {
+            ParseResult::Name(n) => assert_eq!(n, "ads.example.com"),
+            other => panic!("expected Name, got {:?}", other),
+        }
     }
 
     #[test]
     fn rejects_truncated_packet() {
-        assert_eq!(parse_query_name(&[0u8; 5]), None);
+        assert!(matches!(parse_query_name(&[0u8; 5]), ParseResult::Invalid));
     }
 
     #[test]
@@ -139,7 +176,7 @@ mod tests {
         let mut query = build_query("example.com");
         query[4] = 0;
         query[5] = 0;
-        assert_eq!(parse_query_name(&query), None);
+        assert!(matches!(parse_query_name(&query), ParseResult::Invalid));
     }
 
     #[test]
@@ -147,7 +184,7 @@ mod tests {
         let mut query = build_query("example.com");
         // Ersten Label-Length-Byte durch einen Kompressions-Zeiger (>= 0xC0) ersetzen.
         query[12] = 0xC0;
-        assert_eq!(parse_query_name(&query), None);
+        assert!(matches!(parse_query_name(&query), ParseResult::Invalid));
     }
 
     #[test]

@@ -8,6 +8,10 @@
   Domain-Allowlist vorab hinterlegen — ohne diese Freigabe wäre jeder Nicht-HTTPS-Server für die
   App unbenutzbar. HTTPS-Server funktionieren unverändert; diese Konfiguration erweitert nur die
   Standard-Ablehnung von Klartext-Traffic ab targetSdk 28+. Dieselbe Abwägung wie ConneXias Files.
+
+  Restrisiko: die Freigabe gilt app-weit, nicht nur für WebDAV. Jede zukünftige Netzwerkbibliothek
+  erbt diese Freigabe unbesehen. Eine Einschränkung auf private IP-Bereiche via domain-config ist
+  nicht möglich, da Android domain-config nach Domänennamen matcht, nicht nach IP-Adressen.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />

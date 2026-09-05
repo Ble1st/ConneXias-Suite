@@ -16,9 +16,18 @@ import android.provider.Settings
  */
 class DeveloperOptionsStatusReader(private val context: Context) {
 
-    fun isAdbEnabled(): Boolean =
-        Settings.Global.getInt(context.contentResolver, Settings.Global.ADB_ENABLED, 0) == 1
+    fun isAdbEnabled(): Boolean = readSettingSafe(Settings.Global.ADB_ENABLED)
 
-    fun isDeveloperOptionsEnabled(): Boolean =
-        Settings.Global.getInt(context.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1
+    fun isDeveloperOptionsEnabled(): Boolean = readSettingSafe(Settings.Global.DEVELOPMENT_SETTINGS_ENABLED)
+
+    /** Fail-Safe: wenn der Settings-Schlüssel fehlt (z. B. manipulierte Settings-Datenbank,
+     *  Custom-ROM), behandeln wir das als "aktiviert" — ein fehlender Schlüssel ist kein Beweis
+     *  für "inaktiv", und ein False-Negative ("ADB inaktiv" obwohl es läuft) ist sicherheits-
+     *  kritischer als ein False-Positive ("ADB aktiv" obwohl der Schlüssel fehlt). */
+    private fun readSettingSafe(key: String): Boolean =
+        try {
+            Settings.Global.getInt(context.contentResolver, key) == 1
+        } catch (_: Settings.SettingNotFoundException) {
+            true
+        }
 }

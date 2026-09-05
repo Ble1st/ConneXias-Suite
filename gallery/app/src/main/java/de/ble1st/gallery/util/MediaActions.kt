@@ -11,7 +11,10 @@ import android.os.Build
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.annotation.RequiresApi
+import androidx.core.content.FileProvider
 import de.ble1st.gallery.R
+import java.io.File
+import java.util.UUID
 
 sealed interface DeleteOutcome {
     data class Deleted(val count: Int) : DeleteOutcome
@@ -45,6 +48,65 @@ object MediaActions {
             clip.apply { addItem(ClipData.Item(uri)) }
         }
         launchOrToast(context, Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /** Teilt Bilder, nachdem GPS-EXIF-Tags entfernt wurden. Kopiert jedes Bild in eine temporäre
+     *  Datei, entfernt `TAG_GPS_LATITUDE`/`TAG_GPS_LONGITUDE` etc. via `ExifInterface`, und teilt
+     *  die temporäre Datei über den FileProvider. Andere EXIF-Tags (Kameramodell, Datum) bleiben
+     *  erhalten — nur die Standortdaten werden entfernt. */
+    fun shareWithoutLocation(context: Context, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val resolver = context.contentResolver
+        val strippedUris = uris.mapNotNull { uri -> stripGpsToTempFile(context, resolver, uri) }
+        if (strippedUris.isEmpty()) {
+            Toast.makeText(context, context.getString(R.string.error_no_app_found), Toast.LENGTH_SHORT).show()
+            return
+        }
+        share(context, strippedUris)
+    }
+
+    private fun stripGpsToTempFile(
+        context: Context,
+        resolver: android.content.ContentResolver,
+        sourceUri: Uri,
+    ): Uri? {
+        val mimeType = resolver.getType(sourceUri) ?: "image/jpeg"
+        val ext = when (mimeType) {
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            else -> "jpg"
+        }
+        val dir = File(context.cacheDir, "stripped").apply { mkdirs() }
+        val tempFile = File(dir, "share_${UUID.randomUUID()}.$ext")
+        return runCatching {
+            resolver.openInputStream(sourceUri)?.use { input ->
+                tempFile.outputStream().use { output -> input.copyTo(output) }
+            } ?: return null
+            // GPS-EXIF-Tags entfernen — nur für JPEG-basierte Formate, PNG/WebP haben kein EXIF.
+            if (ext == "jpg") {
+                val exif = androidx.exifinterface.media.ExifInterface(tempFile.absolutePath)
+                val gpsTags = listOf(
+                    androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE,
+                    androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE,
+                    androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE_REF,
+                    androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE_REF,
+                    androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE,
+                    androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE_REF,
+                    androidx.exifinterface.media.ExifInterface.TAG_GPS_TIMESTAMP,
+                    androidx.exifinterface.media.ExifInterface.TAG_GPS_DATESTAMP,
+                    androidx.exifinterface.media.ExifInterface.TAG_GPS_PROCESSING_METHOD,
+                )
+                var changed = false
+                for (tag in gpsTags) {
+                    if (exif.getAttribute(tag) != null) {
+                        exif.setAttribute(tag, null)
+                        changed = true
+                    }
+                }
+                if (changed) exif.saveAttributes()
+            }
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
+        }.getOrNull()
     }
 
     fun openWith(context: Context, uri: Uri) {

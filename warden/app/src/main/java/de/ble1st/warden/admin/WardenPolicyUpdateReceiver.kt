@@ -4,7 +4,9 @@ import android.app.admin.PolicyUpdateReceiver
 import android.app.admin.PolicyUpdateResult
 import android.app.admin.TargetUser
 import android.content.Context
+import android.os.Binder
 import android.os.Bundle
+import android.os.Process
 import android.util.Log
 import de.ble1st.warden.domain.policycoexistence.PolicyConflictRecord
 import de.ble1st.warden.domain.policycoexistence.PolicyUpdateOutcome
@@ -75,12 +77,20 @@ class WardenPolicyUpdateReceiver : PolicyUpdateReceiver() {
         result: PolicyUpdateResult,
         source: String,
     ) {
+        // Defense-in-Depth: obwohl `PolicyUpdateReceiver.onReceive` final ist und der Absender
+        // sich nicht im klassischen Sinn prüfen lässt, kann `Binder.getCallingUid()` in den
+        // Callback-Methoden abgefragt werden. Der legitime Absender ist `system_server`
+        // (UID Process.SYSTEM_UID). Eine fremde App, die den Broadcast fälscht, hat eine andere
+        // UID — der Eintrag wird dann als "ungeprüfter Absender" markiert, statt still als
+        // vertrauenswürdig behandelt zu werden.
+        val callerUid = Binder.getCallingUid()
+        val trustedSender = callerUid == Process.SYSTEM_UID
         val outcome = toOutcome(result.resultCode)
         runCatching {
             PolicyConflictStore.record(
                 context,
                 PolicyConflictRecord(
-                    policyIdentifier = policyIdentifier,
+                    policyIdentifier = if (trustedSender) policyIdentifier else "[ungeprüft] $policyIdentifier",
                     outcome = outcome,
                     timestampMillis = System.currentTimeMillis(),
                 ),
@@ -90,12 +100,13 @@ class WardenPolicyUpdateReceiver : PolicyUpdateReceiver() {
         // Nur Problemfälle ins Audit-Log: eine erfolgreich gesetzte Richtlinie ist der Normalfall
         // und würde das Log in derselben Weise fluten, aus der heraus erfolgreiche
         // `BusCommand.READ`-Aufrufe 2026-08-28 wieder herausgenommen wurden.
-        if (outcome.isProblem) {
+        if (outcome.isProblem || !trustedSender) {
             runCatching {
                 wardenAuditLog(context).append(
-                    priority = Log.WARN,
+                    priority = if (trustedSender) Log.WARN else Log.ERROR,
                     tag = TAG,
-                    message = "Richtlinie $policyIdentifier ($source): ${outcome.label}",
+                    message = "Richtlinie $policyIdentifier ($source): ${outcome.label}" +
+                        if (!trustedSender) " [ungeprüfter Absender, UID=$callerUid]" else "",
                 )
             }.onFailure { Log.w(TAG, "Audit-Eintrag zur Richtlinien-Rückmeldung fehlgeschlagen", it) }
         }
