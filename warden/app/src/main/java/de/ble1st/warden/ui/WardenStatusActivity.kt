@@ -126,6 +126,13 @@ import de.ble1st.warden.registry.RegistryStorage
 import de.ble1st.warden.registry.SafeguardCatalog
 import de.ble1st.warden.registry.SafeguardRegistryStore
 import de.ble1st.warden.pin.WardenLockdownArmPendingEngageStore
+import de.ble1st.warden.appmanagement.FreezeMethodStorage
+import de.ble1st.warden.domain.appmanagement.FreezeMethod
+import de.ble1st.warden.domain.hardening.FailedAttemptsWipeThreshold
+import de.ble1st.warden.domain.hardening.LocationEnforcement
+import de.ble1st.warden.domain.hardening.TimeIntegrityMode
+import de.ble1st.warden.hardening.HardeningPreferencesController
+import de.ble1st.warden.hardening.HardeningPreferencesStorage
 import de.ble1st.warden.widget.WidgetQuickActionsStore
 import de.ble1st.warden.failsafe.FailsafeActivity
 import de.ble1st.warden.integrity.DebuggableOsStatusReader
@@ -399,6 +406,20 @@ class WardenStatusActivity : ComponentActivity() {
             var widgetQuickActionsEnabled by remember {
                 mutableStateOf(WidgetQuickActionsStore.isEnabled(applicationContext))
             }
+            // Tier-2 der DPC-Recherche (2026-09-05) — vier mehrstufige Einstellungen. Dieselbe
+            // direkte Store-Lesung wie beim Widget-Schalter darüber; die drei Härtungs-Werte
+            // werden zusätzlich sofort auf DPM angewendet (HardeningPreferencesController), weil
+            // sie anders als ein reiner Soll-Wert unmittelbar Gerätezustand setzen.
+            var freezeMethod by remember { mutableStateOf(FreezeMethodStorage.load(applicationContext)) }
+            var locationEnforcement by remember {
+                mutableStateOf(HardeningPreferencesStorage.loadLocation(applicationContext))
+            }
+            var timeIntegrityMode by remember {
+                mutableStateOf(HardeningPreferencesStorage.loadTimeIntegrity(applicationContext))
+            }
+            var failedAttemptsWipeThreshold by remember {
+                mutableStateOf(HardeningPreferencesStorage.loadWipeThreshold(applicationContext))
+            }
             // "Automatische Profilumschaltung" (2026-08-28) — reiner Soll-Wert wie die übrigen
             // Härtungs-Felder; angewendet wird ausschließlich vom periodischen Worker.
             var autoProfileConfig by remember {
@@ -666,6 +687,36 @@ class WardenStatusActivity : ComponentActivity() {
                         widgetQuickActionsEnabled = enabled
                         WidgetQuickActionsStore.setEnabled(applicationContext, enabled)
                     },
+                    freezeMethod = freezeMethod,
+                    onFreezeMethodChange = { method ->
+                        freezeMethod = method
+                        FreezeMethodStorage.save(applicationContext, method)
+                    },
+                    locationEnforcement = locationEnforcement,
+                    onLocationEnforcementChange = { mode ->
+                        locationEnforcement = mode
+                        HardeningPreferencesStorage.saveLocation(applicationContext, mode)
+                        HardeningPreferencesController(applicationContext).applyLocation(mode)
+                    },
+                    timeIntegrityMode = timeIntegrityMode,
+                    onTimeIntegrityModeChange = { mode ->
+                        timeIntegrityMode = mode
+                        HardeningPreferencesStorage.saveTimeIntegrity(applicationContext, mode)
+                        HardeningPreferencesController(applicationContext).applyTimeIntegrity(mode)
+                    },
+                    failedAttemptsWipeThreshold = failedAttemptsWipeThreshold,
+                    onFailedAttemptsWipeThresholdChange = { threshold ->
+                        failedAttemptsWipeThreshold = threshold
+                        HardeningPreferencesStorage.saveWipeThreshold(applicationContext, threshold)
+                        HardeningPreferencesController(applicationContext).applyWipeThreshold(threshold)
+                        // Diese eine Einstellung ist unumkehrbar scharf und wird deshalb — anders
+                        // als die übrigen Härtungs-Schalter — im Audit-Log festgehalten.
+                        wardenAuditLog(applicationContext).append(
+                            priority = Log.WARN,
+                            tag = TAG,
+                            message = "OS-Löschgrenze nach Fehlversuchen gesetzt: ${'$'}{threshold.attempts}",
+                        )
+                    },
                     failedAttemptsRebootThreshold = failedAttemptsRebootThreshold,
                     secureLockScreenConfigured = secureLockScreenConfigured,
                     onFailedAttemptsRebootThresholdChange = { updated ->
@@ -910,6 +961,14 @@ private fun WardenRoot(
     onTrackerGuardEnabledChange: (Boolean) -> Unit,
     widgetQuickActionsEnabled: Boolean,
     onWidgetQuickActionsEnabledChange: (Boolean) -> Unit,
+    freezeMethod: FreezeMethod,
+    onFreezeMethodChange: (FreezeMethod) -> Unit,
+    locationEnforcement: LocationEnforcement,
+    onLocationEnforcementChange: (LocationEnforcement) -> Unit,
+    timeIntegrityMode: TimeIntegrityMode,
+    onTimeIntegrityModeChange: (TimeIntegrityMode) -> Unit,
+    failedAttemptsWipeThreshold: FailedAttemptsWipeThreshold,
+    onFailedAttemptsWipeThresholdChange: (FailedAttemptsWipeThreshold) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
     onExportConfig: () -> String,
@@ -1185,6 +1244,27 @@ private fun WardenRoot(
                             }
                         }
                     },
+                    // Tier-2-B5 (2026-09-05): dieselbe Registry-Operation, die auch der
+                    // Safeguards-Bildschirm für `debugging_features_disabled` auslöst — bewusst
+                    // über `ConcordBus.applySafeguard`, damit der Weg dieselbe Autorisierung,
+                    // Rate-Limitierung und Audit-Log-Spur bekommt wie jeder andere Schalter, statt
+                    // hier direkt am `DevicePolicyManager` vorbeizugreifen.
+                    onDisableDebuggingFeatures = {
+                        scanScope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    concordBus.applySafeguard(
+                                        UserRestrictionSafeguard.DEBUGGING_FEATURES_DISABLED_ID,
+                                    )
+                                }.onFailure {
+                                    Log.e("WardenStatus", "Entwickleroptionen abschalten fehlgeschlagen", it)
+                                }
+                            }
+                            integrityStatus = withContext(Dispatchers.IO) {
+                                loadDeviceIntegrityStatusSafely(concordBus)
+                            }
+                        }
+                    },
                     securityScoreBreakdown = scoreBreakdown,
                     securityScoreCalculationFailed = scoreCalculationFailed,
                     securityScoreCalculationInProgress = scoreCalculationInProgress,
@@ -1253,6 +1333,7 @@ private fun WardenRoot(
                  * neuen Sammel-Lesevorgang an, statt pro Schalter noch einmal einzeln zu lesen. */
                 fun toggle(safeguardId: String) = SafeguardToggleState(
                     locked = loaded.safeguardStates[safeguardId],
+                    desired = loaded.safeguardDesiredStates[safeguardId],
                     onToggle = { requested ->
                         safeguardScope.launch {
                             withContext(Dispatchers.IO) {
@@ -1437,6 +1518,14 @@ private fun WardenRoot(
                 onTrackerGuardEnabledChange = onTrackerGuardEnabledChange,
                 widgetQuickActionsEnabled = widgetQuickActionsEnabled,
                 onWidgetQuickActionsEnabledChange = onWidgetQuickActionsEnabledChange,
+                freezeMethod = freezeMethod,
+                onFreezeMethodChange = onFreezeMethodChange,
+                locationEnforcement = locationEnforcement,
+                onLocationEnforcementChange = onLocationEnforcementChange,
+                timeIntegrityMode = timeIntegrityMode,
+                onTimeIntegrityModeChange = onTimeIntegrityModeChange,
+                failedAttemptsWipeThreshold = failedAttemptsWipeThreshold,
+                onFailedAttemptsWipeThresholdChange = onFailedAttemptsWipeThresholdChange,
                 autoProfileConfig = autoProfileConfig,
                 onAutoProfileConfigChange = onAutoProfileConfigChange,
                 onExportConfig = onExportConfig,
@@ -1856,6 +1945,10 @@ private fun LoadingScreen(title: String, onBack: () -> Unit) {
  */
 private data class SafeguardsSnapshot(
     val safeguardStates: Map<String, Boolean?>,
+    /** Soll-Zustände zum selben Zeitpunkt wie [safeguardStates] — die Abweichung ist nur dann
+     * aussagekräftig, wenn beide Seiten aus demselben Lesezyklus stammen (TestDPC-Übernahme,
+     * 2026-09-05). */
+    val safeguardDesiredStates: Map<String, Boolean?>,
     val usbAutoLockEnabled: Boolean?,
     val lockdownModeActive: Boolean?,
     val sentinelLockTaskAuthorized: Boolean?,
@@ -1878,11 +1971,22 @@ private data class SafeguardsSnapshot(
  * Aufzählung könnte.
  */
 private fun loadSafeguardsSnapshotSafely(bus: ConcordBus, context: Context): SafeguardsSnapshot {
-    val states = runCatching { bus.safeguardStates(bus.listSafeguards()) }
+    // `listSafeguards()` bewusst nur **einmal** — jeder Bus-Aufruf kostet ein Rate-Limit-Token,
+    // und genau daran ist dieser Bildschirm vor Befund Q-2 (2026-08-28) schon einmal aufgelaufen.
+    // Ist- und Soll-Zustand über dieselbe ID-Liste zu lesen ist außerdem die Voraussetzung dafür,
+    // dass die Abweichungsanzeige nicht zwei verschieden alte Kataloge vergleicht.
+    val ids = runCatching { bus.listSafeguards() }
+        .onFailure { Log.e("WardenStatus", "Safeguard-IDs nicht ladbar", it) }
+        .getOrDefault(emptyList())
+    val states = runCatching { bus.safeguardStates(ids) }
         .onFailure { Log.e("WardenStatus", "Safeguard-Zustände nicht ladbar", it) }
+        .getOrDefault(emptyMap())
+    val desiredStates = runCatching { bus.safeguardDesiredStates(ids) }
+        .onFailure { Log.e("WardenStatus", "Safeguard-Soll-Zustände nicht ladbar", it) }
         .getOrDefault(emptyMap())
     return SafeguardsSnapshot(
         safeguardStates = states,
+        safeguardDesiredStates = desiredStates,
         usbAutoLockEnabled = loadUsbAutoLockEnabledSafely(bus),
         lockdownModeActive = loadLockdownModeActiveSafely(bus),
         sentinelLockTaskAuthorized = loadSentinelLockTaskAuthorizedSafely(context),

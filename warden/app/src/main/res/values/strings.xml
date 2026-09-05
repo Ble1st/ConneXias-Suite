@@ -140,6 +140,9 @@
     <string name="safeguards_disable_confirm_body_default">Dieser Schalter gehört zum Reset-Schutz. Ohne ihn lässt sich das Gerät nach einem Wipe leichter wieder in Betrieb nehmen.</string>
     <string name="safeguards_lock_action">Sperren</string>
     <string name="safeguards_disable_action">Deaktivieren</string>
+    <string name="safeguards_state_on">an</string>
+    <string name="safeguards_state_off">aus</string>
+    <string name="safeguards_divergence_row">⚠ Soll: %1$s · Ist: %2$s — Warden setzt das gerade nicht durch. Systemdiagnose ▸ Richtlinien-Koexistenz zeigt, ob ein zweiter Geräteadmin dahintersteckt.</string>
     <string name="safeguards_frp_no_agent_suffix"> ⚠ Google-Play-Dienste nicht gefunden — Schalter zeigt \"aktiv\", wird vom FRP-Agenten aber vermutlich nicht durchgesetzt.</string>
     <string name="safeguards_toggle_no_profile">In keinem Profil — eine Profilanwendung schaltet ihn wieder aus.</string>
     <string name="safeguards_toggle_state_locked">gesperrt</string>
@@ -198,6 +201,7 @@
     <string name="security_scanner_findings_empty_headline">Keine verdächtigen Apps gefunden</string>
     <string name="security_scanner_integrity_unreadable_headline">Geräte-Integritätsstatus konnte nicht geladen werden</string>
     <string name="security_scanner_adb_label">ADB-Debugging</string>
+    <string name="security_scanner_fix_action">tippen zum Abschalten</string>
     <string name="security_scanner_developer_options_label">Entwickleroptionen</string>
     <string name="security_scanner_state_active">aktiv</string>
     <string name="security_scanner_state_inactive">inaktiv</string>
@@ -236,6 +240,8 @@
     <string name="sensitive_action_describe_lock_now">Sperrt das Gerät sofort</string>
     <string name="sensitive_action_describe_lockdown_mode_arm">USB aus, Safe Boot/Werksreset/OEM-Unlock/Debugging blockiert. Rückweg: Alle Safeguards zurücksetzen.</string>
     <string name="sensitive_action_describe_lockdown_task_engage">Echter Kiosk-Modus über die separate Sentinel-App — Notruf/Keyguard bleiben erreichbar, sonst nichts. Braucht bestätigten Notruf-Drill (Safeguards ▸ Lockdown-Modus) und eine installierte Sentinel-App. Ausstieg nur über Sentinels eigene PIN auf dem Gerät selbst.</string>
+    <string name="sensitive_action_describe_transfer_ownership">Übergibt die Device-Owner-Rolle an eine andere App. Danach hat Warden keine Verwaltungsrechte mehr — kein Safeguard, kein Lockdown, kein Zurückholen. Der einzige Rückweg führt über die Zielapp; bietet sie keinen an, hilft nur ein Werksreset.</string>
+    <string name="sensitive_action_transfer_target_banner">Übertragungsziel: %1$s — nach der Bestätigung ist diese App der Device Owner, nicht mehr Warden.</string>
     <string name="sensitive_action_outcome_executed_as_stub">✓ Bestätigt — Stub protokolliert (wipeData() bewusst weiterhin nicht verkabelt).</string>
     <string name="sensitive_action_denied_wrong_confirmation_text">⚠ Bestätigungstext stimmte nicht.</string>
     <string name="sensitive_action_biometric_prompt_title">Sensible Aktion bestätigen</string>
@@ -433,6 +439,16 @@
     <string name="system_diagnostics_section_permissions">Selbst gewährte Berechtigungen</string>
     <string name="system_diagnostics_permissions_description">Warden gewährt sich diese Berechtigungen selbst (Geräteinhaber-Recht), damit die lokalen Auslöser ohne manuelle Freigabe funktionieren. Fehlt eine, liest der zugehörige Auslöser stattdessen null und reagiert nicht — kein Absturz, aber auch keine Erkennung.</string>
     <string name="system_diagnostics_section_receivers">Dynamisch registrierte Empfänger</string>
+    <string name="system_diagnostics_section_coexistence">Richtlinien-Koexistenz</string>
+    <string name="system_diagnostics_coexistence_description">Seit Android 14 dürfen mehrere Geräteadmins dieselbe Richtlinie setzen. Das System entscheidet den Konflikt selbst und meldet dem unterlegenen Admin das Ergebnis. Hier steht, wer sonst noch mitredet und welche Richtlinie von Warden dabei nicht durchkam.</string>
+    <string name="system_diagnostics_coexistence_device_owner">Warden ist Device Owner</string>
+    <string name="system_diagnostics_coexistence_no_other_admins">Kein weiterer aktiver Geräteadmin.</string>
+    <string name="system_diagnostics_coexistence_no_feedback_yet">Bisher keine Rückmeldung des Systems eingegangen. Das heißt nicht, dass es keine Konflikte gibt — nur, dass Warden noch keine erhalten hat.</string>
+    <string name="system_diagnostics_coexistence_no_problems">Alle zurückgemeldeten Richtlinien wurden angenommen.</string>
+    <string name="system_diagnostics_section_theft_protection">Systemseitiger Diebstahlschutz</string>
+    <string name="system_diagnostics_theft_protection_description">Android bringt seit Version 15 eigene Diebstahlfunktionen mit (Diebstahlerkennungssperre, Offline-Gerätesperre, Remote-Sperre). Warden baut sie bewusst nicht nach und kann ihren Zustand auch nicht auslesen — dafür gibt es keine öffentliche Schnittstelle. Alle drei setzen eine eingerichtete Bildschirmsperre voraus.</string>
+    <string name="system_diagnostics_theft_protection_device_secure">Bildschirmsperre eingerichtet</string>
+    <string name="system_diagnostics_theft_protection_open_settings">Sicherheitseinstellungen öffnen</string>
     <string name="system_diagnostics_status_ok">OK</string>
     <string name="system_diagnostics_status_missing">Fehlt</string>
     <string name="system_diagnostics_receiver_feature_enabled">Feature eingeschaltet — sollte registriert sein</string>
@@ -475,6 +491,15 @@
     <string name="settings_updates_title">Updates</string>
     <string name="settings_updates_subtitle">Installiert: %1$s — antippen öffnet die Releases-Seite im Browser (Warden prüft nicht selbst)</string>
     <string name="settings_updates_no_browser">Keine App gefunden, die einen Link öffnen kann.</string>
+    <string name="settings_section_advanced">Erweitert</string>
+    <string name="settings_advanced_title">Erweiterte Verwaltung</string>
+    <string name="settings_advanced_subtitle">Device-Owner-Rolle übertragen. Nichts davon lässt sich aus Warden heraus rückgängig machen.</string>
+    <string name="advanced_settings_title">Erweitert</string>
+    <string name="advanced_settings_section_ownership">Device-Owner übertragen</string>
+    <string name="advanced_settings_ownership_warning">Nach einer Übertragung ist Warden nur noch eine gewöhnliche App: keine Safeguards, kein Lockdown, kein Einfrieren, kein Zurückholen der Rolle. Der Rückweg existiert nur in der Zielapp — bietet sie keinen an, hilft ausschließlich ein Werksreset.</string>
+    <string name="advanced_settings_ownership_no_targets">Keine App auf diesem Gerät bringt einen Geräteadmin-Empfänger mit, an den sich die Rolle übertragen ließe.</string>
+    <string name="advanced_settings_ownership_targets_unreadable">Die Liste möglicher Ziele konnte nicht gelesen werden.</string>
+    <string name="advanced_settings_ownership_footnote">Die Übertragung selbst läuft über denselben Bestätigungsweg wie jede andere destruktive Aktion: Bestätigungstext TRANSFER eintippen, dann frischer Nachweis per Biometrie oder Warden-PIN.</string>
     <string name="settings_licenses_title">Lizenzen</string>
     <string name="settings_licenses_subtitle">Open-Source-Bestandteile dieser App</string>
 
@@ -667,6 +692,16 @@
     <!-- ui/WidgetQuickActionsField.kt -->
     <string name="widget_quick_actions_field_title">Quick-Actions im Widget</string>
     <string name="widget_quick_actions_field_description">Zeigt im Homescreen-Widget zwei zusätzliche Schaltflächen für Lockdown-Modus und Sentinel-Kiosk. Beide bleiben hinter dem PIN-Zugangsschutz — wer das Gerät entsperrt hält, kommt aber ohne Umweg über das Dashboard-Menü an sie heran. Ein Homescreen-Widget ist noch exponierter erreichbar als eine Quick-Settings-Kachel, deshalb Standard aus.</string>
+    <!-- ui/HardeningChoiceField.kt (Tier-2 der DPC-Recherche, 2026-09-05) -->
+    <string name="freeze_method_field_title">Einfrier-Methode</string>
+    <string name="freeze_method_field_description">Womit eine App blockiert wird. Verstecken lässt sie spurlos verschwinden, Suspendieren lässt das Symbol ausgegraut stehen und erklärt beim Antippen, dass die App absichtlich pausiert ist. Verstecken scheitert bei Apps, die Geräteadministrator-Rechte deklarieren — dafür gibt es die Automatik.</string>
+    <string name="location_enforcement_field_title">Ortung erzwingen</string>
+    <string name="location_enforcement_field_description">Der Diebstahlalarm schreibt den zuletzt bekannten Standort ins Protokoll — die einzige Spur, die Warden von einem entwendeten Gerät bekommen kann. Ist die Ortung aus, bleibt sie leer. Sperren wirkt gegen einen Dieb, nimmt aber auch Ihnen selbst den Schalter aus der Hand.</string>
+    <string name="time_integrity_field_title">Uhrzeit absichern</string>
+    <string name="time_integrity_field_description">Die Hash-Kette des Protokolls beweist, dass Einträge unverändert sind — nicht, wann sie entstanden. Wer die Uhr zurückstellt, bekommt ein gültiges Protokoll mit falschen Zeiten. Netzzeit schließt das für den naheliegenden Fall, nicht gegen einen Angreifer, der das Mobilfunknetz kontrolliert.\n\nHinweis: Die Sperre der Datum/Uhrzeit-Einstellung ist derselbe Schalter wie „Uhrzeit-Manipulation verhindern“ unter Safeguards. Diese Auswahl kann ihn einschalten, nimmt ihn aber nie zurück — ausgeschaltet wird er dort.</string>
+    <string name="failed_attempts_wipe_field_title">Löschen nach Fehlversuchen (System)</string>
+    <string name="failed_attempts_wipe_field_description">Vom System durchgesetzt, unabhängig davon, ob Warden noch läuft — die einzige Stufe, die einen Angreifer überlebt, der Warden selbst abschaltet. Warden zählt Fehlversuche zusätzlich selbst und startet dann nur neu, statt zu löschen.</string>
+    <string name="failed_attempts_wipe_field_warning">⚠ Löscht das Gerät endgültig und ohne Rückfrage. Es gibt keinen Weg zurück und keine Warnung vorher — auch nicht bei einem schlicht vergessenen PIN.</string>
     <string name="widget_quick_actions_field_switch_label">Schaltflächen im Widget zeigen</string>
 
     <!-- ui/SetupWizardScreen.kt — Ersteinrichtungs-Assistent -->

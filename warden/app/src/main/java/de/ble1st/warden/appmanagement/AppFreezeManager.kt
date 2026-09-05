@@ -4,6 +4,7 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import de.ble1st.warden.admin.WardenDeviceAdminReceiver
+import de.ble1st.warden.domain.appmanagement.FreezeMethod
 
 /**
  * Milestone "App-Verwaltung: Einfrieren/Deaktivieren" — Warden hat seit Milestone I.4 ohnehin
@@ -72,15 +73,32 @@ class AppFreezeManager(private val context: Context) {
         // durchgeschlagen und den Prozess abstürzen lassen, statt die dafür vorgesehene
         // "Einfrieren fehlgeschlagen"-Meldung zu zeigen (s. SuspiciousAppScanController
         // .handleFreezeAction).
-        val hidden = runCatching { devicePolicyManager().setApplicationHidden(admin, packageName, true) }.getOrDefault(false)
-        if (hidden) return true
-        // Hide ist gescheitert (bekannte Lücke, s. Klassendoc) — Suspend als zweiten,
-        // unabhängigen Mechanismus versuchen. `setPackagesSuspended` liefert die Pakete zurück,
-        // die *nicht* suspendiert werden konnten — ein leeres Array heißt vollständiger Erfolg.
+        // 2026-09-05: welche der beiden Mechanismen benutzt werden, ist jetzt einstellbar
+        // (FreezeMethod). Default AUTOMATIK = exakt das vorherige Verhalten.
+        val method = FreezeMethodStorage.load(context)
+        val hidden = if (method.usesHide) {
+            runCatching { devicePolicyManager().setApplicationHidden(admin, packageName, true) }.getOrDefault(false)
+        } else {
+            false
+        }
+        // Bei AUTOMATIK ist Suspend nur der Rückfallweg, wenn Hide (still) gescheitert ist — der
+        // dokumentierte OS-Fall für Geräteadministrator-/debuggbare Apps. Bei BEIDES wird
+        // unbedingt auch suspendiert, bei NUR_VERSTECKEN nie.
+        val skipSuspend = !method.usesSuspend || (method.suspendOnlyAsFallback && hidden)
+        if (skipSuspend) return hidden
+        // `setPackagesSuspended` liefert die Pakete zurück, die *nicht* suspendiert werden
+        // konnten — ein leeres Array heißt vollständiger Erfolg.
         val failedToSuspend = runCatching {
             devicePolicyManager().setPackagesSuspended(admin, arrayOf(packageName), true)
         }.getOrDefault(arrayOf(packageName))
-        return failedToSuspend.isEmpty()
+        val suspended = failedToSuspend.isEmpty()
+        // Bei BEIDES gilt der Vorgang als erfolgreich, sobald *einer* der beiden Mechanismen
+        // gegriffen hat — die App ist dann blockiert, und genau das ist die Zusage von setFrozen.
+        return if (method == FreezeMethod.BEIDES) {
+            hidden || suspended
+        } else {
+            suspended
+        }
     }
 
     /** Wirft ebenfalls statt zu verschlucken — s. [isFrozen]-Doc. */

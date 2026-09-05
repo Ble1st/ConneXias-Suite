@@ -32,6 +32,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.core.net.toUri
 import de.ble1st.warden.R
+import de.ble1st.warden.domain.appmanagement.FreezeMethod
+import de.ble1st.warden.domain.hardening.FailedAttemptsWipeThreshold
+import de.ble1st.warden.domain.hardening.LocationEnforcement
+import de.ble1st.warden.domain.hardening.TimeIntegrityMode
 import de.ble1st.warden.domain.cellsecurity.CellSecurityReaction
 import de.ble1st.warden.domain.sim.SimChangeReaction
 import de.ble1st.warden.domain.profile.AutoProfileConfig
@@ -95,6 +99,17 @@ fun SettingsScreen(
     onTrackerGuardEnabledChange: (Boolean) -> Unit,
     widgetQuickActionsEnabled: Boolean,
     onWidgetQuickActionsEnabledChange: (Boolean) -> Unit,
+    // Tier-2 der DPC-Recherche (2026-09-05) — vier mehrstufige Auswahlmenüs statt Ein/Aus-
+    // Schaltern, weil bei allen vier die mittlere Stufe eine eigene, sinnvolle Abwägung ist
+    // (s. die jeweiligen Enum-Klassendocs).
+    freezeMethod: FreezeMethod,
+    onFreezeMethodChange: (FreezeMethod) -> Unit,
+    locationEnforcement: LocationEnforcement,
+    onLocationEnforcementChange: (LocationEnforcement) -> Unit,
+    timeIntegrityMode: TimeIntegrityMode,
+    onTimeIntegrityModeChange: (TimeIntegrityMode) -> Unit,
+    failedAttemptsWipeThreshold: FailedAttemptsWipeThreshold,
+    onFailedAttemptsWipeThresholdChange: (FailedAttemptsWipeThreshold) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
     onExportConfig: () -> String,
@@ -103,6 +118,8 @@ fun SettingsScreen(
 ) {
     var showNamingSettings by remember { mutableStateOf(false) }
     var showLicenses by remember { mutableStateOf(false) }
+    // Tier 3 (2026-09-05): dritte Unterseite, gleiche Mechanik wie die beiden darüber.
+    var showAdvanced by remember { mutableStateOf(false) }
 
     // Vorschlag V-8 (2026-08-29) — echter Navigationsfehler, nicht nur Kosmetik: die beiden
     // Unterseiten sind reiner lokaler Compose-State (s. Klassendoc), und der einzige registrierte
@@ -112,9 +129,10 @@ fun SettingsScreen(
     // der Zurück-Pfeil in der TopAppBar der Unterseite verhielt sich richtig. BackHandler werden
     // in umgekehrter Registrierungsreihenfolge abgearbeitet, der hier gewinnt also gegen den in
     // `WardenRoot`, solange er aktiv ist.
-    BackHandler(enabled = showNamingSettings || showLicenses) {
+    BackHandler(enabled = showNamingSettings || showLicenses || showAdvanced) {
         showNamingSettings = false
         showLicenses = false
+        showAdvanced = false
     }
 
     if (showNamingSettings) {
@@ -132,6 +150,11 @@ fun SettingsScreen(
 
     if (showLicenses) {
         LicensesScreen(onBack = { showLicenses = false })
+        return
+    }
+
+    if (showAdvanced) {
+        AdvancedSettingsScreen(onBack = { showAdvanced = false })
         return
     }
 
@@ -217,6 +240,26 @@ fun SettingsScreen(
                 onEnabledChange = onWidgetQuickActionsEnabledChange,
                 modifier = Modifier.padding(top = 16.dp),
             )
+            FreezeMethodField(
+                selected = freezeMethod,
+                onSelect = onFreezeMethodChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            LocationEnforcementField(
+                selected = locationEnforcement,
+                onSelect = onLocationEnforcementChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            TimeIntegrityField(
+                selected = timeIntegrityMode,
+                onSelect = onTimeIntegrityModeChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            FailedAttemptsWipeField(
+                selected = failedAttemptsWipeThreshold,
+                onSelect = onFailedAttemptsWipeThresholdChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
             AutoProfileField(
                 config = autoProfileConfig,
                 onChange = onAutoProfileConfigChange,
@@ -281,6 +324,16 @@ fun SettingsScreen(
                 subtitle = stringResource(R.string.settings_licenses_subtitle),
                 tag = "LZ",
                 onClick = { showLicenses = true },
+            )
+
+            // Ganz unten und als eigener Abschnitt: hier steht nichts, was man beim normalen
+            // Durchsehen der Einstellungen brauchen sollte — s. `AdvancedSettingsScreen`.
+            SectionLabel(stringResource(R.string.settings_section_advanced))
+            MenuRow(
+                title = stringResource(R.string.settings_advanced_title),
+                subtitle = stringResource(R.string.settings_advanced_subtitle),
+                tag = "EW",
+                onClick = { showAdvanced = true },
             )
         }
     }

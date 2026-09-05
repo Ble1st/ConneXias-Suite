@@ -181,6 +181,32 @@ class ConcordBus(
             }
         }
 
+    /**
+     * **Soll**-Zustand mehrerer Safeguards in einem autorisierten Aufruf — das Gegenstück zu
+     * [safeguardStates] (TestDPC-Übernahme, 2026-09-05).
+     *
+     * Warden trennt seit jeher sauber zwischen dem *gewünschten* Zustand (persistiert in
+     * [de.ble1st.warden.registry.PersistentSafeguardRegistry]) und dem *tatsächlichen* (immer live
+     * am DPM abgefragt, nie zwischengespeichert) — und
+     * [de.ble1st.warden.domain.registry.RegistryReconcileDecision] gleicht beide beim Booten ab.
+     * Sichtbar war bisher nur der Ist-Zustand: ein Schalter, der aussteht, weil er nie eingeschaltet
+     * wurde, sah in der UI genauso aus wie einer, den Warden einschalten *will* und der vom Gerät
+     * abgelehnt oder von einem zweiten Admin überschrieben wurde. Genau diese Nebeneinander-Anzeige
+     * macht TestDPC gut und war der Punkt, der aus der DPC-Recherche übernommen werden sollte.
+     *
+     * `null` heißt "für diese ID ist kein Soll-Zustand hinterlegt" — dieselbe Bedeutung wie in
+     * [de.ble1st.warden.registry.PersistentSafeguardRegistry.desiredState], und ausdrücklich nicht
+     * "aus".
+     */
+    fun safeguardDesiredStates(safeguardIds: Collection<String>): Map<String, Boolean?> =
+        authorize(BusCommand.READ, "safeguardDesiredStates") {
+            safeguardIds.associateWith { id ->
+                runCatching { registry.desiredState(id) }
+                    .onFailure { Log.w(TAG, "Safeguard-Soll-Zustand ($id) nicht lesbar", it) }
+                    .getOrNull()
+            }
+        }
+
     fun applySafeguard(safeguardId: String): Boolean =
         authorize(BusCommand.NON_DESTRUCTIVE_SWITCH, "applySafeguard") {
             registry.apply(safeguardId)

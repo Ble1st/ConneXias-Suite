@@ -1,5 +1,6 @@
 package de.ble1st.warden.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -113,6 +114,12 @@ fun SecurityScannerScreen(
     securityScoreCalculationInProgress: Boolean,
     securityScoreHistory: List<SecurityScoreHistoryStore.HistoryEntry>,
     onCalculateSecurityScore: () -> Unit,
+    /** Tier-2-B5 (2026-09-05): schaltet die Entwickleroptionen/ADB per bestehendem Safeguard
+     * `debugging_features_disabled` ab. Der Bildschirm hat diese beiden Zeilen bisher nur
+     * *gemeldet* — der Nutzer musste den passenden Schalter im Safeguards-Bildschirm selbst
+     * finden. Ein Befund, der direkt neben sich seine Abhilfe trägt, ist der eigentliche
+     * Unterschied zwischen einem Melde- und einem Verwaltungswerkzeug (TestDPC-Vergleich). */
+    onDisableDebuggingFeatures: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -216,7 +223,11 @@ fun SecurityScannerScreen(
                     }
                     HorizontalDivider()
                     Text(text = stringResource(R.string.security_scanner_integrity_title), style = MaterialTheme.typography.titleMedium)
-                    DeviceIntegritySection(deviceIntegrityStatus, onRetry = onRetry)
+                    DeviceIntegritySection(
+                        deviceIntegrityStatus,
+                        onRetry = onRetry,
+                        onDisableDebuggingFeatures = onDisableDebuggingFeatures,
+                    )
                     HorizontalDivider()
                     Text(text = stringResource(R.string.security_score_title), style = MaterialTheme.typography.titleMedium)
                     SecurityScoreSection(
@@ -259,7 +270,11 @@ fun SecurityScannerScreen(
 /** `null` = Laden fehlgeschlagen — dieselbe Fail-Safe-Unterscheidung wie [findingsLoadFailed]
  * oben: ein Lesefehler darf nicht wie "alles unauffällig" aussehen. */
 @Composable
-private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -> Unit) {
+private fun DeviceIntegritySection(
+    status: DeviceIntegrityStatus?,
+    onRetry: () -> Unit,
+    onDisableDebuggingFeatures: () -> Unit,
+) {
     if (status == null) {
         ErrorStateRow(
             headline = stringResource(R.string.security_scanner_integrity_unreadable_headline),
@@ -269,8 +284,21 @@ private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -
         return
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        IntegrityStatusRow(label = stringResource(R.string.security_scanner_adb_label), active = status.adbEnabled)
-        IntegrityStatusRow(label = stringResource(R.string.security_scanner_developer_options_label), active = status.developerOptionsEnabled)
+        // Tier-2 der DPC-Recherche (2026-09-05): Diese beiden Zeilen meldeten den Befund bisher
+        // nur — obwohl Warden ihn als Device Owner selbst beheben kann. Der Katalog-Safeguard
+        // `debuggingFeaturesDisabled` (DISALLOW_DEBUGGING_FEATURES) deckt beide ab. Sie sind jetzt
+        // antippbar, aber **nur wenn sie tatsächlich aktiv sind**: eine Zeile, die schon "inaktiv"
+        // sagt, hätte keine sinnvolle Aktion und dürfte nicht wie ein Schalter aussehen.
+        IntegrityStatusRow(
+            label = stringResource(R.string.security_scanner_adb_label),
+            active = status.adbEnabled,
+            onFix = onDisableDebuggingFeatures.takeIf { status.adbEnabled },
+        )
+        IntegrityStatusRow(
+            label = stringResource(R.string.security_scanner_developer_options_label),
+            active = status.developerOptionsEnabled,
+            onFix = onDisableDebuggingFeatures.takeIf { status.developerOptionsEnabled },
+        )
         // Eigene Ergänzung (2026-08-22): anders als die beiden Zeilen oben ist "aktiv" hier GUT,
         // nicht schlecht — eigene Zeile statt IntegrityStatusRow-Wiederverwendung mit invertierter
         // Farblogik, sonst müsste jede/r Leser*in die Bedeutung von "aktiv" pro Zeile neu prüfen.
@@ -480,22 +508,31 @@ private fun AdvancedProtectionRow(state: AdvancedProtectionState) {
     )
 }
 
+/** [onFix] `null` = keine Aktion anbieten (Normalfall: nichts zu beheben). Ist eine Aktion
+ * hinterlegt, wird die ganze Zeile antippbar und trägt einen sichtbaren Hinweis — ein reiner
+ * `clickable`-Modifier ohne optische Änderung wäre eine versteckte Funktion. */
 @Composable
-private fun IntegrityStatusRow(label: String, active: Boolean) {
+private fun IntegrityStatusRow(label: String, active: Boolean, onFix: (() -> Unit)? = null) {
     val activeState = stringResource(R.string.security_scanner_state_active)
     val inactiveState = stringResource(R.string.security_scanner_state_inactive)
+    val fixLabel = stringResource(R.string.security_scanner_fix_action)
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (onFix != null) Modifier.clickable { onFix() } else Modifier)
             .semantics {
-                contentDescription = label
+                contentDescription = if (onFix != null) "$label — $fixLabel" else label
                 stateDescription = if (active) activeState else inactiveState
             },
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(text = label, style = MaterialTheme.typography.bodySmall)
         Text(
-            text = if (active) activeState else inactiveState,
+            text = if (onFix != null) {
+                "${if (active) activeState else inactiveState} · $fixLabel"
+            } else {
+                if (active) activeState else inactiveState
+            },
             style = MaterialTheme.typography.bodySmall,
             color = if (active) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )

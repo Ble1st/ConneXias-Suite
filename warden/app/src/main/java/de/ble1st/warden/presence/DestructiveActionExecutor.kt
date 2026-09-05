@@ -75,6 +75,13 @@ class DestructiveActionExecutor(
     private val performLockNow: () -> Unit = {},
     private val performLockdownArm: () -> Unit = {},
     private val performLockTaskEngage: () -> Boolean = { false },
+    /** Tier 3 (2026-09-05): `false` = kein Übertragungsziel gesetzt. Bewusst `() -> Boolean` und
+     * bewusst `false` als Default statt eines No-Op-`Unit`-Lambdas: ein Aufrufer, der
+     * `TRANSFER_OWNERSHIP` ohne Ziel auslöst, soll einen sichtbaren Fehlschlag sehen und keine
+     * Erfolgsmeldung für etwas, das nie passiert ist — derselbe Befund-Q-5-Gedanke wie bei
+     * [performLockTaskEngage]. Das Ziel selbst schließt die Aufrufstelle in das Lambda ein, s.
+     * [de.ble1st.warden.domain.presence.SensitiveAction]-Klassendoc. */
+    private val performTransferOwnership: () -> Boolean = { false },
 ) {
     /** Verhindert, dass eine destruktive Aktion zweimal läuft, wenn der Nutzer "Bestätigen"
      *  schnell doppelt tippt, bevor der erste Aufruf zurückkehrt (z. B. weil `performReboot`
@@ -197,6 +204,21 @@ class DestructiveActionExecutor(
                     )
                     SensitiveActionOutcome.ExecutedSuccessfully
                 }
+            }
+        }
+        SensitiveAction.TRANSFER_OWNERSHIP -> {
+            val outcome = runCatching { performTransferOwnership() }
+            when {
+                outcome.isFailure -> logAndFail("transferOwnership() fehlgeschlagen: ${outcome.exceptionOrNull()}")
+                outcome.getOrThrow() -> {
+                    logStore.append(
+                        priority = Log.WARN,
+                        tag = TAG,
+                        message = "transferOwnership() real ausgeführt — Warden ist ab sofort nicht mehr Device Owner",
+                    )
+                    SensitiveActionOutcome.ExecutedSuccessfully
+                }
+                else -> logAndFail("transferOwnership() abgelehnt: kein Übertragungsziel gesetzt")
             }
         }
         SensitiveAction.LOCKDOWN_TASK_ENGAGE -> {

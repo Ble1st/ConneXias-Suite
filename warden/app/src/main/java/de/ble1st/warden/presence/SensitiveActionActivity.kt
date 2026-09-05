@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.PersistableBundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -141,7 +142,14 @@ class SensitiveActionActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
 
-        val executor = buildExecutor(this)
+        // Tier 3 (2026-09-05): nur gesetzt, wenn dieser Bildschirm aus den erweiterten
+        // Einstellungen heraus mit einem konkreten Übertragungsziel geöffnet wurde. Ohne Ziel
+        // bleibt TRANSFER_OWNERSHIP unten aus der Auswahlliste heraus (s. `selectableActions`)
+        // *und* das ausführende Lambda meldet `false` — zwei unabhängige Sperren für denselben
+        // Fehlerfall, dieselbe Defense-in-Depth-Haltung wie beim Presence-Check selbst.
+        val transferTarget = intent.getStringExtra(EXTRA_TRANSFER_TARGET)
+            ?.let { ComponentName.unflattenFromString(it) }
+        val executor = buildExecutor(this, transferTarget)
         val presenceManager = PresenceManager(this)
         val executionAllowed = DestructiveCommandGuard.isExecutionAllowed(BuildConfig.DEBUG)
         // Nur gelesen, nicht hier umschaltbar — s. FailsafeActivity-Kommentar.
@@ -172,6 +180,7 @@ class SensitiveActionActivity : FragmentActivity() {
                     sessionAuthenticated = wardenLockSession.isAuthenticated(),
                     initialAction = preselectedAction,
                     lockdownTriggerProfile = lockdownTriggerProfile,
+                    transferTarget = transferTarget,
                     onConfirmSession = { action, confirmationText, onResult ->
                         val outcome = executor.executeWithSessionPresence(
                             action,
@@ -221,6 +230,12 @@ class SensitiveActionActivity : FragmentActivity() {
          * [WardenPinActivity.EXTRA_PRESENCE_REQUEST]. */
         const val EXTRA_PRESELECTED_ACTION = "de.ble1st.warden.presence.SensitiveActionActivity.EXTRA_PRESELECTED_ACTION"
 
+        /** Tier 3 (2026-09-05): der `ComponentName` (flach serialisiert) des Admin-Empfängers, an
+         * den [SensitiveAction.TRANSFER_OWNERSHIP] die Device-Owner-Rolle übergeben soll. Fehlt
+         * dieses Extra, ist die Aktion in diesem Bildschirm gar nicht erst wählbar — ein
+         * Übertragungsziel gehört zur Aktion, nicht in das parameterlose Enum. */
+        const val EXTRA_TRANSFER_TARGET = "de.ble1st.warden.presence.SensitiveActionActivity.EXTRA_TRANSFER_TARGET"
+
         /** Verkabelt Presence-/Rate-Limit-/Bestätigungs-Kette mit den echten
          * `DevicePolicyManager`-Aufrufen für `REBOOT` und `MasterSwitch.disarm()` für
          * `MASTER_SWITCH_REVERT` — dieselben drei bekannten C.2-Schalter wie `FailsafeActivity`
@@ -232,7 +247,7 @@ class SensitiveActionActivity : FragmentActivity() {
          * App" (`startLockTask()` läuft jetzt in Sentinels eigenem Prozess, nicht mehr hier), aber
          * beibehalten: kein Grund, die Signatur zu verschmälern, nur weil der konkrete Aufruf
          * jetzt ein reiner `Context`-Verbraucher ist. */
-        private fun buildExecutor(activity: Activity): DestructiveActionExecutor {
+        private fun buildExecutor(activity: Activity, transferTarget: ComponentName?): DestructiveActionExecutor {
             val context = activity.applicationContext
             val admin = ComponentName(context, WardenDeviceAdminReceiver::class.java)
             val devicePolicyManager = checkNotNull(context.getSystemService(DevicePolicyManager::class.java)) {
@@ -270,6 +285,23 @@ class SensitiveActionActivity : FragmentActivity() {
                         emergencyCallDrillPassed = WardenLockTaskDrillFreshnessGate.effectiveEmergencyCallDrillPassed(context),
                     )
                 },
+                // Tier 3 (2026-09-05): das Ziel ist hier eingeschlossen, statt es durch
+                // `SensitiveAction` zu reichen — s. dessen Klassendoc. Ohne Ziel meldet das Lambda
+                // `false`, und `DestructiveActionExecutor` macht daraus einen sichtbaren
+                // Fehlschlag statt einer stillen Erfolgsmeldung.
+                performTransferOwnership = {
+                    if (transferTarget == null) {
+                        false
+                    } else {
+                        // Das leere PersistableBundle ist Androids vorgesehener Weg, *keine* Zusatzdaten an
+                        // den neuen Owner zu übergeben. Warden hat nichts zu übergeben: alles, was
+                        // es hält (PIN-Blob, Schlüssel, Audit-Log), ist bewusst gerätelokal und an
+                        // Wardens eigene UID gebunden — dieselbe Grenze, die auch der
+                        // Konfigurations-Export zieht.
+                        devicePolicyManager.transferOwnership(admin, transferTarget, PersistableBundle())
+                        true
+                    }
+                },
             )
         }
 
@@ -297,6 +329,7 @@ private fun describeAction(context: Context, action: SensitiveAction): String = 
     SensitiveAction.LOCK_NOW -> context.getString(R.string.sensitive_action_describe_lock_now)
     SensitiveAction.LOCKDOWN_MODE_ARM -> context.getString(R.string.sensitive_action_describe_lockdown_mode_arm)
     SensitiveAction.LOCKDOWN_TASK_ENGAGE -> context.getString(R.string.sensitive_action_describe_lockdown_task_engage)
+    SensitiveAction.TRANSFER_OWNERSHIP -> context.getString(R.string.sensitive_action_describe_transfer_ownership)
 }
 
 /** Befund Q-5 (2026-08-29): nimmt jetzt [SensitiveActionOutcome] statt der reinen
@@ -326,6 +359,7 @@ private fun SensitiveActionScreen(
     sessionAuthenticated: Boolean,
     initialAction: SensitiveAction,
     lockdownTriggerProfile: LockdownTriggerProfile,
+    transferTarget: ComponentName?,
     onConfirmSession: (SensitiveAction, String, (String) -> Unit) -> Unit,
     onConfirmBiometric: (SensitiveAction, String, (String) -> Unit) -> Unit,
     onConfirmPin: (SensitiveAction, String, (String) -> Unit) -> Unit,
@@ -370,8 +404,25 @@ private fun SensitiveActionScreen(
                 color = if (lockdownActive == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            // Tier 3 (2026-09-05): TRANSFER_OWNERSHIP erscheint nur, wenn dieser Bildschirm mit
+            // einem konkreten Ziel geöffnet wurde (aus den erweiterten Einstellungen heraus). Ohne
+            // Ziel wäre die Zeile eine Aktion, die garantiert scheitert — und die gefährlichste
+            // von allen ausgerechnet als Dauergast in der Liste stehen zu lassen, aus der man sonst
+            // "Gerät neu starten" wählt, wäre genau die Art Stolperfalle, die dieser Bildschirm
+            // mit Bestätigungstext und Presence-Prüfung sonst überall vermeidet.
+            val selectableActions = SensitiveAction.entries.filter {
+                it != SensitiveAction.TRANSFER_OWNERSHIP || transferTarget != null
+            }
+            if (transferTarget != null) {
+                Text(
+                    text = stringResource(R.string.sensitive_action_transfer_target_banner, transferTarget.flattenToShortString()),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
             Column(Modifier.selectableGroup()) {
-                SensitiveAction.entries.forEach { action ->
+                selectableActions.forEach { action ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
