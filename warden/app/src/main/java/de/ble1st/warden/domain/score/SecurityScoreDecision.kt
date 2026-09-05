@@ -63,12 +63,33 @@ object SecurityScoreDecision {
         return (100 - warningFindings * WARNING_FINDING_PENALTY).coerceIn(0, 100)
     }
 
+    /** "Woran liegt es" für die Bedrohungs-Kategorie (2026-09-05, Nutzerwunsch) — dieselben
+     * Rohwerte, die auch [threatScore] verwendet, nur als lesbarer Text statt als Zahl. Reine
+     * Ableitung, kein zusätzlicher Zustand. */
+    fun threatReasons(warningFindings: Int, hasCriticalFinding: Boolean): List<String> = buildList {
+        if (hasCriticalFinding) {
+            add("Mindestens ein kritischer Fund im Sicherheits-Scanner — die Kategorie wird auf 0 gesetzt, unabhängig von allem anderen.")
+        }
+        if (warningFindings > 0) {
+            add("$warningFindings offene(r) Warnfund(e) im Sicherheits-Scanner (je -$WARNING_FINDING_PENALTY Punkte).")
+        }
+        if (isEmpty()) add("Keine offenen Funde im Sicherheits-Scanner.")
+    }
+
     /** `totalApps == 0` (keine Fremd-Apps installiert, oder das Audit lief noch nie) zählt als
      * bestmöglicher Wert statt als 0/undefiniert — es gibt schlicht nichts zu beanstanden. */
     fun permissionScore(totalApps: Int, flaggedApps: Int): Int {
         if (totalApps <= 0) return 100
         val ratio = flaggedApps.toDouble() / totalApps
         return (100 - ratio * 100).toInt().coerceIn(0, 100)
+    }
+
+    fun permissionReasons(totalApps: Int, flaggedApps: Int): List<String> = buildList {
+        when {
+            totalApps <= 0 -> add("Keine Fremd-Apps installiert (oder das Rechte-Audit lief noch nie).")
+            flaggedApps <= 0 -> add("Keine der $totalApps geprüften Apps hat übermäßig viele gefährliche Berechtigungen.")
+            else -> add("$flaggedApps von $totalApps geprüften Apps haben übermäßig viele gefährliche Berechtigungen.")
+        }
     }
 
     /** Abzüge sind additiv, nicht "schlechtestes Signal gewinnt" wie bei Bedrohungen — Root
@@ -90,6 +111,23 @@ object SecurityScoreDecision {
         return score.coerceIn(0, 100)
     }
 
+    fun integrityReasons(
+        rootIndicatorCount: Int,
+        adbEnabled: Boolean,
+        developerOptionsEnabled: Boolean,
+        storageEncrypted: Boolean,
+        keystoreSecurityLevel: KeystoreSecurityLevel,
+    ): List<String> = buildList {
+        if (rootIndicatorCount > 0) add("Root-/Magisk-Indikatoren gefunden (-$ROOT_INDICATOR_PENALTY).")
+        if (adbEnabled) add("ADB (USB-Debugging) aktiviert (-$ADB_ENABLED_PENALTY).")
+        if (developerOptionsEnabled) add("Entwickleroptionen aktiviert (-$DEVELOPER_OPTIONS_PENALTY).")
+        if (!storageEncrypted) add("Speicherverschlüsselung nicht aktiv (-$STORAGE_NOT_ENCRYPTED_PENALTY).")
+        if (keystoreSecurityLevel == KeystoreSecurityLevel.SOFTWARE) {
+            add("Schlüssel nur software-basiert, nicht hardwaregebunden (-$KEYSTORE_SOFTWARE_PENALTY).")
+        }
+        if (isEmpty()) add("Keine Abzüge — Gerät wirkt strukturell unauffällig.")
+    }
+
     /** Anteil der 32 reversiblen Katalog-Safeguards, die aktuell aktiv sind — ein Näherungswert
      * für den strukturellen Härtungsgrad, **kein** Werturteil über jeden einzelnen Schalter (z. B.
      * ist das Deaktivieren der Kamera für viele Nutzer schlicht unpraktikabel im Alltag; s.
@@ -99,6 +137,14 @@ object SecurityScoreDecision {
     fun hardeningScore(activeCount: Int, totalCount: Int): Int {
         if (totalCount <= 0) return 0
         return ((activeCount.toDouble() / totalCount) * 100).toInt().coerceIn(0, 100)
+    }
+
+    fun hardeningReasons(activeCount: Int, totalCount: Int): List<String> = buildList {
+        if (totalCount <= 0) {
+            add("Safeguard-Katalog nicht lesbar.")
+        } else {
+            add("$activeCount von $totalCount Safeguards im Härtungs-Katalog sind aktiv.")
+        }
     }
 
     fun total(threat: Int, permission: Int, integrity: Int, hardening: Int): Int =
@@ -133,9 +179,13 @@ object SecurityScoreDecision {
         val total = total(threat, permission, integrity, hardening)
         return SecurityScoreBreakdown(
             threatScore = threat,
+            threatReasons = threatReasons(warningFindings, hasCriticalFinding),
             permissionScore = permission,
+            permissionReasons = permissionReasons(totalApps, flaggedApps),
             integrityScore = integrity,
+            integrityReasons = integrityReasons(rootIndicatorCount, adbEnabled, developerOptionsEnabled, storageEncrypted, keystoreSecurityLevel),
             hardeningScore = hardening,
+            hardeningReasons = hardeningReasons(activeSafeguards, totalSafeguards),
             total = total,
             level = levelFor(total),
         )
@@ -149,11 +199,21 @@ enum class SecurityScoreLevel(val label: String) {
     KRITISCH("Kritisch"),
 }
 
+/** [threatReasons]/[permissionReasons]/[integrityReasons]/[hardeningReasons] (2026-09-05,
+ * Nutzerwunsch "soll auch zeigen, woran es liegt") sind reine Text-Ableitungen aus denselben
+ * Rohwerten, die die jeweilige `*Score`-Zahl bereits ergeben — kein zusätzlicher Lesepfad, keine
+ * eigene Fehlerquelle. Nie leer: eine perfekte Kategorie bekommt ihre eigene "keine Abzüge"-Zeile,
+ * damit "woran liegt es" auch im guten Fall eine Antwort hat, statt stillschweigend nichts zu
+ * zeigen. */
 data class SecurityScoreBreakdown(
     val threatScore: Int,
+    val threatReasons: List<String>,
     val permissionScore: Int,
+    val permissionReasons: List<String>,
     val integrityScore: Int,
+    val integrityReasons: List<String>,
     val hardeningScore: Int,
+    val hardeningReasons: List<String>,
     val total: Int,
     val level: SecurityScoreLevel,
 )

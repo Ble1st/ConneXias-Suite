@@ -19,6 +19,8 @@
     <!-- de/ble1st/warden/ui/WardenStatusActivity.kt -->
     <string name="kiosk_confirm_title">Kiosk jetzt aktivieren?</string>
     <string name="kiosk_confirm_body">Startet sofort den Sentinel-Kiosk-Modus. Ausstieg nur über Sentinels eigene PIN.</string>
+    <string name="lockdown_arm_confirm_title">Lockdown-Modus jetzt scharf schalten?</string>
+    <string name="lockdown_arm_confirm_body">Aktiviert sofort USB-Datensperre, Safe-Boot-Sperre, Werksreset-Sperre und die Netz-Sperre. Rückgängig nur über den Master-Schalter.</string>
     <string name="content_description_settings">Einstellungen</string>
     <string name="section_device_protection">Geräteschutz</string>
     <string name="section_app_security">App-Sicherheit</string>
@@ -635,6 +637,9 @@
     <!-- de/ble1st/warden/pin/WardenLockTaskPendingEngageStore.kt -->
     <string name="lock_task_pending_engage_default_reason">Kritischer Verdachtsfund</string>
 
+    <!-- de/ble1st/warden/pin/WardenLockdownArmPendingEngageStore.kt -->
+    <string name="lockdown_arm_pending_engage_default_reason">Schnellzugriff</string>
+
     <!-- de/ble1st/warden/appmanagement/SuspiciousAppScanController.kt -->
     <string name="suspicious_app_scan_critical_finding_reason">Kritischer Verdachtsfund: %1$s (%2$s)</string>
 
@@ -647,6 +652,14 @@
     <string name="widget_profile_line">Profil: %1$s</string>
     <string name="widget_score_line">Score: %1$d (%2$s)</string>
     <string name="widget_score_not_calculated">Score: noch nicht berechnet</string>
+    <string name="widget_action_lockdown_arm">⎋ Lockdown scharf schalten</string>
+    <string name="widget_action_kiosk_engage">🔒 Sentinel-Kiosk jetzt</string>
+
+    <!-- ui/WidgetQuickActionsField.kt -->
+    <string name="widget_quick_actions_field_title">Quick-Actions im Widget</string>
+    <string name="widget_quick_actions_field_description">Zeigt im Homescreen-Widget zwei zusätzliche Schaltflächen für Lockdown-Modus und Sentinel-Kiosk. Beide bleiben hinter dem PIN-Zugangsschutz — wer das Gerät entsperrt hält, kommt aber ohne Umweg über das Dashboard-Menü an sie heran. Ein Homescreen-Widget ist noch exponierter erreichbar als eine Quick-Settings-Kachel, deshalb Standard aus.</string>
+    <string name="widget_quick_actions_field_switch_label">Schaltflächen im Widget zeigen</string>
+
     <!-- ui/SetupWizardScreen.kt — Ersteinrichtungs-Assistent -->
     <string name="menu_setup_wizard_title">Ersteinrichtung</string>
     <string name="setup_title">Ersteinrichtung</string>

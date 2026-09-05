@@ -93,6 +93,8 @@ fun SettingsScreen(
     onAntiTheftChargerAlarmChange: (Boolean) -> Unit,
     trackerGuardEnabled: Boolean,
     onTrackerGuardEnabledChange: (Boolean) -> Unit,
+    widgetQuickActionsEnabled: Boolean,
+    onWidgetQuickActionsEnabledChange: (Boolean) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
     onExportConfig: () -> String,
@@ -208,6 +210,11 @@ fun SettingsScreen(
             TrackerGuardField(
                 enabled = trackerGuardEnabled,
                 onEnabledChange = onTrackerGuardEnabledChange,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            WidgetQuickActionsField(
+                enabled = widgetQuickActionsEnabled,
+                onEnabledChange = onWidgetQuickActionsEnabledChange,
                 modifier = Modifier.padding(top = 16.dp),
             )
             AutoProfileField(

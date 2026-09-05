@@ -5,23 +5,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,121 +46,108 @@ import java.time.format.DateTimeFormatter
  * bewusst als Scope-Reduktion weggelassen (s. [SecurityScoreDecision]-Klassendoc). Reine
  * Zeichenergänzung um [SecurityScoreGauge] — der zugrunde liegende Score/die Kategorien-Zeilen
  * sind unverändert, nur die Gesamtzahl steht jetzt zusätzlich in einem Fortschritts-Ring statt
- * nur als reine Zahl. Kein Kategorie-Drill-down (bewusst weiterhin nicht gebaut — vier
- * Balken-Zeilen darunter zeigen die Aufschlüsselung bereits).
+ * nur als reine Zahl.
  *
- * Eigenständiger Bildschirm statt einer weiteren Kennzahl direkt auf dem Dashboard — die vier
- * zugrunde liegenden Lesepfade ([de.ble1st.warden.score.SecurityScoreCalculator]-Klassendoc) sind
- * zusammen zu teuer, um bei jedem Öffnen des Dashboards automatisch mitzulaufen (dieselbe
- * Erwägung wie beim eigenständigen Permission-Audit-Bildschirm), deshalb wie dieser über einen
- * expliziten "Berechnen"-Button statt automatisch. Aus demselben Grund füllt sich [history] nur
- * durch echte manuelle Berechnungen, nie über einen periodischen Hintergrund-Worker.
+ * **Kein eigener Bildschirm mehr, in [SecurityScannerScreen] verschoben (2026-09-05,
+ * Nutzerwunsch "verschiebe ihn in den Security-Teil, kein eigenes Untermenü").** Ursprünglich
+ * ein eigenständiger `WardenScreen.SecurityScore`-Bildschirm mit eigenem Dashboard-Menüpunkt — die
+ * Begründung dafür (die vier zugrunde liegenden Lesepfade sind zu teuer für automatisches
+ * Mitlaufen) gilt unverändert, deshalb bleibt der explizite "Berechnen"-Button; nur die
+ * Platzierung ändert sich. [SecurityScoreSection] ist der reine Inhalt ohne eigenes `Scaffold`/
+ * `TopAppBar` — [SecurityScannerScreen] bettet ihn als eigenen Abschnitt unterhalb der
+ * Geräte-Integrität ein, in derselben `Column`, mit derselben "Kein Kategorie-Drill-down" bewusst
+ * weiterhin nicht gebaut (die Kategorie-Zeilen samt [ScoreCategoryRow]-"woran liegt
+ * es"-Begründungstexten darunter zeigen die Aufschlüsselung bereits).
+ *
+ * **"Woran liegt es" ergänzt, gleicher Anlass.** [SecurityScoreBreakdown] trägt seit
+ * [de.ble1st.warden.domain.score.SecurityScoreDecision] pro Kategorie eine Liste von
+ * Begründungstexten (`threatReasons`/`permissionReasons`/`integrityReasons`/`hardeningReasons`) —
+ * [ScoreCategoryRow] zeigt sie als kleine Zeilen unter dem Fortschrittsbalken, nie leer (auch eine
+ * perfekte Kategorie bekommt eine "keine Abzüge"-Zeile).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SecurityScoreScreen(
+fun SecurityScoreSection(
     breakdown: SecurityScoreBreakdown?,
     calculationFailed: Boolean,
     calculationInProgress: Boolean,
     history: List<SecurityScoreHistoryStore.HistoryEntry>,
-    onBack: () -> Unit,
     onCalculate: () -> Unit,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.security_score_title)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_description_back))
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = stringResource(R.string.security_score_intro),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stringResource(R.string.security_score_intro),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onCalculate, enabled = !calculationInProgress) {
-                    Text(if (breakdown == null) stringResource(R.string.security_score_calculate_action) else stringResource(R.string.security_score_recalculate_action))
-                }
-                if (calculationInProgress) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                }
+            TextButton(onClick = onCalculate, enabled = !calculationInProgress) {
+                Text(if (breakdown == null) stringResource(R.string.security_score_calculate_action) else stringResource(R.string.security_score_recalculate_action))
             }
-            HorizontalDivider()
-            when {
-                calculationFailed -> EmptyStateRow(
-                    headline = stringResource(R.string.security_score_failed_headline),
-                    detail = stringResource(R.string.security_score_failed_detail),
+            if (calculationInProgress) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+        }
+        when {
+            calculationFailed -> EmptyStateRow(
+                headline = stringResource(R.string.security_score_failed_headline),
+                detail = stringResource(R.string.security_score_failed_detail),
+            )
+            breakdown == null && !calculationInProgress ->
+                EmptyStateRow(headline = stringResource(R.string.security_score_not_calculated_headline), detail = stringResource(R.string.security_score_not_calculated_detail))
+            breakdown == null -> {}
+            else -> {
+                val levelColor = levelColor(breakdown.level)
+                val totalContentDescription = String.format(
+                    stringResource(R.string.security_score_total_content_description),
+                    breakdown.total,
+                    breakdown.level.label,
                 )
-                breakdown == null && !calculationInProgress ->
-                    EmptyStateRow(headline = stringResource(R.string.security_score_not_calculated_headline), detail = stringResource(R.string.security_score_not_calculated_detail))
-                breakdown == null -> {}
-                else -> {
-                    val levelColor = levelColor(breakdown.level)
-                    val totalContentDescription = String.format(
-                        stringResource(R.string.security_score_total_content_description),
-                        breakdown.total,
-                        breakdown.level.label,
-                    )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 16.dp)
-                            .semantics {
-                                contentDescription = totalContentDescription
-                            },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            SecurityScoreGauge(total = breakdown.total, color = levelColor)
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = "${breakdown.total}",
-                                    style = MaterialTheme.typography.displayLarge,
-                                    color = levelColor,
-                                )
-                                Text(
-                                    text = breakdown.level.label,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = levelColor,
-                                )
-                            }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp)
+                        .semantics {
+                            contentDescription = totalContentDescription
+                        },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        SecurityScoreGauge(total = breakdown.total, color = levelColor)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "${breakdown.total}",
+                                style = MaterialTheme.typography.displayLarge,
+                                color = levelColor,
+                            )
+                            Text(
+                                text = breakdown.level.label,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = levelColor,
+                            )
                         }
                     }
-                    HorizontalDivider()
-                    ScoreCategoryRow(stringResource(R.string.security_score_category_threats), breakdown.threatScore)
-                    ScoreCategoryRow(stringResource(R.string.security_score_category_permissions), breakdown.permissionScore)
-                    ScoreCategoryRow(stringResource(R.string.security_score_category_integrity), breakdown.integrityScore)
-                    ScoreCategoryRow(stringResource(R.string.security_score_category_hardening), breakdown.hardeningScore)
                 }
+                HorizontalDivider()
+                ScoreCategoryRow(stringResource(R.string.security_score_category_threats), breakdown.threatScore, breakdown.threatReasons)
+                ScoreCategoryRow(stringResource(R.string.security_score_category_permissions), breakdown.permissionScore, breakdown.permissionReasons)
+                ScoreCategoryRow(stringResource(R.string.security_score_category_integrity), breakdown.integrityScore, breakdown.integrityReasons)
+                ScoreCategoryRow(stringResource(R.string.security_score_category_hardening), breakdown.hardeningScore, breakdown.hardeningReasons)
             }
-            if (history.isNotEmpty()) {
-                HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-                Text(
-                    text = stringResource(R.string.security_score_history_title),
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
-                )
-                // Neueste zuerst — die aktuelle Momentaufnahme steht oben im Bildschirm bereits
-                // ausführlich, hier interessiert der Blick zurück.
-                for (entry in history.asReversed()) {
-                    HistoryRow(entry)
-                }
+        }
+        if (history.isNotEmpty()) {
+            HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
+            Text(
+                text = stringResource(R.string.security_score_history_title),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+            )
+            // Neueste zuerst — die aktuelle Momentaufnahme steht oben im Bildschirm bereits
+            // ausführlich, hier interessiert der Blick zurück.
+            for (entry in history.asReversed()) {
+                HistoryRow(entry)
             }
         }
     }
@@ -217,9 +196,13 @@ private fun SecurityScoreGauge(total: Int, color: Color, modifier: Modifier = Mo
     }
 }
 
+/** [reasons] (2026-09-05, Nutzerwunsch "soll auch zeigen, woran es liegt") stehen mit in der
+ * zusammengeführten Content-Description, damit eine Vorlesehilfe die Begründung zusammen mit der
+ * Zahl bekommt, nicht nur die nackte Punktzahl. */
 @Composable
-private fun ScoreCategoryRow(label: String, score: Int) {
-    val rowContentDescription = String.format(stringResource(R.string.security_score_category_content_description), label, score)
+private fun ScoreCategoryRow(label: String, score: Int, reasons: List<String>) {
+    val rowContentDescription = String.format(stringResource(R.string.security_score_category_content_description), label, score) +
+        reasons.joinToString(separator = "") { ". $it" }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -236,6 +219,14 @@ private fun ScoreCategoryRow(label: String, score: Int) {
                 .fillMaxWidth()
                 .padding(top = 4.dp),
         )
+        for (reason in reasons) {
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
     }
 }
 

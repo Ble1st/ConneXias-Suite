@@ -41,8 +41,10 @@ import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.domain.encryption.EncryptionRecommendationDecision
 import de.ble1st.warden.domain.encryption.EncryptionRecommendationType
 import de.ble1st.warden.domain.encryption.KeystoreSecurityLevel
+import de.ble1st.warden.domain.score.SecurityScoreBreakdown
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.integrity.RootIndicatorSignal
+import de.ble1st.warden.score.SecurityScoreHistoryStore
 import de.ble1st.warden.ui.theme.mono
 
 /**
@@ -62,6 +64,29 @@ import de.ble1st.warden.ui.theme.mono
  *
  * Nimmt [SuspiciousAppFindingInfo] direkt entgegen (kein Binder-Overhead mehr, s.
  * [AppManagementScreen]-Klassendoc für dieselbe Begründung).
+ *
+ * **Trägt seit 2026-09-05 zusätzlich den Security-Score-Abschnitt** (vorher ein eigener
+ * `WardenScreen.SecurityScore`-Bildschirm mit eigenem Dashboard-Menüpunkt, Nutzerwunsch
+ * "verschiebe ihn in den Security-Teil, kein eigenes Untermenü") — [SecurityScoreSection] bleibt
+ * ein eigenständiger, in sich geschlossener Composable (eigene Datei, eigener "Berechnen"-Button,
+ * eigene Fehlerbehandlung), nur ohne eigenes `Scaffold`. Dieselbe Begründung wie zuvor gilt
+ * unverändert: die vier zugrunde liegenden Lesepfade sind zusammen zu teuer für automatisches
+ * Mitlaufen beim Öffnen dieses Bildschirms, deshalb weiterhin ein expliziter Button statt einer
+ * mitgeladenen Kennzahl.
+ *
+ * **Ganzer Bildschirm auf eine einzige `LazyColumn` umgestellt, gleicher Anlass.** Vorher stand
+ * die Funde-`LazyColumn` als letztes Kind in einer nicht scrollbaren `Column` — bei wenig Inhalt
+ * unauffällig, aber verwandt mit der in `PerformanceMonitorScreen` dokumentierten Falle ("eine
+ * `LazyColumn` verschachtelt in einer `verticalScroll`-`Column` stürzt ab, sobald echte Daten da
+ * sind", s. `warden/CLAUDE.md` Abschnitt "Threat severity, permission audit, performance monitor")
+ * — hier zwar ohne `verticalScroll`, also kein harter Absturz, aber derselbe Kern-Fehler: alles vor
+ * der `LazyColumn` ist nicht scrollbar. Mit dem neuen
+ * Security-Score-Abschnitt (Gauge, vier Kategorie-Zeilen samt Begründungstexten, bis zu 30 Tage
+ * Historie) wurde dieser Kopfbereich groß genug, dass er auf kleinen Bildschirmen echten Inhalt
+ * abschneiden konnte. Jetzt ist der gesamte Kopfbereich (Scanner-Schalter, Intro, Geräte-
+ * Integrität, Security-Score) selbst der erste Satz `item { }`-Einträge derselben `LazyColumn`,
+ * die Funde-Zeilen bleiben `items(...)` direkt danach — ein einziger scrollbarer Bereich statt
+ * zwei getrennter.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +104,11 @@ fun SecurityScannerScreen(
     onToggleScannerEnabled: (Boolean) -> Unit,
     onTrust: (packageName: String) -> Unit,
     onRunImmediateScan: () -> Unit,
+    securityScoreBreakdown: SecurityScoreBreakdown?,
+    securityScoreCalculationFailed: Boolean,
+    securityScoreCalculationInProgress: Boolean,
+    securityScoreHistory: List<SecurityScoreHistoryStore.HistoryEntry>,
+    onCalculateSecurityScore: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -104,104 +134,117 @@ fun SecurityScannerScreen(
             onRefresh = onRunImmediateScan,
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-        Column(
+        // Vorschlag V-3 (2026-08-29): kritische Funde zuerst. Vorher stand die Liste in
+        // Scan-Reihenfolge, also praktisch in Paketreihenfolge — ein kritischer Signaturwechsel
+        // konnte unter zehn Info-Funden ("unbekannte Installationsquelle") liegen und war nur
+        // durch Scrollen zu finden. Innerhalb einer Stufe nach Namen, damit die Reihenfolge
+        // zwischen zwei Scans stabil bleibt und nicht bei jedem Neuladen springt.
+        // Hier oben berechnet, nicht in der `LazyColumn`-DSL selbst: deren Rumpf
+        // (`LazyListScope.() -> Unit`) ist keine `@Composable`-Funktion — nur `item{}`/`items{}`
+        // sind es —, ein direkter `remember(...)`-Aufruf dort schlägt beim Kompilieren fehl.
+        val sorted = remember(findings) {
+            findings.sortedWith(
+                compareByDescending<SuspiciousAppFindingInfo> { it.severity.ordinal }
+                    .thenBy { it.label.lowercase() },
+            )
+        }
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val autofreezeLabel = stringResource(R.string.security_scanner_autofreeze_label)
-            val autofreezeStateOn = stringResource(R.string.security_scanner_autofreeze_state_on)
-            val autofreezeStateOff = stringResource(R.string.security_scanner_autofreeze_state_off)
-            val autofreezeStateUnknown = stringResource(R.string.security_scanner_autofreeze_state_unknown)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        contentDescription = autofreezeLabel
-                        stateDescription = when (scannerEnabled) {
-                            true -> autofreezeStateOn
-                            false -> autofreezeStateOff
-                            null -> autofreezeStateUnknown
+            item {
+                val autofreezeLabel = stringResource(R.string.security_scanner_autofreeze_label)
+                val autofreezeStateOn = stringResource(R.string.security_scanner_autofreeze_state_on)
+                val autofreezeStateOff = stringResource(R.string.security_scanner_autofreeze_state_off)
+                val autofreezeStateUnknown = stringResource(R.string.security_scanner_autofreeze_state_unknown)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics {
+                                contentDescription = autofreezeLabel
+                                stateDescription = when (scannerEnabled) {
+                                    true -> autofreezeStateOn
+                                    false -> autofreezeStateOff
+                                    null -> autofreezeStateUnknown
+                                }
+                            },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = autofreezeLabel, style = MaterialTheme.typography.titleMedium)
+                        Switch(
+                            checked = scannerEnabled == true,
+                            enabled = scannerEnabled != null,
+                            onCheckedChange = onToggleScannerEnabled,
+                        )
+                    }
+                    if (scannerEnabled == null) {
+                        ErrorStateRow(
+                            headline = stringResource(R.string.security_scanner_status_unreadable_headline),
+                            detail = stringResource(R.string.security_scanner_status_unreadable_detail),
+                            onRetry = onRetry,
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.security_scanner_intro),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = onRunImmediateScan, enabled = !scanInProgress) {
+                            Text(stringResource(R.string.security_scanner_run_now_action))
                         }
-                    },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(text = autofreezeLabel, style = MaterialTheme.typography.titleMedium)
-                Switch(
-                    checked = scannerEnabled == true,
-                    enabled = scannerEnabled != null,
-                    onCheckedChange = onToggleScannerEnabled,
-                )
-            }
-            if (scannerEnabled == null) {
-                ErrorStateRow(
-                    headline = stringResource(R.string.security_scanner_status_unreadable_headline),
-                    detail = stringResource(R.string.security_scanner_status_unreadable_detail),
-                    onRetry = onRetry,
-                )
-            }
-            Text(
-                text = stringResource(R.string.security_scanner_intro),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onRunImmediateScan, enabled = !scanInProgress) {
-                    Text(stringResource(R.string.security_scanner_run_now_action))
-                }
-                // Punkt 1 ("weitere App-UI-Verschönerungen", 2026-08-22) — das brandneue, wellen-
-                // förmige Material-3-Expressive `LoadingIndicator` steckt noch in material3
-                // 1.5.0-alpha, die vom Projekt gepinnte stabile BOM-Version liefert nur bis 1.4.0;
-                // ein Alpha-Artefakt für eine reine Kosmetik-Ergänzung zu ziehen wäre unverhältnis-
-                // mäßig. `CircularProgressIndicator` (stabil, seit Jahren Teil von Material 3)
-                // erfüllt denselben Zweck: sichtbares Feedback während des Scans.
-                if (scanInProgress) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        // Punkt 1 ("weitere App-UI-Verschönerungen", 2026-08-22) — das brandneue,
+                        // wellenförmige Material-3-Expressive `LoadingIndicator` steckt noch in
+                        // material3 1.5.0-alpha, die vom Projekt gepinnte stabile BOM-Version
+                        // liefert nur bis 1.4.0; ein Alpha-Artefakt für eine reine Kosmetik-
+                        // Ergänzung zu ziehen wäre unverhältnismäßig. `CircularProgressIndicator`
+                        // (stabil, seit Jahren Teil von Material 3) erfüllt denselben Zweck:
+                        // sichtbares Feedback während des Scans.
+                        if (scanInProgress) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                    HorizontalDivider()
+                    Text(text = stringResource(R.string.security_scanner_integrity_title), style = MaterialTheme.typography.titleMedium)
+                    DeviceIntegritySection(deviceIntegrityStatus, onRetry = onRetry)
+                    HorizontalDivider()
+                    Text(text = stringResource(R.string.security_score_title), style = MaterialTheme.typography.titleMedium)
+                    SecurityScoreSection(
+                        breakdown = securityScoreBreakdown,
+                        calculationFailed = securityScoreCalculationFailed,
+                        calculationInProgress = securityScoreCalculationInProgress,
+                        history = securityScoreHistory,
+                        onCalculate = onCalculateSecurityScore,
+                    )
+                    HorizontalDivider()
+                    Text(text = stringResource(R.string.security_scanner_findings_title), style = MaterialTheme.typography.titleMedium)
                 }
             }
-            HorizontalDivider()
-            Text(text = stringResource(R.string.security_scanner_integrity_title), style = MaterialTheme.typography.titleMedium)
-            DeviceIntegritySection(deviceIntegrityStatus, onRetry = onRetry)
-            HorizontalDivider()
-            Text(text = stringResource(R.string.security_scanner_findings_title), style = MaterialTheme.typography.titleMedium)
             if (findingsLoadFailed) {
                 // Dieselbe Unterscheidung wie in AppManagementScreen (Klassendoc dort): ein
                 // Scan-Fehler (typischerweise fehlender Device Owner, s. AppFreezeManager) darf
                 // nicht wie "nichts Verdächtiges gefunden" aussehen.
-                ErrorStateRow(
-                    headline = stringResource(R.string.security_scanner_findings_unreadable_headline),
-                    detail = stringResource(R.string.security_scanner_no_device_owner_detail),
-                    onRetry = onRetry,
-                )
-            } else if (findings.isEmpty()) {
-                EmptyStateRow(headline = stringResource(R.string.security_scanner_findings_empty_headline))
-            } else {
-                // Vorschlag V-3 (2026-08-29): kritische Funde zuerst. Vorher stand die Liste in
-                // Scan-Reihenfolge, also praktisch in Paketreihenfolge — ein kritischer
-                // Signaturwechsel konnte unter zehn Info-Funden ("unbekannte Installationsquelle")
-                // liegen und war nur durch Scrollen zu finden. Innerhalb einer Stufe nach Namen,
-                // damit die Reihenfolge zwischen zwei Scans stabil bleibt und nicht bei jedem
-                // Neuladen springt.
-                val sorted = remember(findings) {
-                    findings.sortedWith(
-                        compareByDescending<SuspiciousAppFindingInfo> { it.severity.ordinal }
-                            .thenBy { it.label.lowercase() },
+                item {
+                    ErrorStateRow(
+                        headline = stringResource(R.string.security_scanner_findings_unreadable_headline),
+                        detail = stringResource(R.string.security_scanner_no_device_owner_detail),
+                        onRetry = onRetry,
                     )
                 }
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    items(sorted, key = { it.packageName }) { finding ->
-                        FindingRow(
-                            finding = finding,
-                            onTrust = { onTrust(finding.packageName) },
-                        )
-                    }
+            } else if (findings.isEmpty()) {
+                item { EmptyStateRow(headline = stringResource(R.string.security_scanner_findings_empty_headline)) }
+            } else {
+                items(sorted, key = { it.packageName }) { finding ->
+                    FindingRow(
+                        finding = finding,
+                        onTrust = { onTrust(finding.packageName) },
+                    )
                 }
             }
         }
