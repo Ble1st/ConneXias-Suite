@@ -645,7 +645,7 @@
 
     <!-- de/ble1st/warden/widget/WardenStatusWidget.kt -->
     <string name="widget_title">Warden</string>
-    <string name="widget_description">Zeigt Lockdown-Status, aktives Profil und den zuletzt berechneten Sicherheits-Score. Tippen öffnet die App.</string>
+    <string name="widget_description">Zeigt Lockdown-Status, aktives Profil und den zuletzt berechneten Sicherheits-Score. Tippen öffnet die App. Auf Wunsch zusätzlich zwei Schaltflächen für Lockdown und Sentinel-Kiosk (in den Einstellungen scharf zu schalten).</string>
     <string name="widget_lockdown_active">Lockdown: aktiv</string>
     <string name="widget_lockdown_inactive">Lockdown: inaktiv</string>
     <string name="widget_lockdown_unknown">Lockdown: unbekannt</string>

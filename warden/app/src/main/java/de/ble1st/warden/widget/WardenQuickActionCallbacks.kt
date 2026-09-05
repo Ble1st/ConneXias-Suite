@@ -37,17 +37,30 @@ import de.ble1st.warden.ui.WardenStatusActivity
  * derselbe "Aktion prüft ihre eigene Berechtigung frisch, verlässt sich nie auf einen
  * UI-Zustand von vorhin"-Grundsatz wie überall sonst im Projekt: zwischen dem letzten
  * Widget-Update (bis zu 30 Minuten alt) und einem Tap kann der Schalter längst wieder aus sein.
+ *
+ * **Die Vorprüfung steht in `runCatching`, [openApp] bewusst außerhalb davon** (Gerätetest
+ * 2026-09-05): würde die Vormerkung eine Ausnahme werfen, käme [openApp] nie dran und der Tap
+ * wäre ein vollständig stummer No-Op — kein geöffnetes Fenster, keine Meldung, nichts, woran
+ * jemand erkennen könnte, dass überhaupt etwas passiert ist. Die App zu öffnen ist der
+ * risikofreie Teil und muss deshalb immer stattfinden; die Vormerkung ist der Teil, dessen
+ * Ausbleiben Warden hinterher selbst erklären kann. Aktuell kann keiner der Aufrufe wirklich
+ * werfen (beide Stores sind einfache `SharedPreferences`, [SentinelInstallStatusReader
+ * .currentStatus] ist selbst schon `runCatching`-gekapselt) — der Schutz gilt künftigen
+ * Erweiterungen dieser Vorprüfung, nicht dem heutigen Stand. Bewusst **kein** Fallback, der bei
+ * einem Fehler trotzdem vormerkt: im Zweifel lieber nicht scharfschalten.
  */
 class LockdownArmQuickActionCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        if (WidgetQuickActionsStore.isEnabled(context)) {
-            val profile = LockdownTriggerProfileStore.load(context)
-            if (LockdownTriggerProfilePolicy.quickTriggerEntryPointsEnabled(profile)) {
-                WardenLockdownArmPendingEngageStore.requestEngage(
-                    context,
-                    reason = REASON,
-                    requiresConfirmation = LockdownTriggerProfilePolicy.requiresConfirmationDialog(profile),
-                )
+        runCatching {
+            if (WidgetQuickActionsStore.isEnabled(context)) {
+                val profile = LockdownTriggerProfileStore.load(context)
+                if (LockdownTriggerProfilePolicy.quickTriggerEntryPointsEnabled(profile)) {
+                    WardenLockdownArmPendingEngageStore.requestEngage(
+                        context,
+                        reason = REASON,
+                        requiresConfirmation = LockdownTriggerProfilePolicy.requiresConfirmationDialog(profile),
+                    )
+                }
             }
         }
         openApp(context)
@@ -64,17 +77,19 @@ class LockdownArmQuickActionCallback : ActionCallback {
  * eigene UI erklärt den fehlenden Zustand besser als ein stiller Fehlschlag beim nächsten Öffnen. */
 class KioskEngageQuickActionCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        if (WidgetQuickActionsStore.isEnabled(context)) {
-            val profile = LockdownTriggerProfileStore.load(context)
-            if (LockdownTriggerProfilePolicy.quickTriggerEntryPointsEnabled(profile)) {
-                val installed = SentinelInstallStatusReader(context).currentStatus() is SentinelInstallStatus.Installed
-                val drillConfirmed = WardenLockTaskDrillStorage.isConfirmed(context)
-                if (installed && drillConfirmed) {
-                    WardenLockTaskPendingEngageStore.requestEngage(
-                        context,
-                        reason = REASON,
-                        requiresConfirmation = LockdownTriggerProfilePolicy.requiresConfirmationDialog(profile),
-                    )
+        runCatching {
+            if (WidgetQuickActionsStore.isEnabled(context)) {
+                val profile = LockdownTriggerProfileStore.load(context)
+                if (LockdownTriggerProfilePolicy.quickTriggerEntryPointsEnabled(profile)) {
+                    val installed = SentinelInstallStatusReader(context).currentStatus() is SentinelInstallStatus.Installed
+                    val drillConfirmed = WardenLockTaskDrillStorage.isConfirmed(context)
+                    if (installed && drillConfirmed) {
+                        WardenLockTaskPendingEngageStore.requestEngage(
+                            context,
+                            reason = REASON,
+                            requiresConfirmation = LockdownTriggerProfilePolicy.requiresConfirmationDialog(profile),
+                        )
+                    }
                 }
             }
         }
