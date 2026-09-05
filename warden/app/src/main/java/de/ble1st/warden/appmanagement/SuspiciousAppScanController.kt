@@ -351,6 +351,17 @@ class SuspiciousAppScanController(
             // Geräteadmin-deklarierende/debuggbare Ziele, s. AppFreezeManager-Klassendoc):
             // Rechte-Entzug ist ein zweiter, unabhängiger Mechanismus, der genau dort greifen
             // kann, wo Einfrieren es nicht tut.
+            // AppFreezeGuard als Defense-in-Depth: obwohl `SuspiciousAppScanDecision.evaluate`
+            // geschützte Pakete ausschließt, prüfen wir hier direkt — ein Fehler in der
+            // Ausschlussmenge würde sonst Warden/Sentinel Rechte entziehen.
+            if (AppFreezeGuard.isProtected(finding.packageName, ownPackageName, protectedPackageNames)) {
+                logStore.append(
+                    Log.WARN,
+                    TAG,
+                    "Rechte-Entzug übersprungen (geschütztes Paket): pkg=${finding.packageName}",
+                )
+                continue
+            }
             val revoked = runCatching { permissionRevoker.revokeDangerousPermissions(finding.packageName) }
                 .getOrDefault(emptyList())
             if (revoked.isNotEmpty()) {

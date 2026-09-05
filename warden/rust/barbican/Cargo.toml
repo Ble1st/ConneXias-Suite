@@ -37,6 +37,8 @@ boringtun = "0.7"
 # disarm/rearm-Zyklen unter Always-On+Lockdown-VPN). `default-features = false` + nur `poll`, da
 # sonst ungenutzte nix-Module (z. B. `signal`, `process`) mitkompiliert würden.
 nix = { version = "0.31", default-features = false, features = ["poll"] }
+# `libc::close` zum sicheren Schließen von fds ohne Double-Close-UB (s. engine.rs).
+libc = "0.2"
 
 [features]
 uniffi-cli = ["uniffi/cli"]

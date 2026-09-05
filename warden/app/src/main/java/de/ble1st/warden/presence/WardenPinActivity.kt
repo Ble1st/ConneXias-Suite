@@ -430,6 +430,12 @@ private fun WardenPinScreen(
         // sichtbarer Hinweis außer dem tatsächlichen Reboot. Gilt unverändert auch im
         // Presence-Request-Modus: onPresenceConfirmed wird dabei nie aufgerufen, die angeforderte
         // Aktion bleibt also ebenfalls verweigert.
+        //
+        // Backoff-Hinweis: der Backoff-Check oben (Zeile 419) verwendet nur den Haupt-Blob. Der
+        // erste Duress-Versuch nach einem Reset (failedAttempts=0) läuft ohne Backoff — aber
+        // ein erfolgreicher Duress-Versuch löst sofort einen Reboot aus, der Angreifer kann
+        // nicht weiter probieren. Ein erfolgloser Duress-Versuch (falsche Duress-PIN) erhöht
+        // den Haupt-Blob-Zähler und aktiviert damit den Backoff für den nächsten Versuch.
         val duressHash = (currentDuressLoad() as? WardenPinStateDecision.LoadResult.Loaded)?.blob?.pinHash.orEmpty()
         val isDuress = duressHash.isNotEmpty() && verifyPinHash(pinBytes, duressHash)
         if (isDuress) {

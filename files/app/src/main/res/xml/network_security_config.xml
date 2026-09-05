@@ -8,6 +8,12 @@
   vorab hinterlegen — ohne diese Freigabe wäre jeder Nicht-HTTPS-Server für die App unbenutzbar.
   HTTPS-Server funktionieren unverändert; diese Konfiguration erweitert nur die Standard-Ablehnung
   von Klartext-Traffic ab targetSdk 28+.
+
+  Restrisiko: die Freigabe gilt app-weit, nicht nur für WebDAV. Jede zukünftige Netzwerkbibliothek
+  erbt diese Freigabe unbesehen. Eine Einschränkung auf private IP-Bereiche (10.x, 192.168.x,
+  172.16-31.x) via domain-config ist nicht möglich, da Android domain-config nach Domänennamen
+  matcht, nicht nach IP-Adressen — private LAN-Server würden die Freigabe nicht erhalten. Die
+  app-weite Freigabe bleibt die einzige praktikable Option für einen Laufzeit-eingegebenen Server.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />

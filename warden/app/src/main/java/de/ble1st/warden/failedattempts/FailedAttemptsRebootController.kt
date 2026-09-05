@@ -34,7 +34,8 @@ class FailedAttemptsRebootController(private val context: Context) {
 
     fun onPasswordFailed(isDebugBuild: Boolean) {
         val threshold = FailedAttemptsRebootStorage.loadThreshold(context) ?: return
-        val attempts = FailedAttemptsRebootStorage.loadFailedAttempts(context) + 1
+        val attempts = (FailedAttemptsRebootStorage.loadFailedAttempts(context) + 1)
+            .coerceAtMost(Int.MAX_VALUE - 1) // Overflow-Schutz: Zähler deckeliert
         FailedAttemptsRebootStorage.saveFailedAttempts(context, attempts)
 
         if (!FailedAttemptsRebootDecision.shouldReboot(threshold, attempts)) return

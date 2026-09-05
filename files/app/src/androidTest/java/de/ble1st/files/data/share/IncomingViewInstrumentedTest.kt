@@ -50,9 +50,14 @@ class IncomingViewInstrumentedTest {
         return file.toUri()
     }
 
+    /** [IncomingView.setFromIntent] akzeptiert seit dem Sicherheits-Audit (analyse.md, IPv6/
+     * file://-Fund) nur noch `content://`-Uris — reale ACTION_VIEW-Absender (E-Mail, Downloads,
+     * Browser) liefern seitdem sowieso nie mehr `file://`, s. AndroidManifest-Intent-Filter. */
+    private fun contentUri(name: String): Uri = "content://de.ble1st.test/incoming-view-test/$name".toUri()
+
     @Test
     fun viewIntentIsPickedUp() {
-        val uri = sourceFile("bericht.txt")
+        val uri = contentUri("bericht.txt")
         IncomingView.setFromIntent(Intent(Intent.ACTION_VIEW, uri))
         assertEquals(uri, IncomingView.pending.value)
     }
@@ -70,8 +75,17 @@ class IncomingViewInstrumentedTest {
     }
 
     @Test
-    fun consumeClearsPending() {
+    fun viewIntentWithFileSchemeIsIgnored() {
+        // Der eigentliche 2026-09-05-Fund: file:// war früher im Intent-Filter erlaubt und wurde
+        // hier klaglos übernommen. Jetzt gezielt abgelehnt statt nur implizit durch den entfernten
+        // Manifest-Eintrag.
         IncomingView.setFromIntent(Intent(Intent.ACTION_VIEW, sourceFile("a.txt")))
+        assertNull(IncomingView.pending.value)
+    }
+
+    @Test
+    fun consumeClearsPending() {
+        IncomingView.setFromIntent(Intent(Intent.ACTION_VIEW, contentUri("a.txt")))
         assertNotNull(IncomingView.consume())
         assertNull(IncomingView.pending.value)
     }

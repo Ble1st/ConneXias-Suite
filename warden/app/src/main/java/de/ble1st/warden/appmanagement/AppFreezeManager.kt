@@ -64,7 +64,12 @@ class AppFreezeManager(private val context: Context) {
             // Both mechanisms must end unfrozen — OR would report success while still suspended.
             val unhidden = runCatching { devicePolicyManager().setApplicationHidden(admin, packageName, false) }.getOrDefault(false)
             val unsuspendResult = runCatching { devicePolicyManager().setPackagesSuspended(admin, arrayOf(packageName), false) }
-            return unhidden && unsuspendResult.getOrNull()?.isEmpty() == true
+            // Wenn Hide erfolgreich war, ist die App bereits entfroren — ein Suspend-Fehler
+            // (z. B. verlorener Device-Owner-Status zwischen den Aufrufen) darf nicht `false`
+            // liefern, sonst glaubt die UI, die App sei noch eingefroren, obwohl sie läuft.
+            // Suspend-Fehler werden nur dann als Misserfolg gewertet, wenn auch Hide scheiterte.
+            if (unhidden) return true
+            return unsuspendResult.getOrNull()?.isEmpty() == true
         }
         // Ungated bis 2026-08-24 (Review-Fund): anders als der Unfreeze-Zweig unten und der
         // Suspend-Fallback direkt darunter fehlte hier der runCatching-Schutz — eine

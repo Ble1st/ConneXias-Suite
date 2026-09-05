@@ -83,7 +83,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="content" />
-                <data android:scheme="file" />
                 <data android:mimeType="*/*" />
             </intent-filter>
             <!-- Dieselbe Lücke, umgekehrte Richtung: eine Fremd-App fragt per ACTION_GET_CONTENT

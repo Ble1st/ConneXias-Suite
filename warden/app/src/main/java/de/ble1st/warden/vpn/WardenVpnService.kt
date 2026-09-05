@@ -174,6 +174,11 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
             .setMtu(mtu)
             .addAddress(tunAddress, tunPrefixLength)
             .addRoute("0.0.0.0", 0)
+            // IPv6-Default-Route — ohne diese route ALLOWED-Apps ungefilterten IPv6-Zugang,
+            // der die Domain-Blockliste komplett umgeht (AAAA-Queries an externe DNS-Server).
+            .addAddress(TUNNEL_IPV6, TUNNEL_IPV6_PREFIX_LENGTH)
+            .addRoute("::", 0)
+            .addDnsServer(UPSTREAM_DNS_IPV6)
             // KRITISCH (2026-08-27 Live-Fund #2): der DNS-Server darf NICHT dieselbe Adresse wie
             // `addAddress` sein. Eine Adresse, die dem Interface selbst zugewiesen ist, wird vom
             // Kernel als "lokale Zustellung" behandelt — Pakete dorthin verlassen den lokalen
@@ -520,6 +525,11 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
          * datenschutzorientierter, öffentlich dokumentierter Resolver ohne Anmeldepflicht — ein
          * bewusster, dokumentierter Kompromiss, keine versteckte Traffic-Umleitung. */
         const val UPSTREAM_DNS_IPV4 = "1.1.1.1"
+        /** IPv6-Tunnel-Adresse — eine ULA, die nicht mit echtem Internet kollidiert. */
+        private const val TUNNEL_IPV6 = "fd00:dead:beef::1"
+        private const val TUNNEL_IPV6_PREFIX_LENGTH = 128
+        /** IPv6-DNS-Server — Cloudflares öffentlicher IPv6-Resolver. */
+        private const val UPSTREAM_DNS_IPV6 = "2606:4700:4700::1111"
         const val ACTION_STOP_TUNNEL = "de.ble1st.warden.vpn.action.STOP_TUNNEL"
         const val ACTION_RELOAD_TUNNEL = "de.ble1st.warden.vpn.action.RELOAD_TUNNEL"
         /** s. [updateBlocklist]-Kommentar — bewusst getrennt von [ACTION_RELOAD_TUNNEL]: eine

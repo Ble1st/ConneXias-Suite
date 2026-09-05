@@ -387,6 +387,7 @@ name = "connexias-barbican"
 version = "0.1.0"
 dependencies = [
  "boringtun",
+ "libc",
  "nix",
  "smoltcp",
  "uniffi",

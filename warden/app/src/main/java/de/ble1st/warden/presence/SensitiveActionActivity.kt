@@ -41,6 +41,7 @@ import androidx.fragment.app.FragmentActivity
 import de.ble1st.warden.BuildConfig
 import de.ble1st.warden.R
 import de.ble1st.warden.WardenApplication
+import de.ble1st.warden.admin.OwnershipTransferTargetReader
 import de.ble1st.warden.admin.WardenDeviceAdminReceiver
 import de.ble1st.warden.domain.presence.DestructiveCommandGuard
 import de.ble1st.warden.domain.presence.SensitiveAction
@@ -149,6 +150,15 @@ class SensitiveActionActivity : FragmentActivity() {
         // Fehlerfall, dieselbe Defense-in-Depth-Haltung wie beim Presence-Check selbst.
         val transferTarget = intent.getStringExtra(EXTRA_TRANSFER_TARGET)
             ?.let { ComponentName.unflattenFromString(it) }
+            // Defense-in-Depth: das Ziel aus dem Intent gegen die Liste der verfügbaren Ziele
+            // validieren — `OwnershipTransferTargetReader.availableTargets()` listet nur Apps
+            // mit deklariertem DeviceAdminReceiver, die die Rolle tatsächlich übernehmen können.
+            // Ohne diesen Check könnte ein präparierter Intent ein beliebiges ComponentName
+            // übergeben, das zwar einen DeviceAdminReceiver deklariert, aber von Warden nicht
+            // als vertrauenswürdig eingestuft wurde.
+            ?.takeIf { target ->
+                OwnershipTransferTargetReader(this).availableTargets().any { it.receiver == target }
+            }
         val executor = buildExecutor(this, transferTarget)
         val presenceManager = PresenceManager(this)
         val executionAllowed = DestructiveCommandGuard.isExecutionAllowed(BuildConfig.DEBUG)

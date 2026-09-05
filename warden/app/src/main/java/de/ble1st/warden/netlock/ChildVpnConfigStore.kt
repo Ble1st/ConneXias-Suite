@@ -66,6 +66,7 @@ private fun DataOutputStream.writeKey(key: ByteArray) {
 
 private fun DataInputStream.readKey(): ByteArray {
     val length = readInt()
+    require(length in 1..MAX_KEY_BYTES) { "Schlüssellänge $length außerhalb des erlaubten Bereichs" }
     val bytes = ByteArray(length)
     readFully(bytes)
     return bytes
@@ -82,6 +83,7 @@ private fun DataInputStream.readKey(): ByteArray {
  * dieselbe Fail-safe-Unterscheidung wie im Klassendoc von [ChildVpnConfigStore] beschrieben.
  */
 private const val FORMAT_VERSION = 2
+private const val MAX_KEY_BYTES = 64
 
 internal fun encodeConfig(config: ChildVpnConfig): ByteArray {
     val out = ByteArrayOutputStream()

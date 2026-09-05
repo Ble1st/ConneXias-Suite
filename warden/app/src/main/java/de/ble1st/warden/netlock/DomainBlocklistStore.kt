@@ -24,14 +24,18 @@ class DomainBlocklistStore(private val envelopeFile: EnvelopeFile) {
     fun addDomain(domain: String) {
         val normalized = domain.trim().trim('.').lowercase()
         if (normalized.isEmpty()) return
-        val updated = loadUserDomains() + normalized
-        envelopeFile.write(encodeDomains(updated))
+        synchronized(WRITE_LOCK) {
+            val updated = loadUserDomains() + normalized
+            envelopeFile.write(encodeDomains(updated))
+        }
     }
 
     fun removeDomain(domain: String) {
         val normalized = domain.trim().trim('.').lowercase()
-        val updated = loadUserDomains() - normalized
-        envelopeFile.write(encodeDomains(updated))
+        synchronized(WRITE_LOCK) {
+            val updated = loadUserDomains() - normalized
+            envelopeFile.write(encodeDomains(updated))
+        }
     }
 
     /** Nutzerliste + eingebettete Standardliste zusammen — direkte Eingabe für
@@ -39,6 +43,7 @@ class DomainBlocklistStore(private val envelopeFile: EnvelopeFile) {
     fun effectiveBlocklist(): Set<String> = loadUserDomains() + DEFAULT_TRACKER_DOMAINS
 
     companion object {
+        private val WRITE_LOCK = Any()
         private const val KEYSTORE_PURPOSE = "net_blocklist"
         private const val ENVELOPE_CONTEXT = "warden:net_blocklist:v1"
         private const val DATA_FILE_NAME = "net_blocklist.envelope"
