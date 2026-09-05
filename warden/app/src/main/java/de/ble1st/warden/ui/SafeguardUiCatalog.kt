@@ -11,6 +11,7 @@ import de.ble1st.warden.registry.ForceStopProtectionSafeguard
 import de.ble1st.warden.registry.InputMethodLockdownSafeguard
 import de.ble1st.warden.registry.KeyguardHardeningSafeguard
 import de.ble1st.warden.registry.LockScreenPrivacySafeguard
+import de.ble1st.warden.registry.MtePolicySafeguard
 import de.ble1st.warden.registry.NetworkLoggingSafeguard
 import de.ble1st.warden.registry.PasswordComplexitySafeguard
 import de.ble1st.warden.registry.ScreenCaptureSafeguard
@@ -116,6 +117,13 @@ object SafeguardUiCatalog {
             }
             .toSet()
 
+    /** Nachschlagen eines Eintrags über seine Registry-`id` (2026-09-05) — für Aufrufstellen
+     * außerhalb von [SafeguardsScreen], die denselben Bestätigungstext zeigen wollen, statt ihn ein
+     * zweites Mal zu formulieren (s. `SecurityScannerScreen.IntegrityStatusRow`: der dortige
+     * "Antippen zum Beheben"-Knopf für `debugging_features_disabled` griff zunächst ungefragt
+     * durch — genau der Fall, für den dieser Katalogeintrag seinen Bestätigungstext trägt). */
+    fun entryById(id: String): Entry? = groups.flatMap { it.entries }.firstOrNull { it.id == id }
+
     val groups: List<Group> = listOf(
         Group(
             id = "alltag",
@@ -200,6 +208,14 @@ object SafeguardUiCatalog {
                     "Installation aus unbekannten Quellen blockieren",
                 ),
                 Entry(
+                    id = UserRestrictionSafeguard.INSTALL_UNKNOWN_SOURCES_GLOBALLY_DISABLED_ID,
+                    label = "Unbekannte Quellen geräteweit blockieren (alle Nutzer)",
+                    supportingText = "Schärfer als die Zeile darüber: gilt auch für zusätzlich " +
+                        "angelegte Nutzer/Gastprofile. Achtung — Warden selbst wird als APK " +
+                        "verteilt und lässt sich dann nicht mehr aktualisieren, ohne dies vorher " +
+                        "wieder auszuschalten. Bereits installierte Apps bleiben unberührt.",
+                ),
+                Entry(
                     id = UserRestrictionSafeguard.ADD_USER_DISABLED_ID,
                     label = "Zusätzliche Nutzer/Gastprofil verbieten",
                     supportingText = "Ein neu angelegtes Profil startet ungehärtet — die meisten " +
@@ -261,6 +277,14 @@ object SafeguardUiCatalog {
             description = "Weitere Härtung — eigene Ergänzung, dritte Runde (2026-08-22).",
             entries = listOf(
                 Entry(SystemUpdatePolicySafeguard.ID, "Sicherheitsupdates automatisch installieren"),
+                Entry(
+                    id = MtePolicySafeguard.ID,
+                    label = "Speicher-Tagging (MTE) erzwingen",
+                    supportingText = "Lässt die CPU Speicherfehler erkennen — die Fehlerklasse, " +
+                        "aus der Exploit-Ketten gebaut werden. Wirkt erst nach einem Neustart. " +
+                        "⚠ Braucht ARMv9-Hardware (Pixel 8+); auf allen anderen Geräten bleibt " +
+                        "der Schalter wirkungslos und zeigt weiterhin „aus“.",
+                ),
             ),
         ),
         Group(

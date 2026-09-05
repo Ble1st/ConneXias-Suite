@@ -6,6 +6,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import de.ble1st.warden.BuildConfig
 import java.util.concurrent.TimeUnit
 
 /**
@@ -19,7 +20,7 @@ class WifiTrustWorker(
 ) : Worker(context, params) {
 
     override fun doWork(): Result {
-        WifiTrustController(applicationContext).checkAndMaybeReact()
+        WifiTrustController(applicationContext).checkAndMaybeReact(BuildConfig.DEBUG)
         return Result.success()
     }
 

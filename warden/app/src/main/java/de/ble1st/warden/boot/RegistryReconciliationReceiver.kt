@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import de.ble1st.warden.domain.registry.SafeguardRegistry
+import de.ble1st.warden.hardening.HardeningPreferencesController
 import de.ble1st.warden.logging.HashChainLogStore
 import de.ble1st.warden.netlock.NetLockdownController
 import de.ble1st.warden.pin.WardenLockScreenTextStorage
@@ -59,6 +60,23 @@ class RegistryReconciliationReceiver : BroadcastReceiver() {
         reconcileSupportMessage(context, logStore)
         // "Netz-Sperre" (2026-08-29): reaktiviert nach Fix des Kernfehlers
         reconcileNetLockdown(context, logStore)
+        // Tier-2 der DPC-Recherche (2026-09-05): Ortung/Netzzeit/Löschgrenze liegen bewusst nicht
+        // in der Safeguard-Registry (mehrstufig statt an/aus, passt nicht ins Safeguard-Interface)
+        // und werden deshalb hier eigens nachgezogen — dieselbe Rolle, die reconcileLockScreenInfo
+        // für den ebenfalls registry-fremden Sperrbildschirm-Text spielt.
+        reconcileHardeningPreferences(context)
+    }
+
+    /** Setzt die drei mehrstufigen Härtungs-Einstellungen nach einem Neustart erneut durch.
+     * `HardeningPreferencesStorage` liegt dafür im Device-Protected-Bereich (s. dessen
+     * Klassendoc): dieser Receiver feuert vor der ersten Entsperrung, ein
+     * credential-verschlüsselter Store gäbe hier die Defaults zurück und die Reconciliation würde
+     * eine gesetzte Richtlinie ausgerechnet im BFU-Fenster zurücknehmen. Die DPM-Richtlinien
+     * selbst überleben den Neustart ohnehin im System — dieser Aufruf korrigiert Drift, er stellt
+     * nicht den Normalfall her. */
+    private fun reconcileHardeningPreferences(context: Context) {
+        runCatching { HardeningPreferencesController(context).applyAll() }
+            .onFailure { Log.w(TAG, "Härtungs-Einstellungen nach Boot nicht angewandt", it) }
     }
 
     private fun reconcileNetLockdown(context: Context, logStore: HashChainLogStore) {

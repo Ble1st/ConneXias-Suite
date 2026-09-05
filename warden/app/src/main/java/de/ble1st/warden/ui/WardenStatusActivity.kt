@@ -118,7 +118,22 @@ import de.ble1st.warden.performance.BatterySnapshot
 import de.ble1st.warden.performance.BatteryStatusReader
 import de.ble1st.warden.performance.DeviceMemoryReader
 import de.ble1st.warden.performance.DeviceMemorySnapshot
+import de.ble1st.warden.domain.registry.SafeguardRegistry
+import de.ble1st.warden.registry.DeviceLockdownBundle
 import de.ble1st.warden.registry.FactoryResetProtectionSafeguard
+import de.ble1st.warden.registry.PersistentSafeguardRegistry
+import de.ble1st.warden.registry.RegistryStorage
+import de.ble1st.warden.registry.SafeguardCatalog
+import de.ble1st.warden.registry.SafeguardRegistryStore
+import de.ble1st.warden.pin.WardenLockdownArmPendingEngageStore
+import de.ble1st.warden.appmanagement.FreezeMethodStorage
+import de.ble1st.warden.domain.appmanagement.FreezeMethod
+import de.ble1st.warden.domain.hardening.FailedAttemptsWipeThreshold
+import de.ble1st.warden.domain.hardening.LocationEnforcement
+import de.ble1st.warden.domain.hardening.TimeIntegrityMode
+import de.ble1st.warden.hardening.HardeningPreferencesController
+import de.ble1st.warden.hardening.HardeningPreferencesStorage
+import de.ble1st.warden.widget.WidgetQuickActionsStore
 import de.ble1st.warden.failsafe.FailsafeActivity
 import de.ble1st.warden.integrity.DebuggableOsStatusReader
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
@@ -228,6 +243,12 @@ class WardenStatusActivity : ComponentActivity() {
     // Dialog.
     private val pendingKioskConfirmation = mutableStateOf<String?>(null)
 
+    /** Dasselbe Muster wie [pendingKioskConfirmation], nur für eine per
+     * [WardenLockdownArmPendingEngageStore] vorgemerkte Anforderung (2026-09-05,
+     * Quick-Action-Widget) — hält den Grund, bis der Ja/Nein-Dialog unten in `setContent { }`
+     * beantwortet ist. */
+    private val pendingLockdownConfirmation = mutableStateOf<String?>(null)
+
     /** "Zwischenablage-Wächter" (`docs/design-clipboard-guard.md`, Phase 1) — bewusst
      * [onWindowFocusChanged], nicht [onResume]: Android garantiert Zwischenablage-Zugriff (seit
      * API 29) nur der App im tatsächlichen Fensterfokus, und der ist bei `onResume()` empirisch
@@ -249,6 +270,7 @@ class WardenStatusActivity : ComponentActivity() {
         if (result.resultCode == RESULT_OK) {
             authenticated.value = true
             consumePendingLockTaskEngage()
+            consumePendingLockdownArm()
         } else {
             // Zurück-Geste/abgebrochener Prompt auf WardenLockActivity — ohne Nachweis gibt es
             // nichts sinnvoll anzuzeigen, kein Fallback auf einen ungesicherten Zustand.
@@ -377,6 +399,27 @@ class WardenStatusActivity : ComponentActivity() {
             var trackerGuardEnabled by remember {
                 mutableStateOf(runCatching { concordBus.isTrackerGuardEnabled() }.getOrDefault(false))
             }
+            // "Quick-Action-Widget für Lockdown/Sentinel-Kiosk" (2026-09-05) — reine
+            // Klartext-SharedPreferences (s. WidgetQuickActionsStore-Klassendoc), kein
+            // ConcordBus-Aufruf nötig, dieselbe direkte Store-Lesung wie
+            // LockdownTriggerProfileStore.load() an anderer Stelle in dieser Datei.
+            var widgetQuickActionsEnabled by remember {
+                mutableStateOf(WidgetQuickActionsStore.isEnabled(applicationContext))
+            }
+            // Tier-2 der DPC-Recherche (2026-09-05) — vier mehrstufige Einstellungen. Dieselbe
+            // direkte Store-Lesung wie beim Widget-Schalter darüber; die drei Härtungs-Werte
+            // werden zusätzlich sofort auf DPM angewendet (HardeningPreferencesController), weil
+            // sie anders als ein reiner Soll-Wert unmittelbar Gerätezustand setzen.
+            var freezeMethod by remember { mutableStateOf(FreezeMethodStorage.load(applicationContext)) }
+            var locationEnforcement by remember {
+                mutableStateOf(HardeningPreferencesStorage.loadLocation(applicationContext))
+            }
+            var timeIntegrityMode by remember {
+                mutableStateOf(HardeningPreferencesStorage.loadTimeIntegrity(applicationContext))
+            }
+            var failedAttemptsWipeThreshold by remember {
+                mutableStateOf(HardeningPreferencesStorage.loadWipeThreshold(applicationContext))
+            }
             // "Automatische Profilumschaltung" (2026-08-28) — reiner Soll-Wert wie die übrigen
             // Härtungs-Felder; angewendet wird ausschließlich vom periodischen Worker.
             var autoProfileConfig by remember {
@@ -417,6 +460,35 @@ class WardenStatusActivity : ComponentActivity() {
                     },
                     dismissButton = {
                         TextButton(onClick = { pendingKioskConfirmation.value = null }) { Text(stringResource(R.string.action_no)) }
+                    },
+                )
+            }
+            // Spiegelbild des Dialogs oben, für WardenLockdownArmPendingEngageStore statt
+            // WardenLockTaskPendingEngageStore (2026-09-05, Quick-Action-Widget).
+            val lockdownConfirmReason by pendingLockdownConfirmation
+            if (lockdownConfirmReason != null) {
+                AlertDialog(
+                    onDismissRequest = {
+                        wardenAuditLog(applicationContext).append(
+                            Log.INFO,
+                            TAG,
+                            "Lockdown-Anforderung abgebrochen: $lockdownConfirmReason",
+                        )
+                        pendingLockdownConfirmation.value = null
+                    },
+                    title = { Text(stringResource(R.string.lockdown_arm_confirm_title)) },
+                    text = {
+                        Text("$lockdownConfirmReason\n\n" + stringResource(R.string.lockdown_arm_confirm_body))
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val reason = lockdownConfirmReason!!
+                            pendingLockdownConfirmation.value = null
+                            performPendingLockdownArm(reason)
+                        }) { Text(stringResource(R.string.action_yes)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingLockdownConfirmation.value = null }) { Text(stringResource(R.string.action_no)) }
                     },
                 )
             }
@@ -578,7 +650,7 @@ class WardenStatusActivity : ComponentActivity() {
                         wifiTrustReaction = updated
                         WifiTrustStorage.saveReaction(applicationContext, updated)
                         if (updated != null) {
-                            runCatching { WifiTrustController(applicationContext).checkAndMaybeReact() }
+                            runCatching { WifiTrustController(applicationContext).checkAndMaybeReact(BuildConfig.DEBUG) }
                                 .onFailure { Log.w(TAG, "WLAN-Vertrauens-Prüfung konnte nicht sofort ausgeführt werden", it) }
                         }
                     },
@@ -609,6 +681,41 @@ class WardenStatusActivity : ComponentActivity() {
                         trackerGuardEnabled = enabled
                         runCatching { concordBus.setTrackerGuardEnabled(enabled) }
                             .onFailure { Log.w(TAG, "BLE-Tracker-Wächter-Schalter fehlgeschlagen", it) }
+                    },
+                    widgetQuickActionsEnabled = widgetQuickActionsEnabled,
+                    onWidgetQuickActionsEnabledChange = { enabled ->
+                        widgetQuickActionsEnabled = enabled
+                        WidgetQuickActionsStore.setEnabled(applicationContext, enabled)
+                    },
+                    freezeMethod = freezeMethod,
+                    onFreezeMethodChange = { method ->
+                        freezeMethod = method
+                        FreezeMethodStorage.save(applicationContext, method)
+                    },
+                    locationEnforcement = locationEnforcement,
+                    onLocationEnforcementChange = { mode ->
+                        locationEnforcement = mode
+                        HardeningPreferencesStorage.saveLocation(applicationContext, mode)
+                        HardeningPreferencesController(applicationContext).applyLocation(mode)
+                    },
+                    timeIntegrityMode = timeIntegrityMode,
+                    onTimeIntegrityModeChange = { mode ->
+                        timeIntegrityMode = mode
+                        HardeningPreferencesStorage.saveTimeIntegrity(applicationContext, mode)
+                        HardeningPreferencesController(applicationContext).applyTimeIntegrity(mode)
+                    },
+                    failedAttemptsWipeThreshold = failedAttemptsWipeThreshold,
+                    onFailedAttemptsWipeThresholdChange = { threshold ->
+                        failedAttemptsWipeThreshold = threshold
+                        HardeningPreferencesStorage.saveWipeThreshold(applicationContext, threshold)
+                        HardeningPreferencesController(applicationContext).applyWipeThreshold(threshold)
+                        // Diese eine Einstellung ist unumkehrbar scharf und wird deshalb — anders
+                        // als die übrigen Härtungs-Schalter — im Audit-Log festgehalten.
+                        wardenAuditLog(applicationContext).append(
+                            priority = Log.WARN,
+                            tag = TAG,
+                            message = "OS-Löschgrenze nach Fehlversuchen gesetzt: ${'$'}{threshold.attempts}",
+                        )
                     },
                     failedAttemptsRebootThreshold = failedAttemptsRebootThreshold,
                     secureLockScreenConfigured = secureLockScreenConfigured,
@@ -646,6 +753,7 @@ class WardenStatusActivity : ComponentActivity() {
         if (wardenLockSession.isAuthenticated()) {
             authenticated.value = true
             consumePendingLockTaskEngage()
+            consumePendingLockdownArm()
             return
         }
         authenticated.value = false
@@ -709,6 +817,52 @@ class WardenStatusActivity : ComponentActivity() {
         )
     }
 
+    /** Spiegelbild von [consumePendingLockTaskEngage], für
+     * [WardenLockdownArmPendingEngageStore] statt [WardenLockTaskPendingEngageStore]
+     * (2026-09-05, Quick-Action-Widget). */
+    private fun consumePendingLockdownArm() {
+        val pending = WardenLockdownArmPendingEngageStore.consumeIfPending(applicationContext) ?: return
+        if (pending.requiresConfirmation) {
+            pendingLockdownConfirmation.value = pending.reason
+            return
+        }
+        performPendingLockdownArm(pending.reason)
+    }
+
+    /** Spiegelbild von [performPendingLockTaskEngage] für `SensitiveAction.LOCKDOWN_MODE_ARM` —
+     * baut denselben registry-gestützten [DestructiveActionExecutor] wie
+     * `SensitiveActionActivity.buildExecutor()` (dortiger Kommentar zur "eigene, wegwerfbare
+     * Registry-Instanz pro Aufruf"-Konvention), aber nur mit `performLockdownArm` verdrahtet — der
+     * einzigen Aktion, mit der dieser Executor je aufgerufen wird, exakt dieselbe Einschränkung
+     * wie bei `kioskExecutor` oben. `sessionAuthenticated = true`: der Aufrufer
+     * ([consumePendingLockdownArm], erreicht nur über [lockLauncher]s Erfolgsfall oder ein
+     * bereits authentifiziertes `onResume()`) hat das zu diesem Zeitpunkt bereits sichergestellt —
+     * dieselbe Session-Presence-Wiederverwendung wie beim Dashboard-Button "Kiosk jetzt". */
+    private fun performPendingLockdownArm(reason: String) {
+        val context = applicationContext
+        val registry = PersistentSafeguardRegistry(
+            SafeguardRegistry(),
+            SafeguardRegistryStore(RegistryStorage.buildEnvelopeFile(context)),
+        )
+        SafeguardCatalog.registerAll(registry, context)
+        registry.load()
+        val executor = DestructiveActionExecutor(
+            isDebugBuild = BuildConfig.DEBUG,
+            logStore = wardenAuditLog(context),
+            performLockdownArm = { registry.apply(DeviceLockdownBundle.ID) },
+        )
+        val outcome = executor.executeWithSessionPresence(
+            SensitiveAction.LOCKDOWN_MODE_ARM,
+            SensitiveAction.LOCKDOWN_MODE_ARM.confirmationPhrase,
+            sessionAuthenticated = wardenLockSession.isAuthenticated(),
+        )
+        wardenAuditLog(context).append(
+            priority = Log.WARN,
+            tag = TAG,
+            message = "Lockdown-Schnellzugriff (Widget): $reason -> $outcome",
+        )
+    }
+
     private companion object {
         const val TAG = "WardenStatus"
     }
@@ -723,7 +877,6 @@ private sealed class WardenScreen {
     data object PermissionAudit : WardenScreen()
     data object PerformanceMonitor : WardenScreen()
     data object Network : WardenScreen()
-    data object SecurityScore : WardenScreen()
     /** Phase 2 ("Signal 2", docs/design-clipboard-guard.md Abschnitt 3.2.6/3.2.7). */
     data object ClipboardCrossApp : WardenScreen()
     /** Ideenliste-Vorschlag 5 ("Systemdiagnose-Bildschirm", 2026-09-03). */
@@ -753,8 +906,10 @@ private val WardenScreenSaver: Saver<WardenScreen, String> = Saver(
             // "Network" fehlte hier bislang (Bestandslücke, beim Ergänzen von "SecurityScore"
             // 2026-08-29 mitkorrigiert) — ohne diesen Zweig fiel eine Prozess-Tod-Wiederherstellung
             // auf dem Netzwerk-Bildschirm fälschlich auf WardenScreen.Status zurück.
+            // "SecurityScore" entfiel 2026-09-05 — der Bildschirm ging in WardenScreen.SecurityScanner
+            // auf (s. SecurityScoreScreen.kt-Klassendoc); ein alter gesicherter Name fällt seither
+            // wie jeder unbekannte Name auf WardenScreen.Status zurück (s. Saver-Klassendoc oben).
             "Network" -> WardenScreen.Network
-            "SecurityScore" -> WardenScreen.SecurityScore
             "ClipboardCrossApp" -> WardenScreen.ClipboardCrossApp
             "SystemDiagnostics" -> WardenScreen.SystemDiagnostics
             "Setup" -> WardenScreen.Setup
@@ -804,6 +959,16 @@ private fun WardenRoot(
     onAntiTheftChargerAlarmChange: (Boolean) -> Unit,
     trackerGuardEnabled: Boolean,
     onTrackerGuardEnabledChange: (Boolean) -> Unit,
+    widgetQuickActionsEnabled: Boolean,
+    onWidgetQuickActionsEnabledChange: (Boolean) -> Unit,
+    freezeMethod: FreezeMethod,
+    onFreezeMethodChange: (FreezeMethod) -> Unit,
+    locationEnforcement: LocationEnforcement,
+    onLocationEnforcementChange: (LocationEnforcement) -> Unit,
+    timeIntegrityMode: TimeIntegrityMode,
+    onTimeIntegrityModeChange: (TimeIntegrityMode) -> Unit,
+    failedAttemptsWipeThreshold: FailedAttemptsWipeThreshold,
+    onFailedAttemptsWipeThresholdChange: (FailedAttemptsWipeThreshold) -> Unit,
     autoProfileConfig: AutoProfileConfig,
     onAutoProfileConfigChange: (AutoProfileConfig) -> Unit,
     onExportConfig: () -> String,
@@ -944,7 +1109,6 @@ private fun WardenRoot(
                 onOpenPermissionAudit = { screen = WardenScreen.PermissionAudit },
                 onOpenPerformanceMonitor = { screen = WardenScreen.PerformanceMonitor },
                 onOpenNetwork = { screen = WardenScreen.Network },
-                onOpenSecurityScore = { screen = WardenScreen.SecurityScore },
                 onOpenClipboardCrossApp = { screen = WardenScreen.ClipboardCrossApp },
                 onOpenSystemDiagnostics = { screen = WardenScreen.SystemDiagnostics },
                 onOpenSetupWizard = { screen = WardenScreen.Setup },
@@ -1006,11 +1170,24 @@ private fun WardenRoot(
             var initialLoadDone by remember { mutableStateOf(false) }
             var scanInProgress by remember { mutableStateOf(false) }
             val scanScope = rememberCoroutineScope()
+            val scoreAppContext = LocalContext.current.applicationContext
+            // Security-Score-Zustand (2026-09-05, vorher eigener WardenScreen.SecurityScore-
+            // Bildschirm, s. SecurityScoreScreen.kt-Klassendoc "verschiebe ihn in den
+            // Security-Teil") — lebt jetzt hier, im selben Screen wie Scanner/Geräte-Integrität.
+            var scoreBreakdown by remember { mutableStateOf<SecurityScoreBreakdown?>(null) }
+            var scoreCalculationFailed by remember { mutableStateOf(false) }
+            var scoreCalculationInProgress by remember { mutableStateOf(false) }
+            var scoreHistory by remember { mutableStateOf<List<SecurityScoreHistoryStore.HistoryEntry>>(emptyList()) }
             LaunchedEffect(Unit) {
                 enabled = withContext(Dispatchers.IO) { loadScannerEnabledSafely(concordBus) }
                 findingsResult = withContext(Dispatchers.IO) { loadFindingsSafely(concordBus) }
                 integrityStatus = withContext(Dispatchers.IO) { loadDeviceIntegrityStatusSafely(concordBus) }
                 initialLoadDone = true
+                // Verlauf unabhängig vom initialen Ladegate — zeigt sofort, was frühere
+                // Sitzungen bereits aufgezeichnet haben, ohne eine frische Berechnung zu erzwingen.
+                scoreHistory = withContext(Dispatchers.IO) {
+                    runCatching { SecurityScoreHistoryStore(scoreAppContext).entriesWithinWindow() }.getOrDefault(emptyList())
+                }
             }
             if (!initialLoadDone) {
                 LoadingScreen(title = stringResource(R.string.menu_security_scanner_title), onBack = { screen = WardenScreen.Status })
@@ -1067,6 +1244,58 @@ private fun WardenRoot(
                             }
                         }
                     },
+                    // Tier-2-B5 (2026-09-05): dieselbe Registry-Operation, die auch der
+                    // Safeguards-Bildschirm für `debugging_features_disabled` auslöst — bewusst
+                    // über `ConcordBus.applySafeguard`, damit der Weg dieselbe Autorisierung,
+                    // Rate-Limitierung und Audit-Log-Spur bekommt wie jeder andere Schalter, statt
+                    // hier direkt am `DevicePolicyManager` vorbeizugreifen.
+                    onDisableDebuggingFeatures = {
+                        scanScope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    concordBus.applySafeguard(
+                                        UserRestrictionSafeguard.DEBUGGING_FEATURES_DISABLED_ID,
+                                    )
+                                }.onFailure {
+                                    Log.e("WardenStatus", "Entwickleroptionen abschalten fehlgeschlagen", it)
+                                }
+                            }
+                            integrityStatus = withContext(Dispatchers.IO) {
+                                loadDeviceIntegrityStatusSafely(concordBus)
+                            }
+                        }
+                    },
+                    securityScoreBreakdown = scoreBreakdown,
+                    securityScoreCalculationFailed = scoreCalculationFailed,
+                    securityScoreCalculationInProgress = scoreCalculationInProgress,
+                    securityScoreHistory = scoreHistory,
+                    onCalculateSecurityScore = {
+                        if (!scoreCalculationInProgress) {
+                            scanScope.launch {
+                                scoreCalculationInProgress = true
+                                scoreCalculationFailed = false
+                                try {
+                                    val result = withContext(Dispatchers.IO) {
+                                        runCatching { SecurityScoreCalculator(scoreAppContext, concordBus).calculate() }
+                                            .onFailure { Log.e("WardenStatus", "Sicherheits-Score-Berechnung fehlgeschlagen", it) }
+                                            .getOrNull()
+                                    }
+                                    scoreBreakdown = result
+                                    scoreCalculationFailed = result == null
+                                    if (result != null) {
+                                        // Nur bei echtem Erfolg aufzeichnen — ein fehlgeschlagener
+                                        // Versuch (z. B. kein Device Owner mehr aktiv) ist kein
+                                        // gültiger Score-Datenpunkt.
+                                        val historyStore = SecurityScoreHistoryStore(scoreAppContext)
+                                        withContext(Dispatchers.IO) { historyStore.record(result) }
+                                        scoreHistory = withContext(Dispatchers.IO) { historyStore.entriesWithinWindow() }
+                                    }
+                                } finally {
+                                    scoreCalculationInProgress = false
+                                }
+                            }
+                        }
+                    },
                 )
             }
         }
@@ -1104,6 +1333,7 @@ private fun WardenRoot(
                  * neuen Sammel-Lesevorgang an, statt pro Schalter noch einmal einzeln zu lesen. */
                 fun toggle(safeguardId: String) = SafeguardToggleState(
                     locked = loaded.safeguardStates[safeguardId],
+                    desired = loaded.safeguardDesiredStates[safeguardId],
                     onToggle = { requested ->
                         safeguardScope.launch {
                             withContext(Dispatchers.IO) {
@@ -1286,6 +1516,16 @@ private fun WardenRoot(
                 onAntiTheftChargerAlarmChange = onAntiTheftChargerAlarmChange,
                 trackerGuardEnabled = trackerGuardEnabled,
                 onTrackerGuardEnabledChange = onTrackerGuardEnabledChange,
+                widgetQuickActionsEnabled = widgetQuickActionsEnabled,
+                onWidgetQuickActionsEnabledChange = onWidgetQuickActionsEnabledChange,
+                freezeMethod = freezeMethod,
+                onFreezeMethodChange = onFreezeMethodChange,
+                locationEnforcement = locationEnforcement,
+                onLocationEnforcementChange = onLocationEnforcementChange,
+                timeIntegrityMode = timeIntegrityMode,
+                onTimeIntegrityModeChange = onTimeIntegrityModeChange,
+                failedAttemptsWipeThreshold = failedAttemptsWipeThreshold,
+                onFailedAttemptsWipeThresholdChange = onFailedAttemptsWipeThresholdChange,
                 autoProfileConfig = autoProfileConfig,
                 onAutoProfileConfigChange = onAutoProfileConfigChange,
                 onExportConfig = onExportConfig,
@@ -1528,55 +1768,6 @@ private fun WardenRoot(
                 onBack = { screen = WardenScreen.Status }
             )
         }
-        WardenScreen.SecurityScore -> {
-            val appContext = LocalContext.current.applicationContext
-            val scoreScope = rememberCoroutineScope()
-            var breakdown by remember { mutableStateOf<SecurityScoreBreakdown?>(null) }
-            var calculationFailed by remember { mutableStateOf(false) }
-            var calculationInProgress by remember { mutableStateOf(false) }
-            var history by remember { mutableStateOf<List<SecurityScoreHistoryStore.HistoryEntry>>(emptyList()) }
-            // Verlauf wird unabhängig von einer frischen Berechnung geladen — beim Öffnen des
-            // Bildschirms zeigt er sofort, was frühere Sitzungen bereits aufgezeichnet haben.
-            LaunchedEffect(Unit) {
-                history = withContext(Dispatchers.IO) {
-                    runCatching { SecurityScoreHistoryStore(appContext).entriesWithinWindow() }.getOrDefault(emptyList())
-                }
-            }
-            SecurityScoreScreen(
-                breakdown = breakdown,
-                calculationFailed = calculationFailed,
-                calculationInProgress = calculationInProgress,
-                history = history,
-                onBack = { screen = WardenScreen.Status },
-                onCalculate = {
-                    if (!calculationInProgress) {
-                        scoreScope.launch {
-                            calculationInProgress = true
-                            calculationFailed = false
-                            try {
-                                val result = withContext(Dispatchers.IO) {
-                                    runCatching { SecurityScoreCalculator(appContext, concordBus).calculate() }
-                                        .onFailure { Log.e("WardenStatus", "Sicherheits-Score-Berechnung fehlgeschlagen", it) }
-                                        .getOrNull()
-                                }
-                                breakdown = result
-                                calculationFailed = result == null
-                                if (result != null) {
-                                    // Nur bei echtem Erfolg aufzeichnen — ein fehlgeschlagener
-                                    // Versuch (z. B. kein Device Owner mehr aktiv) ist kein
-                                    // gültiger Score-Datenpunkt.
-                                    val historyStore = SecurityScoreHistoryStore(appContext)
-                                    withContext(Dispatchers.IO) { historyStore.record(result) }
-                                    history = withContext(Dispatchers.IO) { historyStore.entriesWithinWindow() }
-                                }
-                            } finally {
-                                calculationInProgress = false
-                            }
-                        }
-                    }
-                },
-            )
-        }
         WardenScreen.SystemDiagnostics -> {
             val appContext = LocalContext.current.applicationContext
             val diagnosticsScope = rememberCoroutineScope()
@@ -1754,6 +1945,10 @@ private fun LoadingScreen(title: String, onBack: () -> Unit) {
  */
 private data class SafeguardsSnapshot(
     val safeguardStates: Map<String, Boolean?>,
+    /** Soll-Zustände zum selben Zeitpunkt wie [safeguardStates] — die Abweichung ist nur dann
+     * aussagekräftig, wenn beide Seiten aus demselben Lesezyklus stammen (TestDPC-Übernahme,
+     * 2026-09-05). */
+    val safeguardDesiredStates: Map<String, Boolean?>,
     val usbAutoLockEnabled: Boolean?,
     val lockdownModeActive: Boolean?,
     val sentinelLockTaskAuthorized: Boolean?,
@@ -1776,11 +1971,22 @@ private data class SafeguardsSnapshot(
  * Aufzählung könnte.
  */
 private fun loadSafeguardsSnapshotSafely(bus: ConcordBus, context: Context): SafeguardsSnapshot {
-    val states = runCatching { bus.safeguardStates(bus.listSafeguards()) }
+    // `listSafeguards()` bewusst nur **einmal** — jeder Bus-Aufruf kostet ein Rate-Limit-Token,
+    // und genau daran ist dieser Bildschirm vor Befund Q-2 (2026-08-28) schon einmal aufgelaufen.
+    // Ist- und Soll-Zustand über dieselbe ID-Liste zu lesen ist außerdem die Voraussetzung dafür,
+    // dass die Abweichungsanzeige nicht zwei verschieden alte Kataloge vergleicht.
+    val ids = runCatching { bus.listSafeguards() }
+        .onFailure { Log.e("WardenStatus", "Safeguard-IDs nicht ladbar", it) }
+        .getOrDefault(emptyList())
+    val states = runCatching { bus.safeguardStates(ids) }
         .onFailure { Log.e("WardenStatus", "Safeguard-Zustände nicht ladbar", it) }
+        .getOrDefault(emptyMap())
+    val desiredStates = runCatching { bus.safeguardDesiredStates(ids) }
+        .onFailure { Log.e("WardenStatus", "Safeguard-Soll-Zustände nicht ladbar", it) }
         .getOrDefault(emptyMap())
     return SafeguardsSnapshot(
         safeguardStates = states,
+        safeguardDesiredStates = desiredStates,
         usbAutoLockEnabled = loadUsbAutoLockEnabledSafely(bus),
         lockdownModeActive = loadLockdownModeActiveSafely(bus),
         sentinelLockTaskAuthorized = loadSentinelLockTaskAuthorizedSafely(context),
@@ -1969,7 +2175,6 @@ private fun WardenStatusScreen(
     onOpenPermissionAudit: () -> Unit,
     onOpenPerformanceMonitor: () -> Unit,
     onOpenNetwork: () -> Unit,
-    onOpenSecurityScore: () -> Unit,
     onOpenSystemDiagnostics: () -> Unit,
     onOpenSetupWizard: () -> Unit,
 ) {
@@ -2065,12 +2270,9 @@ private fun WardenStatusScreen(
                 tag = "NW",
                 onClick = onOpenNetwork,
             )
-            MenuRow(
-                title = stringResource(R.string.menu_security_score_title),
-                subtitle = stringResource(R.string.menu_security_score_subtitle),
-                tag = "SCR",
-                onClick = onOpenSecurityScore,
-            )
+            // "Sicherheits-Score" hatte hier bis 2026-09-05 einen eigenen Menüpunkt/Bildschirm —
+            // auf Nutzerwunsch jetzt Abschnitt in "SC" (Sicherheits-Scanner) statt eigenem
+            // Untermenü, s. SecurityScoreScreen.kt-Klassendoc.
             MenuRow(
                 title = stringResource(R.string.menu_system_diagnostics_title),
                 subtitle = stringResource(R.string.menu_system_diagnostics_subtitle),

@@ -1,6 +1,9 @@
 package de.ble1st.warden.diagnostics
 
 import android.Manifest
+import android.app.KeyguardManager
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.work.WorkInfo
@@ -10,7 +13,10 @@ import de.ble1st.warden.antitheft.AntiTheftLockStateReceiver
 import de.ble1st.warden.appmanagement.SuspiciousAppScanWorker
 import de.ble1st.warden.autoreboot.AutoRebootWorker
 import de.ble1st.warden.cellsecurity.CellSecurityWorker
+import de.ble1st.warden.domain.policycoexistence.PolicyConflictRecord
+import de.ble1st.warden.domain.policycoexistence.PolicyCoexistenceDecision
 import de.ble1st.warden.performance.BatterySamplingWorker
+import de.ble1st.warden.policycoexistence.PolicyConflictStore
 import de.ble1st.warden.profile.AutoProfileWorker
 import de.ble1st.warden.score.ScoreReminderWorker
 import de.ble1st.warden.sim.SimChangeWorker
@@ -27,10 +33,45 @@ data class PermissionDiagnostic(val label: String, val permission: String, val g
 /** Der dynamisch (de-)registrierte Diebstahlschutz-Empfänger — s. eigene Doc unten. */
 data class ReceiverDiagnostic(val label: String, val registered: Boolean, val featureEnabled: Boolean)
 
+/**
+ * Ein zweiter Geräteadmin neben Warden. `deviceOwner` = dieses Paket hält zusätzlich die
+ * Device-Owner-Rolle; bei allen anderen ist es ein bloß aktivierter Admin. Beides ist erst einmal
+ * normal (Herstelleraufsätze bringen regelmäßig einen mit) — erst zusammen mit einem echten
+ * Konflikt aus [AdminCoexistenceDiagnostic.policyProblems] wird daraus ein Befund.
+ */
+data class ActiveAdminDiagnostic(val label: String, val componentName: String, val deviceOwner: Boolean)
+
+/** Tier 3 der DPC-Recherche (2026-09-05) — s. [PolicyCoexistenceDecision]. */
+data class AdminCoexistenceDiagnostic(
+    val wardenIsDeviceOwner: Boolean,
+    val otherActiveAdmins: List<ActiveAdminDiagnostic>,
+    val policyProblems: List<PolicyConflictRecord>,
+    /** `false` = es kam noch nie eine Rückmeldung. Eine leere [policyProblems]-Liste ist dann
+     * *keine* Entwarnung, s. [PolicyCoexistenceDecision.hasEverReported]. */
+    val policyFeedbackReceived: Boolean,
+)
+
+/**
+ * Systemseitiger Diebstahlschutz (Android 15+: Diebstahlerkennungssperre, Offline-Gerätesperre,
+ * Remote-Sperre), Tier 3 der DPC-Recherche (2026-09-05).
+ *
+ * **Es gibt bewusst kein `enabled`-Feld.** Für keine der drei Funktionen existiert eine
+ * öffentliche Lese-API — weder ein `PackageManager.FEATURE_*`, noch ein dokumentierter
+ * `Settings`-Schlüssel, noch etwas im `DevicePolicyManager` (gegen `android-37.0/android.jar`
+ * nachgeprüft). Ein geratener Zustand wäre hier schlimmer als gar keiner: der Nutzer würde einen
+ * Schutz für aktiv halten, den Warden nie gelesen hat. Angezeigt wird deshalb nur, was wirklich
+ * lesbar ist — [deviceSecure], die gemeinsame Voraussetzung aller drei Funktionen — plus ein
+ * Verweis in die Systemeinstellungen, wo sie tatsächlich stehen. Genau das meinte die Vorgabe
+ * "verweisen statt nachbauen": Warden dupliziert diese Funktionen nicht, es macht sie auffindbar.
+ */
+data class TheftProtectionDiagnostic(val deviceSecure: Boolean)
+
 data class SystemDiagnosticsSnapshot(
     val workers: List<WorkerDiagnostic>,
     val permissions: List<PermissionDiagnostic>,
     val antiTheftReceiver: ReceiverDiagnostic,
+    val adminCoexistence: AdminCoexistenceDiagnostic,
+    val theftProtection: TheftProtectionDiagnostic,
 )
 
 /**
@@ -76,8 +117,51 @@ class SystemDiagnosticsReader(private val context: Context) {
             featureEnabled = runCatching { AntiTheftAlarmStorage.load(context).isAnyEnabled }.getOrDefault(false),
         )
 
-        return SystemDiagnosticsSnapshot(workers, permissions, antiTheftReceiver)
+        return SystemDiagnosticsSnapshot(
+            workers = workers,
+            permissions = permissions,
+            antiTheftReceiver = antiTheftReceiver,
+            adminCoexistence = readAdminCoexistence(),
+            theftProtection = readTheftProtection(),
+        )
     }
+
+    private fun readAdminCoexistence(): AdminCoexistenceDiagnostic {
+        val dpm = context.getSystemService(DevicePolicyManager::class.java)
+        val ownPackage = context.packageName
+        val others = runCatching {
+            dpm?.activeAdmins.orEmpty()
+                .filter { it.packageName != ownPackage }
+                .map { admin ->
+                    ActiveAdminDiagnostic(
+                        label = readApplicationLabel(admin),
+                        componentName = admin.flattenToShortString(),
+                        deviceOwner = runCatching { dpm?.isDeviceOwnerApp(admin.packageName) == true }.getOrDefault(false),
+                    )
+                }
+        }.getOrDefault(emptyList())
+
+        val records = runCatching { PolicyConflictStore.load(context) }.getOrDefault(emptyList())
+        return AdminCoexistenceDiagnostic(
+            wardenIsDeviceOwner = runCatching { dpm?.isDeviceOwnerApp(ownPackage) == true }.getOrDefault(false),
+            otherActiveAdmins = others,
+            policyProblems = PolicyCoexistenceDecision.currentProblems(records),
+            policyFeedbackReceived = PolicyCoexistenceDecision.hasEverReported(records),
+        )
+    }
+
+    /** Fällt auf den Paketnamen zurück statt auf einen Platzhalter: ein Admin, dessen Label sich
+     * nicht lesen lässt, ist genau der, den man in der Liste wiederfinden können muss. */
+    private fun readApplicationLabel(admin: ComponentName): String = runCatching {
+        val info = context.packageManager.getApplicationInfo(admin.packageName, 0)
+        context.packageManager.getApplicationLabel(info).toString()
+    }.getOrDefault(admin.packageName)
+
+    private fun readTheftProtection(): TheftProtectionDiagnostic = TheftProtectionDiagnostic(
+        deviceSecure = runCatching {
+            context.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
+        }.getOrDefault(false),
+    )
 
     private companion object {
         val WORKER_NAMES = listOf(

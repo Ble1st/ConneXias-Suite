@@ -5,6 +5,7 @@ import de.ble1st.warden.appmanagement.PermissionAuditScanner
 import de.ble1st.warden.bus.ConcordBus
 import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
 import de.ble1st.warden.domain.appmanagement.ThreatSeverity
+import de.ble1st.warden.domain.attestation.AttestationDecision
 import de.ble1st.warden.domain.score.SecurityScoreBreakdown
 import de.ble1st.warden.domain.score.SecurityScoreDecision
 
@@ -53,6 +54,20 @@ class SecurityScoreCalculator(private val context: Context, private val concordB
             keystoreSecurityLevel = integrity.keystoreSecurityLevel,
             activeSafeguards = safeguardStates.values.count { it == true },
             totalSafeguards = safeguardIds.size,
+            // 2026-09-05: Key-Attestation-Befunde fließen in die Geräte-Integrität ein — inklusive
+            // des Sicherheitspatch-Stands, der Kennzahl, für die die Kategorie „Update-Status"
+            // seinerzeit gestrichen wurde (s. SecurityScoreDecision-Konstanten). `nowYearMonth`
+            // wird hier aus der echten Uhr gelesen; die Entscheidungsklasse selbst bleibt
+            // zeitfrei und damit testbar.
+            attestationFindings = AttestationDecision.evaluate(
+                attestation = integrity.attestation,
+                nowYearMonth = currentYearMonth(),
+            ),
         )
+    }
+
+    private fun currentYearMonth(): Int {
+        val now = java.time.YearMonth.now()
+        return now.year * 100 + now.monthValue
     }
 }

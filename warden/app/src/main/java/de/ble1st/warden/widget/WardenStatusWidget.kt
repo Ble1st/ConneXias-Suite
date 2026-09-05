@@ -7,9 +7,11 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.action.Action
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
@@ -76,6 +78,19 @@ import kotlinx.coroutines.withContext
  * (reine Lambda-Injektion, s. deren eigenes Klassendoc), ihn nur für eine kosmetische
  * Widget-Aktualisierung hindurchzureichen wäre eine unnötige Kopplung an einer
  * sicherheitskritischen Stelle; die 30-Minuten-Periodik holt diesen Fall nach.
+ *
+ * **Zwei Aktions-Schaltflächen ergänzt (2026-09-05, Nutzerwunsch "ein Quick-Action-Menü für
+ * Lockdown und Sentinel-Lockdown-Task, aber mit Schalter in den Einstellungen").** Anders als die
+ * drei Status-Zeilen oben lösen diese beiden tatsächlich etwas aus — genau die Lücke, wegen der
+ * dieses Widget ursprünglich rein statusanzeigend gebaut wurde (s. Klassendoc oben). Deshalb
+ * **nur sichtbar, wenn [WidgetQuickActionsStore.isEnabled] zutrifft** (Default aus) — der neue
+ * Einstellungs-Schalter, den der Nutzer explizit verlangt hat, bevor diese Schaltflächen überhaupt
+ * gezeichnet werden. Die eigentliche Ausführung läuft über [LockdownArmQuickActionCallback]/
+ * [KioskEngageQuickActionCallback] (`actionRunCallback`, nicht `actionStartActivity` mit Extra —
+ * s. deren gemeinsames Klassendoc, warum das für eine exportierte Launcher-Activity wichtig ist)
+ * und bleibt strukturell hinter [de.ble1st.warden.presence.WardenLockSession]: ohne bereits
+ * gültige Sitzung landet ein Tap zunächst ganz normal in `WardenLockActivity`, exakt wie jeder
+ * andere App-Start.
  */
 class WardenStatusWidget : GlanceAppWidget() {
 
@@ -119,8 +134,34 @@ class WardenStatusWidget : GlanceAppWidget() {
                 StatusLine(text = snapshot.lockdownLine, color = lockdownColor)
                 StatusLine(text = snapshot.profileLine, color = GlanceTheme.colors.onSurfaceVariant)
                 StatusLine(text = snapshot.scoreLine, color = scoreColor)
+                if (snapshot.quickActionsEnabled) {
+                    Spacer(modifier = GlanceModifier.height(8.dp))
+                    QuickActionRow(
+                        text = snapshot.lockdownArmActionLabel,
+                        color = GlanceTheme.colors.error,
+                        onClick = actionRunCallback<LockdownArmQuickActionCallback>(),
+                    )
+                    QuickActionRow(
+                        text = snapshot.kioskEngageActionLabel,
+                        color = GlanceTheme.colors.error,
+                        onClick = actionRunCallback<KioskEngageQuickActionCallback>(),
+                    )
+                }
             }
         }
+    }
+
+    /** Eigene Zeile statt Wiederverwendung von [StatusLine] — trägt ein zweites `clickable`
+     * (den `actionRunCallback`), das Umgebende `clickable(actionStartActivity<...>())` auf der
+     * äußeren `Column` bleibt für den Rest der Karte unverändert bestehen; Glance verschachtelt
+     * `clickable`-Modifier pro Element, kein Konflikt. */
+    @Composable
+    private fun QuickActionRow(text: String, color: ColorProvider, onClick: Action) {
+        Text(
+            text = text,
+            style = TextStyle(color = color, fontWeight = FontWeight.Bold, fontSize = 12.sp, textAlign = TextAlign.Start),
+            modifier = GlanceModifier.fillMaxWidth().padding(top = 4.dp).clickable(onClick),
+        )
     }
 
     @Composable
@@ -161,6 +202,9 @@ private data class WidgetSnapshot(
     val profileLine: String,
     val scoreLevel: SecurityScoreLevel?,
     val scoreLine: String,
+    val quickActionsEnabled: Boolean,
+    val lockdownArmActionLabel: String,
+    val kioskEngageActionLabel: String,
 )
 
 private fun loadSnapshot(context: Context): WidgetSnapshot {
@@ -192,5 +236,8 @@ private fun loadSnapshot(context: Context): WidgetSnapshot {
         profileLine = profileLine,
         scoreLevel = lastEntry?.level,
         scoreLine = scoreLine,
+        quickActionsEnabled = WidgetQuickActionsStore.isEnabled(context),
+        lockdownArmActionLabel = context.getString(R.string.widget_action_lockdown_arm),
+        kioskEngageActionLabel = context.getString(R.string.widget_action_kiosk_engage),
     )
 }

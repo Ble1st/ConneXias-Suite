@@ -1,7 +1,11 @@
 package de.ble1st.warden.wifitrust
 
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.util.Log
+import de.ble1st.warden.admin.WardenDeviceAdminReceiver
+import de.ble1st.warden.domain.presence.DestructiveCommandGuard
 import de.ble1st.warden.domain.wifitrust.WifiTrustDecision
 import de.ble1st.warden.domain.wifitrust.WifiTrustReaction
 import de.ble1st.warden.netlock.NetLockdownController
@@ -21,11 +25,16 @@ import de.ble1st.warden.wardenAuditLog
  * das Gerät verbunden bleibt (keine "einmal pro Übergang"-Dämpfung wie bei
  * [de.ble1st.warden.cellsecurity.CellSecurityController]) — abgemildert durch die 15-Minuten-
  * Worker-Periode und dadurch, dass [WifiTrustReaction.NETZWERK_SPERREN] über
- * [NetLockdownController.arm] ohnehin idempotent ist.
+ * [NetLockdownController.arm] ohnehin idempotent ist. Für [WifiTrustReaction.NEUSTART]
+ * (2026-09-05) bedeutet dieselbe fehlende Dämpfung: bleibt das Gerät mit demselben unbekannten
+ * Netz verbunden, rebootet jeder folgende Prüflauf erneut — dasselbe bewusst in Kauf genommene
+ * Verhalten wie bei [de.ble1st.warden.autoreboot.AutoRebootController]s unbeaufsichtigtem Gerät.
  */
 class WifiTrustController(private val context: Context) {
 
-    fun checkAndMaybeReact() {
+    private val admin = ComponentName(context, WardenDeviceAdminReceiver::class.java)
+
+    fun checkAndMaybeReact(isDebugBuild: Boolean) {
         val reaction = WifiTrustStorage.loadReaction(context) ?: return
         val trustedSsids = WifiTrustStorage.loadTrustedSsids(context)
         val outcome = WifiTrustDecision.evaluate(WifiCurrentSsidReader(context).currentSsid(), trustedSsids)
@@ -37,21 +46,35 @@ class WifiTrustController(private val context: Context) {
         runCatching { WifiTrustNotifier(context).notify(outcome.ssid, reactionText) }
             .onFailure { Log.w(TAG, "Benachrichtigung fehlgeschlagen", it) }
 
-        if (reaction == WifiTrustReaction.NETZWERK_SPERREN) {
-            try {
-                val result = NetLockdownController(context).arm()
-                if (result !is NetLockdownController.ArmResult.Success) {
-                    logStore.append(Log.ERROR, TAG, "Netz-Sperre-Reaktion fehlgeschlagen: $result")
+        try {
+            when (reaction) {
+                WifiTrustReaction.NUR_MELDEN -> Unit
+                WifiTrustReaction.NETZWERK_SPERREN -> {
+                    val result = NetLockdownController(context).arm()
+                    if (result !is NetLockdownController.ArmResult.Success) {
+                        logStore.append(Log.ERROR, TAG, "Netz-Sperre-Reaktion fehlgeschlagen: $result")
+                    }
                 }
-            } catch (e: Exception) {
-                logStore.append(Log.ERROR, TAG, "WLAN-Vertrauens-Reaktion fehlgeschlagen: $e")
+                WifiTrustReaction.NEUSTART -> {
+                    val dpm = context.getSystemService(DevicePolicyManager::class.java)
+                    if (dpm == null) {
+                        logStore.append(Log.ERROR, TAG, "WLAN-Vertrauens-Neustart nicht ausführbar — DevicePolicyManager nicht verfügbar")
+                    } else if (DestructiveCommandGuard.isExecutionAllowed(isDebugBuild)) {
+                        dpm.reboot(admin)
+                    } else {
+                        logStore.append(Log.WARN, TAG, "WLAN-Vertrauens-Neustart unterdrückt — Debug-Build")
+                    }
+                }
             }
+        } catch (e: Exception) {
+            logStore.append(Log.ERROR, TAG, "WLAN-Vertrauens-Reaktion fehlgeschlagen: $e")
         }
     }
 
     private fun reactionText(reaction: WifiTrustReaction): String = when (reaction) {
         WifiTrustReaction.NUR_MELDEN -> "Es wurde nur protokolliert."
         WifiTrustReaction.NETZWERK_SPERREN -> "Die Netz-Sperre wurde aktiviert."
+        WifiTrustReaction.NEUSTART -> "Das Gerät wird neu gestartet."
     }
 
     private companion object {

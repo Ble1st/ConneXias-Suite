@@ -30,11 +30,15 @@ import de.ble1st.warden.wardenAuditLog
  * heraus einen sofortigen, überraschenden Reboot direkt nach dem Einschalten der Funktion
  * auszulösen.
  *
- * **Kein Reset der Baseline nach einem ausgelösten Reboot:** bleibt das Gerät danach weiter
- * unbeaufsichtigt/gesperrt (der eigentliche Zielfall — verloren/gestohlen), löst der nächste
- * periodische Lauf erneut aus, sobald WorkManager nach dem Neustart wieder anläuft — ein
- * abgeschaltetes/verlorenes Gerät zyklisch in den BFU-Zustand zurückzudrängen ist beabsichtigtes
- * Verhalten, kein Bug.
+ * **Baseline wird nach einem ausgelösten Reboot zurückgesetzt (2026-09-05, Nutzerwunsch,
+ * korrigiert die vorherige Haltung hier).** Vorher blieb `lastSeenUnlockedMillis` unangetastet —
+ * bleibt das Gerät danach weiter gesperrt (der Zielfall: verloren/gestohlen), löste jeder folgende
+ * periodische Lauf sofort erneut aus, sobald WorkManager nach dem Neustart wieder anläuft, unter
+ * Umständen alle paar Minuten. Jetzt wird die Baseline direkt nach einem erfolgreich ausgelösten
+ * Reboot auf "jetzt" vorgerückt, dieselbe Vorbelegung wie beim Aktivieren der Funktion — ein
+ * weiterhin unbeaufsichtigtes Gerät rebootet dadurch nicht seltener endgültig (der nächste Lauf,
+ * der das Gerät noch gesperrt vorfindet, löst nach demselben Zeitfenster erneut aus), aber nicht
+ * mehr in einer engen Schleife direkt nacheinander.
  */
 class AutoRebootController(private val context: Context) {
 
@@ -63,6 +67,9 @@ class AutoRebootController(private val context: Context) {
         try {
             val dpm = checkNotNull(context.getSystemService(DevicePolicyManager::class.java))
             dpm.reboot(admin)
+            // Baseline auf "jetzt" vorrücken (s. Klassendoc) — verhindert eine enge Reboot-Schleife
+            // direkt nach dem Neustart, solange das Gerät weiter gesperrt bleibt.
+            AutoRebootStorage.saveLastSeenUnlockedMillis(context, now)
             logStore.append(Log.WARN, TAG, "Auto-Reboot ausgelöst — Gerät seit >= ${threshold}h ununterbrochen gesperrt")
         } catch (e: Exception) {
             logStore.append(Log.ERROR, TAG, "Auto-Reboot fehlgeschlagen: $e")

@@ -471,6 +471,112 @@ P-12.
 4. Einen `CRITICAL`-Verdachtsfund provozieren (z. B. Signaturwechsel simulieren, falls aus P-Reihen
    oben vorbereitet) — erwartet: Bedrohungen-Balken fällt auf 0, unabhängig von sonstigen Funden.
 
+### P-15 — Tier-2-Auswahlmenüs (Einfriermethode, Ortung, Netzzeit, Löschgrenze)
+
+Prüft die vier am 2026-09-05 ergänzten mehrstufigen Einstellungen (Einstellungen ▸ Härtung).
+Keine davon ist im Auslieferungszustand aktiv — Schritt 1 prüft genau das.
+
+1. Frische Installation (oder nach Konfigurations-Import): alle vier stehen auf der ersten Stufe
+   ("Automatisch" bzw. dreimal "Aus"). Ein Versionswechsel darf hier nichts eingeschaltet haben.
+2. Einfriermethode auf "Nur suspendieren" stellen, eine unkritische App einfrieren — erwartet:
+   Symbol bleibt im Launcher, ausgegraut, Antippen zeigt den Systemdialog "App ist pausiert".
+   Auf "Nur verstecken" umstellen und erneut einfrieren: App verschwindet aus dem Launcher.
+   Für eine App, die einen `DeviceAdminReceiver` deklariert, schlägt "Nur verstecken" bewusst fehl
+   (dokumentierte OS-Lücke) — "Automatisch" gelingt dort über den Suspend-Rückfallweg.
+3. Ortung auf "einschalten und sperren" stellen: `adb shell dumpsys device_policy` zeigt
+   `no_config_location` unter Wardens Restriktionen, der Schalter in den Systemeinstellungen ist
+   ausgegraut. Zurück auf "Aus" — die Sperre verschwindet wieder (dieser Bit gehört allein diesem
+   Controller, s. dessen Klassendoc).
+4. Netzzeit auf "erzwingen und Änderung sperren" stellen. Erwartet: `no_config_date_time` gesetzt,
+   **und** der Safeguard "Uhrzeit-Manipulation verhindern" steht danach im Safeguards-Bildschirm
+   auf "an" — beides ist derselbe Soll-Zustand. Anschließend zurück auf "Aus": die Sperre bleibt
+   absichtlich stehen (nur verschärfen, nie lockern), ausgeschaltet wird sie am Safeguards-Schalter.
+5. Neustart mit gesetzter Ortungs-/Zeit-Einstellung: nach dem Boot sind beide unverändert. Der
+   Store liegt im Device-Protected-Bereich, die Reconciliation läuft also schon vor der ersten
+   Entsperrung.
+6. Löschgrenze: s. "Bewusst nicht scharf geschaltet" unten — nur die Anzeige wird geprüft. **Bleibt
+   auf diesem Testgerät bei jeder Stufe bei `0` stehen** (uses-policy-Lücke, s. dort) — kein
+   Regressions-Signal, solange über `dpm set-device-owner` provisioniert wurde.
+
+### P-15b — Bestätigungsdialog vor dem ADB-/Entwickleroptionen-Fix-Knopf
+
+**Live-Fund 2026-09-05, real reproduziert:** die erste Fassung des "Antippen zum Abschalten"-Knopfs
+im Sicherheits-Scanner (Tier-2 B5) rief `debugging_features_disabled` ungefragt direkt beim Tippen
+auf. Auf dem per USB verbundenen SM-A156B hat das die adb-Verbindung sofort gekappt — genau die im
+Safeguards-Katalog für diesen Schalter dokumentierte Gefahr, nur ohne dessen Bestätigungsdialog.
+Gefixt: die Zeile zeigt jetzt denselben Bestätigungstext wie der Safeguards-Schalter, bevor sie
+etwas ausführt. Nicht erneut versehentlich per USB-Debug-Verbindung testen.
+
+1. Gerät **ohne** aktive adb-Verbindung nehmen (WLAN-Debugging aus, USB-Kabel ab oder Debugging am
+   Rechner nicht autorisiert). Sicherheits-Scanner öffnen, auf "ADB-Debugging — tippen zum
+   Abschalten" tippen — erwartet: ein Dialog mit demselben Warntext wie beim Safeguards-Schalter
+   "Entwickleroptionen/USB-Debugging sperren", **nicht** eine sofortige Ausführung.
+2. "Abbrechen" tippen — erwartet: keine Änderung, `adb shell dumpsys device_policy` zeigt weiterhin
+   kein `no_debugging_features`.
+3. Erneut tippen, diesmal "Bestätigen" — erwartet: Restriktion wird gesetzt, Zeile zeigt danach
+   "inaktiv" (kein Fix-Knopf mehr, da nichts mehr zu beheben ist).
+4. Rückweg **nur am Gerät selbst**, nicht per adb (Entwickleroptionen sind jetzt in den
+   Systemeinstellungen gesperrt): Warden ▸ Safeguards ▸ "Entwickleroptionen/USB-Debugging sperren"
+   ausschalten.
+
+### P-16 — Richtlinien-Koexistenz und Soll-vs-Ist (Tier 3 / TestDPC-Übernahme)
+
+**Empirischer Befund 2026-09-05 (SM-A156B, Samsung One UI), nicht mehr nur theoretisch:**
+`WardenPolicyUpdateReceiver` hat auf diesem Gerät für zwei getestete Richtlinien
+(`camera_disabled`, `debugging_features_disabled`) **nie** eine Rückmeldung erhalten — trotz
+korrekter Manifest-Registrierung (`dumpsys package` bestätigt) und obwohl `dumpsys device_policy`
+für Letztere sogar einen `UserRestrictionPolicyKey`-Eintrag zeigt (das System verfolgt die
+Richtlinie also intern über die neue Policy-Engine, sendet den Broadcast aber trotzdem nicht).
+Vermutlich schließt Samsungs Knox-DPM-Stack die `PolicyUpdateReceiver`-Aussendung nicht vollständig
+an — dieselbe Kategorie Lücke wie die bereits dokumentierte FRP-Unzuverlässigkeit und der
+Kamera-`dumpsys`-blinde-Fleck. Schritt 2 unten schlägt auf diesem Gerät deshalb **erwartungsgemäß**
+fehl; das ist der bestätigte Zustand, kein neuer Fehler.
+
+1. Systemdiagnose öffnen ▸ Abschnitt "Richtlinien-Koexistenz". Erwartet auf dem SM-A156B: Warden
+   als Device Owner, plus `com.samsung.android.kgclient` in der Liste der weiteren aktiven Admins.
+2. Solange noch keine Rückmeldung eintraf, muss dort ausdrücklich "Bisher keine Rückmeldung"
+   stehen — **nicht** "keine Konflikte". Danach einen beliebigen Safeguard umschalten und erneut
+   prüfen: auf AOSP-naher Hardware sollte jetzt mindestens eine Richtlinie zurückgemeldet worden
+   sein — auf dem SM-A156B bleibt es bei "Bisher keine Rückmeldung" (s. Befund oben). Bei jedem
+   anderen Testgerät zuerst hier verifizieren, ob der Broadcast überhaupt ankommt, bevor Schritt 3
+   als "kaputt" gilt.
+3. Einen Safeguard auf einem Gerät einschalten, das die zugehörige Restriktion nicht kennt (oder
+   sie über einen zweiten Admin gegenhalten): der Safeguards-Bildschirm zeigt unter der Zeile
+   "⚠ Soll: an · Ist: aus" statt eines stumm falschen Schalterbilds.
+4. `adb shell dumpsys device_policy` gegenprüfen — die Anzeige darf nie behaupten, etwas sei
+   durchgesetzt, was dort nicht steht.
+
+### P-17 — Systemseitiger Diebstahlschutz (nur Verweis)
+
+Systemdiagnose ▸ "Systemseitiger Diebstahlschutz": zeigt ausschließlich, ob eine Bildschirmsperre
+eingerichtet ist, plus einen Knopf in die Sicherheitseinstellungen. Erwartet wird **kein**
+Aktiv-/Inaktiv-Status der drei Android-15-Funktionen — dafür gibt es keine öffentliche Lese-API,
+und ein geratener Wert wäre schlechter als keiner. Der Knopf muss die Systemeinstellungen öffnen
+(auf einem Gerät ohne diese Activity passiert nichts, kein Absturz).
+
+### P-18 — Ablaufdatum vorgemerkter Scharfschalt-Anforderungen
+
+Prüft den am 2026-09-05 im Gerätetest gefundenen Fall: eine über Widget oder Kachel vorgemerkte
+Anforderung blieb bis dahin unbegrenzt liegen und feuerte beim nächsten App-Start, auch Tage
+später.
+
+1. Widget-Schaltfläche "Lockdown" tippen, im PIN-Gate (`WardenLockActivity`) mit der Zurück-Geste
+   abbrechen — die Anforderung ist damit vorgemerkt, aber nicht abgeholt.
+2. Warden **innerhalb von fünf Minuten** normal öffnen: der Dialog "Lockdown scharf schalten?"
+   erscheint wie bisher. Das ist der unveränderte Gutfall.
+3. Vorgang aus Schritt 1 wiederholen, dann mehr als fünf Minuten warten und Warden öffnen:
+   erwartet ist **kein** Dialog. In `adb logcat -s PendingLockdownArm:I` steht dann
+   "abgelaufene Anforderung verworfen: …".
+4. Vorgang aus Schritt 1 wiederholen, dann das Gerät **neu starten** und Warden öffnen: ebenfalls
+   kein Dialog, unabhängig von der verstrichenen Zeit — `SystemClock.elapsedRealtime()` beginnt
+   nach dem Neustart neu, der gespeicherte Wert liegt dann in der Zukunft und gilt als abgelaufen.
+5. Gegenprobe zur Uhr-Manipulation: Schritt 1, dann die Systemuhr weit zurückstellen (nur ohne
+   gesetzte Netzzeit-Sperre möglich, s. P-15) und Warden öffnen. Erwartet: das Ablaufverhalten
+   ändert sich dadurch **nicht** — verglichen wird die monotone Uhr, nicht die Wanduhr.
+6. Der Bedrohungspfad hat bewusst ein längeres Fenster (24 h): einen kritischen Fund provozieren
+   (s. P-12/P-14), die Benachrichtigung stehen lassen und Warden erst nach einer halben Stunde
+   öffnen — das Auto-Engage muss weiterhin greifen.
+
 ## Bewusst nicht scharf geschaltet
 
 **Seit "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26) gibt es einen echten, zweistufigen
@@ -505,6 +611,43 @@ oben.
 **Sentinels Silent-Install selbst ist unabhängig vom Lock-Task-Hardblock und gefahrlos jederzeit
 testbar** (installiert nur ein zusätzliches Paket, versetzt das Gerät nicht in einen Kiosk-Zustand)
 — s. Schritt 11 oben.
+
+**Device-Owner-Übertragung (`SensitiveAction.TRANSFER_OWNERSHIP`, Einstellungen ▸ Erweitert,
+2026-09-05) wird bewusst nicht real ausgeführt.** Sie ist die einzige Aktion neben `WIPE_DATA`,
+nach der Warden sich selbst nicht mehr helfen kann: die Rolle liegt danach bei der Zielapp, und
+gibt die sie nicht zurück, hilft nur ein Werksreset — auf dem Testgerät also dieselbe
+Neuprovisionierungs-Runde, die schon `dpm remove-active-admin` gekostet hat (s. `CLAUDE.md`,
+"On-device verification"). Gefahrlos prüfbar und auch zu prüfen ist alles davor: dass die Zielliste
+nur Apps mit deklariertem `DeviceAdminReceiver` und ohne Warden selbst enthält, dass die Aktion in
+`SensitiveActionActivity` **nur** mit übergebenem Ziel überhaupt in der Auswahlliste auftaucht,
+dass sie keinen Sitzungs-Kurzweg anbietet (kein "Bestätigen"-Knopf, sondern Biometrie/PIN — wie bei
+`WIPE_DATA`), und dass ein Debug-Build sie mit "ExecutionBlocked" abweist.
+
+**Die Löschgrenze nach N Fehlversuchen (`FailedAttemptsWipeThreshold`) wird ebenfalls nicht real
+ausgelöst.** Sie steht im ausdrücklichen Widerspruch zur sonstigen "Neustart statt Löschen"-Linie
+des Projekts und ist genau deshalb standardmäßig aus (s. deren Klassendoc). Geprüft werden sollte,
+dass der gesetzte Wert in `adb shell dumpsys device_policy` als `maximumFailedPasswordsForWipe`
+erscheint und dass "Aus" ihn wieder auf `0` setzt — die Fehlversuche selbst werden nicht bis zur
+Schwelle durchgespielt.
+
+**Live-Fund 2026-09-05, auf dem SM-A156B zweimal reproduziert (frischer Werksreset +
+`dpm set-device-owner`, danach erneut nach `dpm remove-active-admin`/`set-device-owner`):** dieser
+Wert bleibt auf diesem Testgerät bei **jeder** Stufenwahl bei `0` stehen — `setMaximumFailedPasswordsForWipe`
+wirft `SecurityException: ... did not specify uses-policy for: wipe-data`, obwohl `wipe-data` in
+`device_admin_receiver.xml` korrekt deklariert ist. Derselbe Fehler betrifft auch
+`KeyguardHardeningSafeguard`/`LockScreenPrivacySafeguard` ("Nur PIN/Passwort", `disable-keyguard-features`).
+Ursache laut aktuellem Stand: `adb shell dpm set-device-owner` (der auf diesem Projekt bislang
+einzig belegte Provisionierungsweg) durchläuft nicht den normalen Consent-Flow, der die
+`<uses-policy>`-Liste einliest — `dumpsys device_policy` zeigt für Wardens Admin-Eintrag
+`testOnlyAdmin=true` mit komplett leerer `policies:`-Liste. Ein Versuch, stattdessen über den
+echten `android.app.action.PROVISION_MANAGED_DEVICE`-Intent (mit bereits installierter APK, ohne
+Download-URL) neu zu provisionieren, scheiterte an einer nicht näher aufgeschlüsselten Ablehnung
+("Gerät kann nicht eingerichtet werden") — nicht am Netzwerk (WLAN war verbunden und validiert).
+Nicht weiterverfolgt; das Gerät läuft seitdem wieder über den bekannten `dpm set-device-owner`-Weg
+mit demselben Uses-Policy-Loch wie zuvor. Näheres samt beider Reproduktionen s. `CLAUDE.md`,
+Abschnitt "`adb shell dpm set-device-owner` never populates `<uses-policy>`". Bis das geklärt ist,
+ist Schritt "P-15, Punkt 6" (Löschgrenze in `dumpsys` prüfen) auf diesem Testgerät **nicht**
+grün zu bekommen, unabhängig vom App-Code — das ist kein Regressions-Signal.
 
 ## Reduzierte Instrumented-Tests (kompiliert, nicht auf einem Gerät ausgeführt)
 

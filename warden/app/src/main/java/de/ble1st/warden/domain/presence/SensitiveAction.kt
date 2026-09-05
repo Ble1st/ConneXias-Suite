@@ -64,6 +64,20 @@ package de.ble1st.warden.domain.presence
  * über einen eigenen, mehrfach eigenständig gegateten Pfad, s. dessen Klassendoc.
  * `allowsSessionPresence = true` — derselbe bereits beim App-Eintritt erbrachte Nachweis deckt
  * auch diesen manuellen Weg ab.
+ *
+ * **`TRANSFER_OWNERSHIP` (Tier 3 der DPC-Recherche, 2026-09-05, Nutzerwunsch "changeowner in
+ * Erweitert"):** übergibt die Device-Owner-Rolle an eine andere App
+ * (`DevicePolicyManager.transferOwnership`). Von allen Aktionen hier die einzige, nach der Warden
+ * **selbst keine Rechte mehr hat**, um irgendetwas davon rückgängig zu machen — der Rückweg
+ * existiert nur noch in der Zielapp, und wenn die ihn nicht anbietet, hilft nur ein Werksreset.
+ * Deshalb `allowsSessionPresence = false`, dieselbe strukturelle Ausnahme wie bei `WIPE_DATA`: der
+ * beim App-Eintritt erbrachte Nachweis kann Stunden alt sein, für eine Aktion ohne Rückweg ist das
+ * zu wenig. Ein *frischer* Biometrie-/PIN-Nachweis bleibt Pflicht.
+ *
+ * Das Ziel der Übertragung steckt bewusst **nicht** in diesem Enum: es ist ein zur Laufzeit
+ * gewählter `ComponentName`, und die Aktionen hier tragen keine Parameter. Es wird stattdessen
+ * beim Öffnen von [de.ble1st.warden.presence.SensitiveActionActivity] als Intent-Extra übergeben
+ * und dort in das ausführende Lambda eingeschlossen — s. deren Klassendoc.
  */
 enum class SensitiveAction(val confirmationPhrase: String, val displayName: String, val allowsSessionPresence: Boolean) {
     WIPE_DATA("WIPE", "Werksreset (nicht ausgeführt)", allowsSessionPresence = false),
@@ -72,4 +86,5 @@ enum class SensitiveAction(val confirmationPhrase: String, val displayName: Stri
     LOCK_NOW("LOCK", "Sofort sperren", allowsSessionPresence = true),
     LOCKDOWN_MODE_ARM("LOCKDOWN", "Lockdown-Modus scharf schalten", allowsSessionPresence = true),
     LOCKDOWN_TASK_ENGAGE("LOCKTASK", "App-Lock (Lock-Task) jetzt aktivieren", allowsSessionPresence = true),
+    TRANSFER_OWNERSHIP("TRANSFER", "Device-Owner an andere App übertragen", allowsSessionPresence = false),
 }

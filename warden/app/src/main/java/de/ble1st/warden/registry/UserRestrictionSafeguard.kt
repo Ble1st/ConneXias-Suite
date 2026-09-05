@@ -66,6 +66,35 @@ class UserRestrictionSafeguard(
         const val INSTALL_UNKNOWN_SOURCES_DISABLED_ID = "install_unknown_sources_disabled"
 
         /**
+         * Die geräteweite Variante von [installUnknownSourcesDisabled] (2026-09-05, Tier-1 der
+         * DPC-Recherche): `DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY` gilt für **alle** Nutzer des
+         * Geräts, nicht nur für den, in dem Warden läuft. Das schließt die Lücke, die
+         * `ADD_USER_DISABLED_ID`s eigener Hinweis benennt ("ein neu angelegtes Profil startet
+         * ungehärtet") — ein Zweitnutzer konnte bisher ungehindert sideloaden, obwohl der
+         * Hauptnutzer gesperrt war.
+         *
+         * **Der Verdachtsscanner meldet Sideloads nur** (`UNKNOWN_INSTALL_SOURCE`, Stufe `INFO`,
+         * s. [de.ble1st.warden.domain.appmanagement.SuspiciousSignal]); dieser Schalter verhindert
+         * sie. Bewusst als eigener Katalogeintrag neben der nutzerbezogenen Variante statt als
+         * Ersatz: die geräteweite Sperre ist die deutlich schärfere Maßnahme und soll eine eigene
+         * bewusste Entscheidung bleiben.
+         *
+         * **Wichtige Nebenwirkung, die in den UI-Text gehört:** Warden selbst wird als rohe APK
+         * über GitHub Releases verteilt (s. `warden/CLAUDE.md`). Ist dieser Schalter an, lässt sich
+         * **Warden nicht mehr aktualisieren**, ohne ihn vorher wieder auszuschalten. Bereits
+         * installierte Apps — Warden eingeschlossen — bleiben unangetastet; es geht ausschließlich
+         * um *neue* Installationen.
+         */
+        fun installUnknownSourcesGloballyDisabled(context: Context): UserRestrictionSafeguard =
+            UserRestrictionSafeguard(
+                context = context,
+                restriction = UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY,
+                id = INSTALL_UNKNOWN_SOURCES_GLOBALLY_DISABLED_ID,
+            )
+
+        const val INSTALL_UNKNOWN_SOURCES_GLOBALLY_DISABLED_ID = "install_unknown_sources_globally_disabled"
+
+        /**
          * Everyday catalog entry (Alltag profile) **and** a [DeviceLockdownBundle] member.
          * Blocks factory reset from Settings (`DISALLOW_FACTORY_RESET`). Does **not** by itself
          * guarantee a Recovery wipe is impossible — that is OEM-dependent. Not `wipeData()` —

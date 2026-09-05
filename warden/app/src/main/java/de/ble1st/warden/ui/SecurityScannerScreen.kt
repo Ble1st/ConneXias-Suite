@@ -1,5 +1,6 @@
 package de.ble1st.warden.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -25,7 +27,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -40,9 +45,16 @@ import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
 import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.domain.encryption.EncryptionRecommendationDecision
 import de.ble1st.warden.domain.encryption.EncryptionRecommendationType
+import de.ble1st.warden.domain.advancedprotection.AdvancedProtectionState
+import de.ble1st.warden.domain.attestation.AttestationDecision
+import de.ble1st.warden.domain.attestation.DeviceAttestation
+import de.ble1st.warden.domain.attestation.VerifiedBootState
 import de.ble1st.warden.domain.encryption.KeystoreSecurityLevel
+import de.ble1st.warden.domain.score.SecurityScoreBreakdown
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.integrity.RootIndicatorSignal
+import de.ble1st.warden.registry.UserRestrictionSafeguard
+import de.ble1st.warden.score.SecurityScoreHistoryStore
 import de.ble1st.warden.ui.theme.mono
 
 /**
@@ -62,6 +74,29 @@ import de.ble1st.warden.ui.theme.mono
  *
  * Nimmt [SuspiciousAppFindingInfo] direkt entgegen (kein Binder-Overhead mehr, s.
  * [AppManagementScreen]-Klassendoc für dieselbe Begründung).
+ *
+ * **Trägt seit 2026-09-05 zusätzlich den Security-Score-Abschnitt** (vorher ein eigener
+ * `WardenScreen.SecurityScore`-Bildschirm mit eigenem Dashboard-Menüpunkt, Nutzerwunsch
+ * "verschiebe ihn in den Security-Teil, kein eigenes Untermenü") — [SecurityScoreSection] bleibt
+ * ein eigenständiger, in sich geschlossener Composable (eigene Datei, eigener "Berechnen"-Button,
+ * eigene Fehlerbehandlung), nur ohne eigenes `Scaffold`. Dieselbe Begründung wie zuvor gilt
+ * unverändert: die vier zugrunde liegenden Lesepfade sind zusammen zu teuer für automatisches
+ * Mitlaufen beim Öffnen dieses Bildschirms, deshalb weiterhin ein expliziter Button statt einer
+ * mitgeladenen Kennzahl.
+ *
+ * **Ganzer Bildschirm auf eine einzige `LazyColumn` umgestellt, gleicher Anlass.** Vorher stand
+ * die Funde-`LazyColumn` als letztes Kind in einer nicht scrollbaren `Column` — bei wenig Inhalt
+ * unauffällig, aber verwandt mit der in `PerformanceMonitorScreen` dokumentierten Falle ("eine
+ * `LazyColumn` verschachtelt in einer `verticalScroll`-`Column` stürzt ab, sobald echte Daten da
+ * sind", s. `warden/CLAUDE.md` Abschnitt "Threat severity, permission audit, performance monitor")
+ * — hier zwar ohne `verticalScroll`, also kein harter Absturz, aber derselbe Kern-Fehler: alles vor
+ * der `LazyColumn` ist nicht scrollbar. Mit dem neuen
+ * Security-Score-Abschnitt (Gauge, vier Kategorie-Zeilen samt Begründungstexten, bis zu 30 Tage
+ * Historie) wurde dieser Kopfbereich groß genug, dass er auf kleinen Bildschirmen echten Inhalt
+ * abschneiden konnte. Jetzt ist der gesamte Kopfbereich (Scanner-Schalter, Intro, Geräte-
+ * Integrität, Security-Score) selbst der erste Satz `item { }`-Einträge derselben `LazyColumn`,
+ * die Funde-Zeilen bleiben `items(...)` direkt danach — ein einziger scrollbarer Bereich statt
+ * zwei getrennter.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +114,17 @@ fun SecurityScannerScreen(
     onToggleScannerEnabled: (Boolean) -> Unit,
     onTrust: (packageName: String) -> Unit,
     onRunImmediateScan: () -> Unit,
+    securityScoreBreakdown: SecurityScoreBreakdown?,
+    securityScoreCalculationFailed: Boolean,
+    securityScoreCalculationInProgress: Boolean,
+    securityScoreHistory: List<SecurityScoreHistoryStore.HistoryEntry>,
+    onCalculateSecurityScore: () -> Unit,
+    /** Tier-2-B5 (2026-09-05): schaltet die Entwickleroptionen/ADB per bestehendem Safeguard
+     * `debugging_features_disabled` ab. Der Bildschirm hat diese beiden Zeilen bisher nur
+     * *gemeldet* — der Nutzer musste den passenden Schalter im Safeguards-Bildschirm selbst
+     * finden. Ein Befund, der direkt neben sich seine Abhilfe trägt, ist der eigentliche
+     * Unterschied zwischen einem Melde- und einem Verwaltungswerkzeug (TestDPC-Vergleich). */
+    onDisableDebuggingFeatures: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -104,104 +150,121 @@ fun SecurityScannerScreen(
             onRefresh = onRunImmediateScan,
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-        Column(
+        // Vorschlag V-3 (2026-08-29): kritische Funde zuerst. Vorher stand die Liste in
+        // Scan-Reihenfolge, also praktisch in Paketreihenfolge — ein kritischer Signaturwechsel
+        // konnte unter zehn Info-Funden ("unbekannte Installationsquelle") liegen und war nur
+        // durch Scrollen zu finden. Innerhalb einer Stufe nach Namen, damit die Reihenfolge
+        // zwischen zwei Scans stabil bleibt und nicht bei jedem Neuladen springt.
+        // Hier oben berechnet, nicht in der `LazyColumn`-DSL selbst: deren Rumpf
+        // (`LazyListScope.() -> Unit`) ist keine `@Composable`-Funktion — nur `item{}`/`items{}`
+        // sind es —, ein direkter `remember(...)`-Aufruf dort schlägt beim Kompilieren fehl.
+        val sorted = remember(findings) {
+            findings.sortedWith(
+                compareByDescending<SuspiciousAppFindingInfo> { it.severity.ordinal }
+                    .thenBy { it.label.lowercase() },
+            )
+        }
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val autofreezeLabel = stringResource(R.string.security_scanner_autofreeze_label)
-            val autofreezeStateOn = stringResource(R.string.security_scanner_autofreeze_state_on)
-            val autofreezeStateOff = stringResource(R.string.security_scanner_autofreeze_state_off)
-            val autofreezeStateUnknown = stringResource(R.string.security_scanner_autofreeze_state_unknown)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        contentDescription = autofreezeLabel
-                        stateDescription = when (scannerEnabled) {
-                            true -> autofreezeStateOn
-                            false -> autofreezeStateOff
-                            null -> autofreezeStateUnknown
+            item {
+                val autofreezeLabel = stringResource(R.string.security_scanner_autofreeze_label)
+                val autofreezeStateOn = stringResource(R.string.security_scanner_autofreeze_state_on)
+                val autofreezeStateOff = stringResource(R.string.security_scanner_autofreeze_state_off)
+                val autofreezeStateUnknown = stringResource(R.string.security_scanner_autofreeze_state_unknown)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics {
+                                contentDescription = autofreezeLabel
+                                stateDescription = when (scannerEnabled) {
+                                    true -> autofreezeStateOn
+                                    false -> autofreezeStateOff
+                                    null -> autofreezeStateUnknown
+                                }
+                            },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = autofreezeLabel, style = MaterialTheme.typography.titleMedium)
+                        Switch(
+                            checked = scannerEnabled == true,
+                            enabled = scannerEnabled != null,
+                            onCheckedChange = onToggleScannerEnabled,
+                        )
+                    }
+                    if (scannerEnabled == null) {
+                        ErrorStateRow(
+                            headline = stringResource(R.string.security_scanner_status_unreadable_headline),
+                            detail = stringResource(R.string.security_scanner_status_unreadable_detail),
+                            onRetry = onRetry,
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.security_scanner_intro),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = onRunImmediateScan, enabled = !scanInProgress) {
+                            Text(stringResource(R.string.security_scanner_run_now_action))
                         }
-                    },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(text = autofreezeLabel, style = MaterialTheme.typography.titleMedium)
-                Switch(
-                    checked = scannerEnabled == true,
-                    enabled = scannerEnabled != null,
-                    onCheckedChange = onToggleScannerEnabled,
-                )
-            }
-            if (scannerEnabled == null) {
-                ErrorStateRow(
-                    headline = stringResource(R.string.security_scanner_status_unreadable_headline),
-                    detail = stringResource(R.string.security_scanner_status_unreadable_detail),
-                    onRetry = onRetry,
-                )
-            }
-            Text(
-                text = stringResource(R.string.security_scanner_intro),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onRunImmediateScan, enabled = !scanInProgress) {
-                    Text(stringResource(R.string.security_scanner_run_now_action))
-                }
-                // Punkt 1 ("weitere App-UI-Verschönerungen", 2026-08-22) — das brandneue, wellen-
-                // förmige Material-3-Expressive `LoadingIndicator` steckt noch in material3
-                // 1.5.0-alpha, die vom Projekt gepinnte stabile BOM-Version liefert nur bis 1.4.0;
-                // ein Alpha-Artefakt für eine reine Kosmetik-Ergänzung zu ziehen wäre unverhältnis-
-                // mäßig. `CircularProgressIndicator` (stabil, seit Jahren Teil von Material 3)
-                // erfüllt denselben Zweck: sichtbares Feedback während des Scans.
-                if (scanInProgress) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        // Punkt 1 ("weitere App-UI-Verschönerungen", 2026-08-22) — das brandneue,
+                        // wellenförmige Material-3-Expressive `LoadingIndicator` steckt noch in
+                        // material3 1.5.0-alpha, die vom Projekt gepinnte stabile BOM-Version
+                        // liefert nur bis 1.4.0; ein Alpha-Artefakt für eine reine Kosmetik-
+                        // Ergänzung zu ziehen wäre unverhältnismäßig. `CircularProgressIndicator`
+                        // (stabil, seit Jahren Teil von Material 3) erfüllt denselben Zweck:
+                        // sichtbares Feedback während des Scans.
+                        if (scanInProgress) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                    HorizontalDivider()
+                    Text(text = stringResource(R.string.security_scanner_integrity_title), style = MaterialTheme.typography.titleMedium)
+                    DeviceIntegritySection(
+                        deviceIntegrityStatus,
+                        onRetry = onRetry,
+                        onDisableDebuggingFeatures = onDisableDebuggingFeatures,
+                    )
+                    HorizontalDivider()
+                    Text(text = stringResource(R.string.security_score_title), style = MaterialTheme.typography.titleMedium)
+                    SecurityScoreSection(
+                        breakdown = securityScoreBreakdown,
+                        calculationFailed = securityScoreCalculationFailed,
+                        calculationInProgress = securityScoreCalculationInProgress,
+                        history = securityScoreHistory,
+                        onCalculate = onCalculateSecurityScore,
+                    )
+                    HorizontalDivider()
+                    Text(text = stringResource(R.string.security_scanner_findings_title), style = MaterialTheme.typography.titleMedium)
                 }
             }
-            HorizontalDivider()
-            Text(text = stringResource(R.string.security_scanner_integrity_title), style = MaterialTheme.typography.titleMedium)
-            DeviceIntegritySection(deviceIntegrityStatus, onRetry = onRetry)
-            HorizontalDivider()
-            Text(text = stringResource(R.string.security_scanner_findings_title), style = MaterialTheme.typography.titleMedium)
             if (findingsLoadFailed) {
                 // Dieselbe Unterscheidung wie in AppManagementScreen (Klassendoc dort): ein
                 // Scan-Fehler (typischerweise fehlender Device Owner, s. AppFreezeManager) darf
                 // nicht wie "nichts Verdächtiges gefunden" aussehen.
-                ErrorStateRow(
-                    headline = stringResource(R.string.security_scanner_findings_unreadable_headline),
-                    detail = stringResource(R.string.security_scanner_no_device_owner_detail),
-                    onRetry = onRetry,
-                )
-            } else if (findings.isEmpty()) {
-                EmptyStateRow(headline = stringResource(R.string.security_scanner_findings_empty_headline))
-            } else {
-                // Vorschlag V-3 (2026-08-29): kritische Funde zuerst. Vorher stand die Liste in
-                // Scan-Reihenfolge, also praktisch in Paketreihenfolge — ein kritischer
-                // Signaturwechsel konnte unter zehn Info-Funden ("unbekannte Installationsquelle")
-                // liegen und war nur durch Scrollen zu finden. Innerhalb einer Stufe nach Namen,
-                // damit die Reihenfolge zwischen zwei Scans stabil bleibt und nicht bei jedem
-                // Neuladen springt.
-                val sorted = remember(findings) {
-                    findings.sortedWith(
-                        compareByDescending<SuspiciousAppFindingInfo> { it.severity.ordinal }
-                            .thenBy { it.label.lowercase() },
+                item {
+                    ErrorStateRow(
+                        headline = stringResource(R.string.security_scanner_findings_unreadable_headline),
+                        detail = stringResource(R.string.security_scanner_no_device_owner_detail),
+                        onRetry = onRetry,
                     )
                 }
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    items(sorted, key = { it.packageName }) { finding ->
-                        FindingRow(
-                            finding = finding,
-                            onTrust = { onTrust(finding.packageName) },
-                        )
-                    }
+            } else if (findings.isEmpty()) {
+                item { EmptyStateRow(headline = stringResource(R.string.security_scanner_findings_empty_headline)) }
+            } else {
+                items(sorted, key = { it.packageName }) { finding ->
+                    FindingRow(
+                        finding = finding,
+                        onTrust = { onTrust(finding.packageName) },
+                    )
                 }
             }
         }
@@ -212,7 +275,11 @@ fun SecurityScannerScreen(
 /** `null` = Laden fehlgeschlagen — dieselbe Fail-Safe-Unterscheidung wie [findingsLoadFailed]
  * oben: ein Lesefehler darf nicht wie "alles unauffällig" aussehen. */
 @Composable
-private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -> Unit) {
+private fun DeviceIntegritySection(
+    status: DeviceIntegrityStatus?,
+    onRetry: () -> Unit,
+    onDisableDebuggingFeatures: () -> Unit,
+) {
     if (status == null) {
         ErrorStateRow(
             headline = stringResource(R.string.security_scanner_integrity_unreadable_headline),
@@ -222,8 +289,32 @@ private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -
         return
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        IntegrityStatusRow(label = stringResource(R.string.security_scanner_adb_label), active = status.adbEnabled)
-        IntegrityStatusRow(label = stringResource(R.string.security_scanner_developer_options_label), active = status.developerOptionsEnabled)
+        // Tier-2 der DPC-Recherche (2026-09-05): Diese beiden Zeilen meldeten den Befund bisher
+        // nur — obwohl Warden ihn als Device Owner selbst beheben kann. Der Katalog-Safeguard
+        // `debuggingFeaturesDisabled` (DISALLOW_DEBUGGING_FEATURES) deckt beide ab. Sie sind jetzt
+        // antippbar, aber **nur wenn sie tatsächlich aktiv sind**: eine Zeile, die schon "inaktiv"
+        // sagt, hätte keine sinnvolle Aktion und dürfte nicht wie ein Schalter aussehen.
+        //
+        // Bestätigungstext kommt aus demselben Katalogeintrag, den auch der Safeguards-Bildschirm
+        // für diesen Schalter zeigt (s. IntegrityStatusRow-Klassendoc) — ein Gerätetest-Fund vom
+        // selben Tag: ein ungefragter Tap hier hat live sofort die adb-Verbindung getrennt.
+        val debuggingFeaturesEntry = remember {
+            SafeguardUiCatalog.entryById(UserRestrictionSafeguard.DEBUGGING_FEATURES_DISABLED_ID)
+        }
+        IntegrityStatusRow(
+            label = stringResource(R.string.security_scanner_adb_label),
+            active = status.adbEnabled,
+            onFix = onDisableDebuggingFeatures.takeIf { status.adbEnabled },
+            confirmTitle = debuggingFeaturesEntry?.confirmTitle,
+            confirmText = debuggingFeaturesEntry?.confirmText,
+        )
+        IntegrityStatusRow(
+            label = stringResource(R.string.security_scanner_developer_options_label),
+            active = status.developerOptionsEnabled,
+            onFix = onDisableDebuggingFeatures.takeIf { status.developerOptionsEnabled },
+            confirmTitle = debuggingFeaturesEntry?.confirmTitle,
+            confirmText = debuggingFeaturesEntry?.confirmText,
+        )
         // Eigene Ergänzung (2026-08-22): anders als die beiden Zeilen oben ist "aktiv" hier GUT,
         // nicht schlecht — eigene Zeile statt IntegrityStatusRow-Wiederverwendung mit invertierter
         // Farblogik, sonst müsste jede/r Leser*in die Bedeutung von "aktiv" pro Zeile neu prüfen.
@@ -231,6 +322,12 @@ private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -
         // Feature 5 "Storage Encryption Verification" (nachgeholt 2026-09-04): dieselbe
         // "aktiv = gut"-Farblogik wie EncryptionStatusRow direkt darüber.
         KeystoreStatusRow(level = status.keystoreSecurityLevel)
+        // Tier-1 der DPC-Recherche (2026-09-05): Key Attestation und Androids „Erweiterter
+        // Schutz". Beide stehen bewusst direkt vor der Root-Heuristik — sie beantworten dieselbe
+        // Frage (Geräteintegrität) mit deutlich höherer Beweiskraft, und die Reihenfolge
+        // stark → schwach macht sichtbar, welcher Zeile man mehr glauben darf.
+        AttestationRows(attestation = status.attestation)
+        AdvancedProtectionRow(state = status.advancedProtection)
         if (status.rootIndicators.isEmpty()) {
             EmptyStateRow(headline = stringResource(R.string.security_scanner_root_indicators_empty))
         } else {
@@ -324,24 +421,185 @@ private fun KeystoreStatusRow(level: KeystoreSecurityLevel) {
     }
 }
 
+/**
+ * Key-Attestation-Zeilen (2026-09-05). Drei Werte statt einem, weil sie unterschiedlich stark
+ * sind und getrennt gelesen werden müssen: Verified-Boot-Zustand, Bootloader-Sperre und
+ * Patch-Stand. Ist gar nichts auslesbar ([VerifiedBootState.UNBEKANNT] ohne weitere Werte), wird
+ * **eine** erklärende Zeile gezeigt statt dreimal "unbekannt" — auf vielen OEM-Geräten ist das der
+ * Normalfall und soll nicht wie ein dreifacher Mangel aussehen.
+ */
 @Composable
-private fun IntegrityStatusRow(label: String, active: Boolean) {
-    val activeState = stringResource(R.string.security_scanner_state_active)
-    val inactiveState = stringResource(R.string.security_scanner_state_inactive)
+private fun AttestationRows(attestation: DeviceAttestation) {
+    val unavailable = attestation.verifiedBootState == VerifiedBootState.UNBEKANNT &&
+        attestation.deviceLocked == null &&
+        attestation.osPatchLevel == null
+    if (unavailable) {
+        Text(
+            text = stringResource(R.string.security_scanner_attestation_unavailable),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val bootIsGood = attestation.verifiedBootState == VerifiedBootState.VERIFIED
+    val bootIsNeutral = attestation.verifiedBootState == VerifiedBootState.SELF_SIGNED ||
+        attestation.verifiedBootState == VerifiedBootState.UNBEKANNT
+    AttestationValueRow(
+        label = stringResource(R.string.security_scanner_attestation_boot_label),
+        value = attestation.verifiedBootState.label,
+        isProblem = !bootIsGood && !bootIsNeutral,
+    )
+    attestation.deviceLocked?.let { locked ->
+        AttestationValueRow(
+            label = stringResource(R.string.security_scanner_attestation_locked_label),
+            value = if (locked) {
+                stringResource(R.string.security_scanner_attestation_locked_yes)
+            } else {
+                stringResource(R.string.security_scanner_attestation_locked_no)
+            },
+            isProblem = !locked,
+        )
+    }
+    attestation.osPatchLevel?.let { patch ->
+        val months = AttestationDecision.monthsBetween(patch, currentYearMonthForUi())
+        AttestationValueRow(
+            label = stringResource(R.string.security_scanner_attestation_patch_label),
+            value = formatPatchLevel(patch),
+            isProblem = months != null && months >= AttestationDecision.PATCH_LEVEL_WARN_MONTHS,
+        )
+    }
+    // Der Hinweis auf die Grenzen ist Absicht, gleiche Haltung wie bei CellSecurityField: das hier
+    // ist stark, aber nicht unfehlbar (Keybox-Leaks, fehlerhafte OEM-Implementierungen).
+    if (attestation.chainTrusted == false) {
+        Text(
+            text = stringResource(R.string.security_scanner_attestation_chain_untrusted),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** `YYYYMM` → `MM/YYYY`, ohne `SimpleDateFormat`-Umweg: der Wert ist bereits ein reiner
+ * Zahlencode, kein Zeitstempel. */
+private fun formatPatchLevel(yearMonth: Int): String {
+    val year = yearMonth / 100
+    val month = yearMonth % 100
+    return "%02d/%04d".format(month, year)
+}
+
+private fun currentYearMonthForUi(): Int {
+    val now = java.time.YearMonth.now()
+    return now.year * 100 + now.monthValue
+}
+
+@Composable
+private fun AttestationValueRow(label: String, value: String, isProblem: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .semantics {
                 contentDescription = label
+                stateDescription = value
+            },
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodySmall)
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (isProblem) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** [AdvancedProtectionState.NICHT_VERFUEGBAR] wird bewusst in der neutralen Farbe gezeigt, nicht
+ * in der Fehlerfarbe: auf Android 15 (dem aktuellen Zielgerätestand) fehlt die Funktion der
+ * Plattform, das ist kein Mangel des Geräts und schon gar keiner, den der Nutzer beheben könnte. */
+@Composable
+private fun AdvancedProtectionRow(state: AdvancedProtectionState) {
+    AttestationValueRow(
+        label = stringResource(R.string.security_scanner_advanced_protection_label),
+        value = state.label,
+        isProblem = state == AdvancedProtectionState.AUS,
+    )
+}
+
+/**
+ * [onFix] `null` = keine Aktion anbieten (Normalfall: nichts zu beheben). Ist eine Aktion
+ * hinterlegt, wird die ganze Zeile antippbar und trägt einen sichtbaren Hinweis — ein reiner
+ * `clickable`-Modifier ohne optische Änderung wäre eine versteckte Funktion.
+ *
+ * **Bestätigungsdialog vor [onFix] (Nachtrag 2026-09-05, Gerätetest-Fund).** Die erste Fassung
+ * rief [onFix] direkt beim Antippen auf — für `debugging_features_disabled` genau die riskante
+ * Richtung, die [SafeguardUiCatalog.RiskSide.ENABLING] im Safeguards-Bildschirm längst hinter
+ * einem Bestätigungsdialog versteckt (Katalogtext: kappt vermutlich sofort jede bestehende
+ * adb-Verbindung, danach nur noch hier umkehrbar). Live bestätigt: ein einzelner Tap hat auf dem
+ * Testgerät tatsächlich sofort die USB-Debugging-Verbindung getrennt. Diese Zeile ist nur ein
+ * zweiter, bequemerer Weg zu **demselben** Safeguard — sie darf dessen eigene Sicherung nicht
+ * umgehen, nur weil sie an anderer Stelle sitzt. [confirmTitle]/[confirmText] `null` (der
+ * Normalfall für risikolose Aktionen) lässt [onFix] weiterhin direkt beim Antippen laufen.
+ */
+@Composable
+private fun IntegrityStatusRow(
+    label: String,
+    active: Boolean,
+    onFix: (() -> Unit)? = null,
+    confirmTitle: String? = null,
+    confirmText: String? = null,
+) {
+    val activeState = stringResource(R.string.security_scanner_state_active)
+    val inactiveState = stringResource(R.string.security_scanner_state_inactive)
+    val fixLabel = stringResource(R.string.security_scanner_fix_action)
+    var pendingConfirm by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onFix != null) {
+                    Modifier.clickable {
+                        if (confirmTitle != null) pendingConfirm = true else onFix()
+                    }
+                } else {
+                    Modifier
+                },
+            )
+            .semantics {
+                contentDescription = if (onFix != null) "$label — $fixLabel" else label
                 stateDescription = if (active) activeState else inactiveState
             },
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(text = label, style = MaterialTheme.typography.bodySmall)
         Text(
-            text = if (active) activeState else inactiveState,
+            text = if (onFix != null) {
+                "${if (active) activeState else inactiveState} · $fixLabel"
+            } else {
+                if (active) activeState else inactiveState
+            },
             style = MaterialTheme.typography.bodySmall,
             color = if (active) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    if (pendingConfirm && onFix != null && confirmTitle != null) {
+        AlertDialog(
+            onDismissRequest = { pendingConfirm = false },
+            title = { Text(confirmTitle) },
+            text = { confirmText?.let { Text(it) } },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingConfirm = false
+                        onFix()
+                    },
+                ) {
+                    Text(stringResource(R.string.action_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingConfirm = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
         )
     }
 }

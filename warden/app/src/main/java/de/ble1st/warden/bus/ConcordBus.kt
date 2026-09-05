@@ -22,6 +22,8 @@ import de.ble1st.warden.domain.registry.SafeguardRegistry
 import de.ble1st.warden.integrity.DebuggableOsStatusReader
 import de.ble1st.warden.integrity.DeveloperOptionsStatusReader
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
+import de.ble1st.warden.integrity.AdvancedProtectionReader
+import de.ble1st.warden.integrity.KeyAttestationReader
 import de.ble1st.warden.integrity.KeystoreSecurityLevelReader
 import de.ble1st.warden.integrity.RootIndicatorScanner
 import de.ble1st.warden.integrity.StorageEncryptionStatusReader
@@ -79,6 +81,12 @@ class ConcordBus(
     private val developerOptionsStatusReader = DeveloperOptionsStatusReader(context)
     private val storageEncryptionStatusReader = StorageEncryptionStatusReader(context)
     private val keystoreSecurityLevelReader = KeystoreSecurityLevelReader(context)
+
+    // 2026-09-05, Tier-1 der DPC-Recherche: der kryptografische Gegenpart zu rootIndicatorScanners
+    // Heuristik (Key Attestation) und Androids eigener „Erweiterter Schutz" (AAPM, ab Android 16 —
+    // auf älteren Systemen liefert der Reader NICHT_VERFUEGBAR statt eines geratenen „aus").
+    private val keyAttestationReader = KeyAttestationReader()
+    private val advancedProtectionReader = AdvancedProtectionReader(context)
     private val deviceLockNowManager = DeviceLockNowManager(context)
     // "Arbeite langsam am Lockdownmodus" (2026-08-22), dritter Schritt: rein lesende Instanz fürs
     // Dashboard-Statuslicht — bewusst NICHT in `registry` unten registriert (dort absichtlich
@@ -117,6 +125,8 @@ class ConcordBus(
                 developerOptionsEnabled = developerOptionsStatusReader.isDeveloperOptionsEnabled(),
                 storageEncrypted = storageEncryptionStatusReader.isEncrypted(),
                 keystoreSecurityLevel = keystoreSecurityLevelReader.read(),
+                attestation = keyAttestationReader.read(),
+                advancedProtection = advancedProtectionReader.read(),
             )
         }
 
@@ -167,6 +177,32 @@ class ConcordBus(
             safeguardIds.associateWith { id ->
                 runCatching { registry.isActive(id) }
                     .onFailure { Log.w(TAG, "Safeguard-Zustand ($id) nicht lesbar", it) }
+                    .getOrNull()
+            }
+        }
+
+    /**
+     * **Soll**-Zustand mehrerer Safeguards in einem autorisierten Aufruf — das Gegenstück zu
+     * [safeguardStates] (TestDPC-Übernahme, 2026-09-05).
+     *
+     * Warden trennt seit jeher sauber zwischen dem *gewünschten* Zustand (persistiert in
+     * [de.ble1st.warden.registry.PersistentSafeguardRegistry]) und dem *tatsächlichen* (immer live
+     * am DPM abgefragt, nie zwischengespeichert) — und
+     * [de.ble1st.warden.domain.registry.RegistryReconcileDecision] gleicht beide beim Booten ab.
+     * Sichtbar war bisher nur der Ist-Zustand: ein Schalter, der aussteht, weil er nie eingeschaltet
+     * wurde, sah in der UI genauso aus wie einer, den Warden einschalten *will* und der vom Gerät
+     * abgelehnt oder von einem zweiten Admin überschrieben wurde. Genau diese Nebeneinander-Anzeige
+     * macht TestDPC gut und war der Punkt, der aus der DPC-Recherche übernommen werden sollte.
+     *
+     * `null` heißt "für diese ID ist kein Soll-Zustand hinterlegt" — dieselbe Bedeutung wie in
+     * [de.ble1st.warden.registry.PersistentSafeguardRegistry.desiredState], und ausdrücklich nicht
+     * "aus".
+     */
+    fun safeguardDesiredStates(safeguardIds: Collection<String>): Map<String, Boolean?> =
+        authorize(BusCommand.READ, "safeguardDesiredStates") {
+            safeguardIds.associateWith { id ->
+                runCatching { registry.desiredState(id) }
+                    .onFailure { Log.w(TAG, "Safeguard-Soll-Zustand ($id) nicht lesbar", it) }
                     .getOrNull()
             }
         }

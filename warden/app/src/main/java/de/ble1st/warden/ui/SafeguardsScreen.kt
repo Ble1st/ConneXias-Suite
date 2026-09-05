@@ -62,6 +62,12 @@ import de.ble1st.warden.registry.UserRestrictionSafeguard
 data class SafeguardToggleState(
     val locked: Boolean?,
     val onToggle: (Boolean) -> Unit,
+    /** Der in der Registry hinterlegte **Soll**-Zustand (TestDPC-Übernahme, 2026-09-05).
+     * `null` = keiner hinterlegt (oder nicht lesbar), *nicht* "aus" — s.
+     * [de.ble1st.warden.bus.ConcordBus.safeguardDesiredStates]. Weicht er vom Ist-Zustand
+     * [locked] ab, zeigt die Zeile das ausdrücklich an, statt beides stillschweigend zu einem
+     * einzigen Schalterbild zu verschmelzen. */
+    val desired: Boolean? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -647,6 +653,29 @@ private fun FactoryResetProtectionAccountsField(
  * nur mit hinterlegtem Konto. Ein Sonderfall, den man liest, ist besser als eine Abstraktion, die
  * ihn versteckt.
  */
+/**
+ * "Soll ≠ Ist" für einen einzelnen Safeguard (TestDPC-Übernahme, 2026-09-05).
+ *
+ * Beide Richtungen sind echte, verschiedene Befunde: **Soll an, Ist aus** heißt, dass Warden den
+ * Schalter will und ihn nicht durchsetzen kann (Gerät unterstützt die Restriction nicht, oder ein
+ * zweiter Admin hat gewonnen — s. Systemdiagnose ▸ Richtlinien-Koexistenz). **Soll aus, Ist an**
+ * heißt, dass jemand *anderes* die Richtlinie gesetzt hat; Warden würde sie beim nächsten
+ * Boot-Abgleich zurücknehmen, sofern die ID nicht in `neverWeaken` steht.
+ */
+@Composable
+private fun SafeguardDivergenceRow(desired: Boolean, actual: Boolean) {
+    Text(
+        text = stringResource(
+            R.string.safeguards_divergence_row,
+            stringResource(if (desired) R.string.safeguards_state_on else R.string.safeguards_state_off),
+            stringResource(if (actual) R.string.safeguards_state_on else R.string.safeguards_state_off),
+        ),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
+    )
+}
+
 @Composable
 private fun CatalogEntryRow(
     entry: SafeguardUiCatalog.Entry,
@@ -687,6 +716,11 @@ private fun CatalogEntryRow(
             headline = stringResource(R.string.error_status_unreadable_headline),
             detail = stringResource(R.string.error_status_no_device_owner_detail),
         )
+    } else if (state.desired != null && state.desired != state.locked) {
+        // Nur bei echter Abweichung — die Zeile ist ein Befund, kein Dauerdetail. Bei
+        // übereinstimmenden Zuständen sagt der Schalter selbst schon alles, und eine zusätzliche
+        // "Soll = Ist"-Zeile unter jedem der 32 Einträge wäre reines Rauschen.
+        SafeguardDivergenceRow(desired = state.desired, actual = state.locked)
     }
     if (pendingConfirm) {
         val enabling = entry.riskSide == SafeguardUiCatalog.RiskSide.ENABLING

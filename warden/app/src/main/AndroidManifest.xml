@@ -179,6 +179,24 @@
             </intent-filter>
         </receiver>
 
+        <!-- Richtlinien-Koexistenz (Tier 3 der DPC-Recherche, 2026-09-05): Androids Rückmeldung,
+             ob eine von Warden gesetzte Richtlinie wirklich griff oder von einem zweiten aktiven
+             Admin überstimmt wurde. exported="true" ist hier unvermeidbar und bewusst ohne
+             Permission — die volle Begründung samt Konsequenz steht im Klassendoc von
+             WardenPolicyUpdateReceiver (kurz: das System sendet paketgerichtet, nicht
+             komponenten-explizit; der Empfänger schreibt ausschließlich einen Diagnoseeintrag und
+             löst nichts aus). directBootAware wie beim Admin-Empfänger darüber: die
+             Boot-Reconciliation setzt Richtlinien vor der ersten Entsperrung. -->
+        <receiver
+            android:name=".admin.WardenPolicyUpdateReceiver"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="android.app.admin.action.DEVICE_POLICY_SET_RESULT" />
+                <action android:name="android.app.admin.action.DEVICE_POLICY_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Pflicht-Handler der Android-11+-Provisionierung (Meilenstein A.4). Ohne diese beiden
              Activities bricht QR-Provisionierung nach dem APK-Download kommentarlos ab.
              exported + BIND_DEVICE_ADMIN (hält nur das System), Theme.NoDisplay, da beide sofort
