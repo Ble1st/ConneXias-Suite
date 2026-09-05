@@ -1,5 +1,7 @@
 package de.ble1st.warden.domain.score
 
+import de.ble1st.warden.domain.attestation.AttestationFinding
+import de.ble1st.warden.domain.attestation.AttestationFindingType
 import de.ble1st.warden.domain.encryption.KeystoreSecurityLevel
 
 /**
@@ -58,6 +60,27 @@ object SecurityScoreDecision {
     private const val STORAGE_NOT_ENCRYPTED_PENALTY = 25
     private const val KEYSTORE_SOFTWARE_PENALTY = 15
 
+    /**
+     * Key-Attestation-Abzüge (2026-09-05, Tier-1 der DPC-Recherche). Ein *nachgewiesen* entsperrter
+     * Bootloader wiegt schwerer als jeder Heuristik-Fund: [ROOT_INDICATOR_PENALTY] beruht auf
+     * Indizien, dieser Wert auf einem hardware-signierten Record. Beide zusammen können den
+     * Integritätswert auf 0 drücken — das ist beabsichtigt und beschreibt die Lage korrekt.
+     */
+    private const val VERIFIED_BOOT_FAILED_PENALTY = 60
+    private const val BOOTLOADER_UNVERIFIED_PENALTY = 55
+    private const val DEVICE_UNLOCKED_PENALTY = 20
+
+    /**
+     * Veralteter Sicherheitspatch. Das ist die Kennzahl, für die beim Bau des Security Scores die
+     * Kategorie „Update-Status" gestrichen wurde („nichts in Warden kann das beantworten", s.
+     * `warden/CLAUDE.md`) — der Attestation-Record beantwortet sie jetzt, deshalb fließt sie hier
+     * in die Geräte-Integrität ein statt als fünfte Kategorie mit eigener Gewichtung: die
+     * Gewichte der vier bestehenden Kategorien sind aufeinander abgestimmt und öffentlich
+     * dokumentiert, eine fünfte hätte alle vier verschoben.
+     */
+    private const val PATCH_LEVEL_STALE_PENALTY = 10
+    private const val PATCH_LEVEL_VERY_STALE_PENALTY = 25
+
     fun threatScore(warningFindings: Int, hasCriticalFinding: Boolean): Int {
         if (hasCriticalFinding) return CRITICAL_FINDING_SCORE
         return (100 - warningFindings * WARNING_FINDING_PENALTY).coerceIn(0, 100)
@@ -101,6 +124,7 @@ object SecurityScoreDecision {
         developerOptionsEnabled: Boolean,
         storageEncrypted: Boolean,
         keystoreSecurityLevel: KeystoreSecurityLevel,
+        attestationFindings: List<AttestationFinding> = emptyList(),
     ): Int {
         var score = 100
         if (rootIndicatorCount > 0) score -= ROOT_INDICATOR_PENALTY
@@ -108,7 +132,37 @@ object SecurityScoreDecision {
         if (developerOptionsEnabled) score -= DEVELOPER_OPTIONS_PENALTY
         if (!storageEncrypted) score -= STORAGE_NOT_ENCRYPTED_PENALTY
         if (keystoreSecurityLevel == KeystoreSecurityLevel.SOFTWARE) score -= KEYSTORE_SOFTWARE_PENALTY
+        score -= attestationPenalty(attestationFindings)
         return score.coerceIn(0, 100)
+    }
+
+    /**
+     * Abzüge aus den Attestation-Befunden. Bewusst **kein** Abzug für
+     * [AttestationFindingType.ATTESTATION_UNAVAILABLE], [AttestationFindingType.SELF_SIGNED_BOOT_KEY],
+     * [AttestationFindingType.ATTESTATION_SOFTWARE_ONLY] und
+     * [AttestationFindingType.CHAIN_UNTRUSTED]: die ersten beiden sind kein Mangel (nicht
+     * unterstütztes Gerät bzw. bewusst gehärtetes Custom-ROM, s.
+     * [de.ble1st.warden.domain.attestation.AttestationDecision]), die letzten beiden sagen nur, dass
+     * die *Prüfung* schwach ist — nicht, dass das Gerät kompromittiert wäre. Sie erscheinen
+     * trotzdem als Befund in der UI; „Unsicherheit wird nicht bestraft" gilt nur für die Punkte.
+     */
+    private fun attestationPenalty(findings: List<AttestationFinding>): Int {
+        var penalty = 0
+        for (finding in findings) {
+            penalty += when (finding.type) {
+                AttestationFindingType.VERIFIED_BOOT_FAILED -> VERIFIED_BOOT_FAILED_PENALTY
+                AttestationFindingType.BOOTLOADER_UNVERIFIED -> BOOTLOADER_UNVERIFIED_PENALTY
+                AttestationFindingType.DEVICE_UNLOCKED -> DEVICE_UNLOCKED_PENALTY
+                AttestationFindingType.PATCH_LEVEL_STALE -> PATCH_LEVEL_STALE_PENALTY
+                AttestationFindingType.PATCH_LEVEL_VERY_STALE -> PATCH_LEVEL_VERY_STALE_PENALTY
+                AttestationFindingType.SELF_SIGNED_BOOT_KEY,
+                AttestationFindingType.ATTESTATION_SOFTWARE_ONLY,
+                AttestationFindingType.CHAIN_UNTRUSTED,
+                AttestationFindingType.ATTESTATION_UNAVAILABLE,
+                -> 0
+            }
+        }
+        return penalty
     }
 
     fun integrityReasons(
@@ -117,6 +171,7 @@ object SecurityScoreDecision {
         developerOptionsEnabled: Boolean,
         storageEncrypted: Boolean,
         keystoreSecurityLevel: KeystoreSecurityLevel,
+        attestationFindings: List<AttestationFinding> = emptyList(),
     ): List<String> = buildList {
         if (rootIndicatorCount > 0) add("Root-/Magisk-Indikatoren gefunden (-$ROOT_INDICATOR_PENALTY).")
         if (adbEnabled) add("ADB (USB-Debugging) aktiviert (-$ADB_ENABLED_PENALTY).")
@@ -124,6 +179,28 @@ object SecurityScoreDecision {
         if (!storageEncrypted) add("Speicherverschlüsselung nicht aktiv (-$STORAGE_NOT_ENCRYPTED_PENALTY).")
         if (keystoreSecurityLevel == KeystoreSecurityLevel.SOFTWARE) {
             add("Schlüssel nur software-basiert, nicht hardwaregebunden (-$KEYSTORE_SOFTWARE_PENALTY).")
+        }
+        for (finding in attestationFindings) {
+            when (finding.type) {
+                AttestationFindingType.VERIFIED_BOOT_FAILED ->
+                    add("Verified Boot fehlgeschlagen — hardware-bestätigt (-$VERIFIED_BOOT_FAILED_PENALTY).")
+                AttestationFindingType.BOOTLOADER_UNVERIFIED ->
+                    add("Bootloader entsperrt — hardware-bestätigt (-$BOOTLOADER_UNVERIFIED_PENALTY).")
+                AttestationFindingType.DEVICE_UNLOCKED ->
+                    add("Gerät als entsperrt attestiert (-$DEVICE_UNLOCKED_PENALTY).")
+                AttestationFindingType.PATCH_LEVEL_STALE ->
+                    add("Sicherheitspatch veraltet (-$PATCH_LEVEL_STALE_PENALTY).")
+                AttestationFindingType.PATCH_LEVEL_VERY_STALE ->
+                    add("Sicherheitspatch stark veraltet (-$PATCH_LEVEL_VERY_STALE_PENALTY).")
+                AttestationFindingType.SELF_SIGNED_BOOT_KEY ->
+                    add("Eigener Verified-Boot-Schlüssel (Custom-ROM) — kein Abzug.")
+                AttestationFindingType.ATTESTATION_SOFTWARE_ONLY ->
+                    add("Attestation nur software-basiert, wenig aussagekräftig — kein Abzug.")
+                AttestationFindingType.CHAIN_UNTRUSTED ->
+                    add("Attestation-Kette führt zu keiner bekannten Google-Wurzel — kein Abzug.")
+                AttestationFindingType.ATTESTATION_UNAVAILABLE ->
+                    add("Key Attestation auf diesem Gerät nicht auslesbar — kein Abzug.")
+            }
         }
         if (isEmpty()) add("Keine Abzüge — Gerät wirkt strukturell unauffällig.")
     }
@@ -171,10 +248,13 @@ object SecurityScoreDecision {
         keystoreSecurityLevel: KeystoreSecurityLevel,
         activeSafeguards: Int,
         totalSafeguards: Int,
+        attestationFindings: List<AttestationFinding> = emptyList(),
     ): SecurityScoreBreakdown {
         val threat = threatScore(warningFindings, hasCriticalFinding)
         val permission = permissionScore(totalApps, flaggedApps)
-        val integrity = integrityScore(rootIndicatorCount, adbEnabled, developerOptionsEnabled, storageEncrypted, keystoreSecurityLevel)
+        val integrity = integrityScore(
+            rootIndicatorCount, adbEnabled, developerOptionsEnabled, storageEncrypted, keystoreSecurityLevel, attestationFindings,
+        )
         val hardening = hardeningScore(activeSafeguards, totalSafeguards)
         val total = total(threat, permission, integrity, hardening)
         return SecurityScoreBreakdown(
@@ -183,7 +263,9 @@ object SecurityScoreDecision {
             permissionScore = permission,
             permissionReasons = permissionReasons(totalApps, flaggedApps),
             integrityScore = integrity,
-            integrityReasons = integrityReasons(rootIndicatorCount, adbEnabled, developerOptionsEnabled, storageEncrypted, keystoreSecurityLevel),
+            integrityReasons = integrityReasons(
+                rootIndicatorCount, adbEnabled, developerOptionsEnabled, storageEncrypted, keystoreSecurityLevel, attestationFindings,
+            ),
             hardeningScore = hardening,
             hardeningReasons = hardeningReasons(activeSafeguards, totalSafeguards),
             total = total,

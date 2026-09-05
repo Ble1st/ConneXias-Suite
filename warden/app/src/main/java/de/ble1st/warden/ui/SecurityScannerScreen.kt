@@ -40,6 +40,10 @@ import de.ble1st.warden.domain.appmanagement.SuspiciousSignal
 import de.ble1st.warden.domain.appmanagement.ThreatSeverity
 import de.ble1st.warden.domain.encryption.EncryptionRecommendationDecision
 import de.ble1st.warden.domain.encryption.EncryptionRecommendationType
+import de.ble1st.warden.domain.advancedprotection.AdvancedProtectionState
+import de.ble1st.warden.domain.attestation.AttestationDecision
+import de.ble1st.warden.domain.attestation.DeviceAttestation
+import de.ble1st.warden.domain.attestation.VerifiedBootState
 import de.ble1st.warden.domain.encryption.KeystoreSecurityLevel
 import de.ble1st.warden.domain.score.SecurityScoreBreakdown
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
@@ -274,6 +278,12 @@ private fun DeviceIntegritySection(status: DeviceIntegrityStatus?, onRetry: () -
         // Feature 5 "Storage Encryption Verification" (nachgeholt 2026-09-04): dieselbe
         // "aktiv = gut"-Farblogik wie EncryptionStatusRow direkt darüber.
         KeystoreStatusRow(level = status.keystoreSecurityLevel)
+        // Tier-1 der DPC-Recherche (2026-09-05): Key Attestation und Androids „Erweiterter
+        // Schutz". Beide stehen bewusst direkt vor der Root-Heuristik — sie beantworten dieselbe
+        // Frage (Geräteintegrität) mit deutlich höherer Beweiskraft, und die Reihenfolge
+        // stark → schwach macht sichtbar, welcher Zeile man mehr glauben darf.
+        AttestationRows(attestation = status.attestation)
+        AdvancedProtectionRow(state = status.advancedProtection)
         if (status.rootIndicators.isEmpty()) {
             EmptyStateRow(headline = stringResource(R.string.security_scanner_root_indicators_empty))
         } else {
@@ -365,6 +375,109 @@ private fun KeystoreStatusRow(level: KeystoreSecurityLevel) {
             },
         )
     }
+}
+
+/**
+ * Key-Attestation-Zeilen (2026-09-05). Drei Werte statt einem, weil sie unterschiedlich stark
+ * sind und getrennt gelesen werden müssen: Verified-Boot-Zustand, Bootloader-Sperre und
+ * Patch-Stand. Ist gar nichts auslesbar ([VerifiedBootState.UNBEKANNT] ohne weitere Werte), wird
+ * **eine** erklärende Zeile gezeigt statt dreimal "unbekannt" — auf vielen OEM-Geräten ist das der
+ * Normalfall und soll nicht wie ein dreifacher Mangel aussehen.
+ */
+@Composable
+private fun AttestationRows(attestation: DeviceAttestation) {
+    val unavailable = attestation.verifiedBootState == VerifiedBootState.UNBEKANNT &&
+        attestation.deviceLocked == null &&
+        attestation.osPatchLevel == null
+    if (unavailable) {
+        Text(
+            text = stringResource(R.string.security_scanner_attestation_unavailable),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val bootIsGood = attestation.verifiedBootState == VerifiedBootState.VERIFIED
+    val bootIsNeutral = attestation.verifiedBootState == VerifiedBootState.SELF_SIGNED ||
+        attestation.verifiedBootState == VerifiedBootState.UNBEKANNT
+    AttestationValueRow(
+        label = stringResource(R.string.security_scanner_attestation_boot_label),
+        value = attestation.verifiedBootState.label,
+        isProblem = !bootIsGood && !bootIsNeutral,
+    )
+    attestation.deviceLocked?.let { locked ->
+        AttestationValueRow(
+            label = stringResource(R.string.security_scanner_attestation_locked_label),
+            value = if (locked) {
+                stringResource(R.string.security_scanner_attestation_locked_yes)
+            } else {
+                stringResource(R.string.security_scanner_attestation_locked_no)
+            },
+            isProblem = !locked,
+        )
+    }
+    attestation.osPatchLevel?.let { patch ->
+        val months = AttestationDecision.monthsBetween(patch, currentYearMonthForUi())
+        AttestationValueRow(
+            label = stringResource(R.string.security_scanner_attestation_patch_label),
+            value = formatPatchLevel(patch),
+            isProblem = months != null && months >= AttestationDecision.PATCH_LEVEL_WARN_MONTHS,
+        )
+    }
+    // Der Hinweis auf die Grenzen ist Absicht, gleiche Haltung wie bei CellSecurityField: das hier
+    // ist stark, aber nicht unfehlbar (Keybox-Leaks, fehlerhafte OEM-Implementierungen).
+    if (attestation.chainTrusted == false) {
+        Text(
+            text = stringResource(R.string.security_scanner_attestation_chain_untrusted),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** `YYYYMM` → `MM/YYYY`, ohne `SimpleDateFormat`-Umweg: der Wert ist bereits ein reiner
+ * Zahlencode, kein Zeitstempel. */
+private fun formatPatchLevel(yearMonth: Int): String {
+    val year = yearMonth / 100
+    val month = yearMonth % 100
+    return "%02d/%04d".format(month, year)
+}
+
+private fun currentYearMonthForUi(): Int {
+    val now = java.time.YearMonth.now()
+    return now.year * 100 + now.monthValue
+}
+
+@Composable
+private fun AttestationValueRow(label: String, value: String, isProblem: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = label
+                stateDescription = value
+            },
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodySmall)
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (isProblem) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** [AdvancedProtectionState.NICHT_VERFUEGBAR] wird bewusst in der neutralen Farbe gezeigt, nicht
+ * in der Fehlerfarbe: auf Android 15 (dem aktuellen Zielgerätestand) fehlt die Funktion der
+ * Plattform, das ist kein Mangel des Geräts und schon gar keiner, den der Nutzer beheben könnte. */
+@Composable
+private fun AdvancedProtectionRow(state: AdvancedProtectionState) {
+    AttestationValueRow(
+        label = stringResource(R.string.security_scanner_advanced_protection_label),
+        value = state.label,
+        isProblem = state == AdvancedProtectionState.AUS,
+    )
 }
 
 @Composable

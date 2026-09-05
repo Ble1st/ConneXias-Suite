@@ -18,7 +18,12 @@ object SafeguardCatalog {
         CameraSafeguard(context),
         ScreenCaptureSafeguard(context),
         UserRestrictionSafeguard.installUnknownSourcesDisabled(context),
+        UserRestrictionSafeguard.installUnknownSourcesGloballyDisabled(context),
         UserRestrictionSafeguard.configDateTimeDisabled(context),
+        // 2026-09-05, Tier-1 der DPC-Recherche: der einzige Katalogeintrag, der keine Funktion
+        // abschaltet, sondern eine Exploit-Härtung anschaltet — s. MtePolicySafeguard-Klassendoc
+        // (inkl. Hardware-Abhängigkeit und nötigem Neustart).
+        MtePolicySafeguard(context),
         SelfUninstallProtectionSafeguard(context),
         ForceStopProtectionSafeguard(context),
         KeyguardHardeningSafeguard(context),

@@ -209,6 +209,15 @@
     <string name="security_scanner_keystore_state_hardware">hardwaregebunden</string>
     <string name="security_scanner_keystore_state_software">nur Software</string>
     <string name="security_scanner_keystore_state_unknown">unbekannt</string>
+    <!-- integrity/KeyAttestationReader.kt + domain/attestation/ (Tier-1 der DPC-Recherche, 2026-09-05) -->
+    <string name="security_scanner_attestation_boot_label">Verified Boot (hardware-bestätigt)</string>
+    <string name="security_scanner_attestation_locked_label">Bootloader</string>
+    <string name="security_scanner_attestation_locked_yes">gesperrt</string>
+    <string name="security_scanner_attestation_locked_no">entsperrt</string>
+    <string name="security_scanner_attestation_patch_label">Sicherheitspatch (attestiert)</string>
+    <string name="security_scanner_attestation_unavailable">Key Attestation auf diesem Gerät nicht auslesbar — auf vielen Geräten normal, kein Mangel. Die Root-Heuristik unten bleibt die Ersatzprüfung.</string>
+    <string name="security_scanner_attestation_chain_untrusted">Hinweis: Die Attestation-Kette führt zu keiner bekannten Google-Wurzel. Der Nachweis ist damit schwächer, aber nicht automatisch falsch.</string>
+    <string name="security_scanner_advanced_protection_label">Erweiterter Schutz (Android)</string>
     <string name="security_scanner_recommendations_title">Empfehlungen</string>
     <string name="security_scanner_recommendations_empty">Keine Empfehlungen — Verschlüsselung und KeyStore sind in Ordnung</string>
     <string name="security_scanner_recommendation_device_encryption_inactive">Die Geräteverschlüsselung ist nicht aktiv. Wardens eigene PIN- und Protokoll-Verschlüsselung bleibt davon unabhängig wirksam, aber alle übrigen App-Daten auf dem Gerät liegen dann ungeschützt.</string>
