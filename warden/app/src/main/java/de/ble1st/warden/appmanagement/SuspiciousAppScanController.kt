@@ -17,6 +17,7 @@ import de.ble1st.warden.domain.appmanagement.VersionDowngradeDecision
 import de.ble1st.warden.domain.pin.WardenLockTaskAutoEngageDecision
 import de.ble1st.warden.pin.WardenLockTaskAutoEngageStore
 import de.ble1st.warden.pin.WardenLockTaskDrillStorage
+import de.ble1st.warden.domain.pin.PendingEngageFreshness
 import de.ble1st.warden.pin.WardenLockTaskPendingEngageStore
 import de.ble1st.warden.registry.DeviceLockdownBundle
 import de.ble1st.warden.wardenAuditLog
@@ -191,6 +192,11 @@ class SuspiciousAppScanController(
                 WardenLockTaskPendingEngageStore.requestEngage(
                     context,
                     reason = context.getString(R.string.suspicious_app_scan_critical_finding_reason, finding.label, finding.packageName),
+                    // Ausdrücklich das längere Fenster (2026-09-05): dieser Pfad wartet
+                    // absichtlich darauf, dass die Betreiberin Warden als Reaktion auf die
+                    // Benachrichtigung öffnet — das dauert legitim länger als die Sekunden eines
+                    // Widget-Taps. Begrenzt ist es trotzdem, s. PendingEngageFreshness.
+                    validityMillis = PendingEngageFreshness.THREAT_VALIDITY_MILLIS,
                 )
                 logStore.append(Log.WARN, TAG, "Lock-Task-Auto-Engage angefordert: pkg=${finding.packageName}")
             }

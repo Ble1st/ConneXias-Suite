@@ -517,6 +517,29 @@ Aktiv-/Inaktiv-Status der drei Android-15-Funktionen — dafür gibt es keine ö
 und ein geratener Wert wäre schlechter als keiner. Der Knopf muss die Systemeinstellungen öffnen
 (auf einem Gerät ohne diese Activity passiert nichts, kein Absturz).
 
+### P-18 — Ablaufdatum vorgemerkter Scharfschalt-Anforderungen
+
+Prüft den am 2026-09-05 im Gerätetest gefundenen Fall: eine über Widget oder Kachel vorgemerkte
+Anforderung blieb bis dahin unbegrenzt liegen und feuerte beim nächsten App-Start, auch Tage
+später.
+
+1. Widget-Schaltfläche "Lockdown" tippen, im PIN-Gate (`WardenLockActivity`) mit der Zurück-Geste
+   abbrechen — die Anforderung ist damit vorgemerkt, aber nicht abgeholt.
+2. Warden **innerhalb von fünf Minuten** normal öffnen: der Dialog "Lockdown scharf schalten?"
+   erscheint wie bisher. Das ist der unveränderte Gutfall.
+3. Vorgang aus Schritt 1 wiederholen, dann mehr als fünf Minuten warten und Warden öffnen:
+   erwartet ist **kein** Dialog. In `adb logcat -s PendingLockdownArm:I` steht dann
+   "abgelaufene Anforderung verworfen: …".
+4. Vorgang aus Schritt 1 wiederholen, dann das Gerät **neu starten** und Warden öffnen: ebenfalls
+   kein Dialog, unabhängig von der verstrichenen Zeit — `SystemClock.elapsedRealtime()` beginnt
+   nach dem Neustart neu, der gespeicherte Wert liegt dann in der Zukunft und gilt als abgelaufen.
+5. Gegenprobe zur Uhr-Manipulation: Schritt 1, dann die Systemuhr weit zurückstellen (nur ohne
+   gesetzte Netzzeit-Sperre möglich, s. P-15) und Warden öffnen. Erwartet: das Ablaufverhalten
+   ändert sich dadurch **nicht** — verglichen wird die monotone Uhr, nicht die Wanduhr.
+6. Der Bedrohungspfad hat bewusst ein längeres Fenster (24 h): einen kritischen Fund provozieren
+   (s. P-12/P-14), die Benachrichtigung stehen lassen und Warden erst nach einer halben Stunde
+   öffnen — das Auto-Engage muss weiterhin greifen.
+
 ## Bewusst nicht scharf geschaltet
 
 **Seit "Sentinel: eigenständige Kiosk-PIN-App" (2026-08-26) gibt es einen echten, zweistufigen
