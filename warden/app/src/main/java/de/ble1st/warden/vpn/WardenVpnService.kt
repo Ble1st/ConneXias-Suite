@@ -526,9 +526,12 @@ class WardenVpnService : VpnService(), ProtectedSocketFactory {
          * Blocklisten-Änderung braucht anders als eine Firewall-Allowlist-Änderung keinen
          * TUN-Neuaufbau. */
         const val ACTION_UPDATE_BLOCKLIST = "de.ble1st.warden.vpn.action.UPDATE_BLOCKLIST"
-        /** s. [updateChildVpn]-Kommentar — wie [ACTION_UPDATE_BLOCKLIST] bewusst getrennt von
-         * [ACTION_RELOAD_TUNNEL]: eine ChildVPN-Konfigurationsänderung braucht keinen
-         * TUN-Neuaufbau. */
+        /** Anders als [ACTION_UPDATE_BLOCKLIST] eben NICHT mehr ohne TUN-Neuaufbau: s.
+         * [updateChildVpn]-Kommentar (KRITISCH, 2026-09-01) — seit die ChildVPN-Config auch die
+         * TUN-Parameter selbst bestimmt, braucht eine Konfigurationsänderung zwingend einen
+         * echten Neuaufbau. (Korrigiert 2026-09-05: dieser Kommentar behauptete bis dahin fälschlich
+         * das Gegenteil — ein bei jenem Fix nicht mitgezogener Rest aus der Zeit davor, gefunden
+         * von einer externen Bugsuche, s. `mistral-analyse.md`.) */
         const val ACTION_UPDATE_CHILD_VPN = "de.ble1st.warden.vpn.action.UPDATE_CHILD_VPN"
     }
 }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -26,7 +27,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -49,6 +53,7 @@ import de.ble1st.warden.domain.encryption.KeystoreSecurityLevel
 import de.ble1st.warden.domain.score.SecurityScoreBreakdown
 import de.ble1st.warden.integrity.DeviceIntegrityStatus
 import de.ble1st.warden.integrity.RootIndicatorSignal
+import de.ble1st.warden.registry.UserRestrictionSafeguard
 import de.ble1st.warden.score.SecurityScoreHistoryStore
 import de.ble1st.warden.ui.theme.mono
 
@@ -289,15 +294,26 @@ private fun DeviceIntegritySection(
         // `debuggingFeaturesDisabled` (DISALLOW_DEBUGGING_FEATURES) deckt beide ab. Sie sind jetzt
         // antippbar, aber **nur wenn sie tatsächlich aktiv sind**: eine Zeile, die schon "inaktiv"
         // sagt, hätte keine sinnvolle Aktion und dürfte nicht wie ein Schalter aussehen.
+        //
+        // Bestätigungstext kommt aus demselben Katalogeintrag, den auch der Safeguards-Bildschirm
+        // für diesen Schalter zeigt (s. IntegrityStatusRow-Klassendoc) — ein Gerätetest-Fund vom
+        // selben Tag: ein ungefragter Tap hier hat live sofort die adb-Verbindung getrennt.
+        val debuggingFeaturesEntry = remember {
+            SafeguardUiCatalog.entryById(UserRestrictionSafeguard.DEBUGGING_FEATURES_DISABLED_ID)
+        }
         IntegrityStatusRow(
             label = stringResource(R.string.security_scanner_adb_label),
             active = status.adbEnabled,
             onFix = onDisableDebuggingFeatures.takeIf { status.adbEnabled },
+            confirmTitle = debuggingFeaturesEntry?.confirmTitle,
+            confirmText = debuggingFeaturesEntry?.confirmText,
         )
         IntegrityStatusRow(
             label = stringResource(R.string.security_scanner_developer_options_label),
             active = status.developerOptionsEnabled,
             onFix = onDisableDebuggingFeatures.takeIf { status.developerOptionsEnabled },
+            confirmTitle = debuggingFeaturesEntry?.confirmTitle,
+            confirmText = debuggingFeaturesEntry?.confirmText,
         )
         // Eigene Ergänzung (2026-08-22): anders als die beiden Zeilen oben ist "aktiv" hier GUT,
         // nicht schlecht — eigene Zeile statt IntegrityStatusRow-Wiederverwendung mit invertierter
@@ -508,18 +524,45 @@ private fun AdvancedProtectionRow(state: AdvancedProtectionState) {
     )
 }
 
-/** [onFix] `null` = keine Aktion anbieten (Normalfall: nichts zu beheben). Ist eine Aktion
+/**
+ * [onFix] `null` = keine Aktion anbieten (Normalfall: nichts zu beheben). Ist eine Aktion
  * hinterlegt, wird die ganze Zeile antippbar und trägt einen sichtbaren Hinweis — ein reiner
- * `clickable`-Modifier ohne optische Änderung wäre eine versteckte Funktion. */
+ * `clickable`-Modifier ohne optische Änderung wäre eine versteckte Funktion.
+ *
+ * **Bestätigungsdialog vor [onFix] (Nachtrag 2026-09-05, Gerätetest-Fund).** Die erste Fassung
+ * rief [onFix] direkt beim Antippen auf — für `debugging_features_disabled` genau die riskante
+ * Richtung, die [SafeguardUiCatalog.RiskSide.ENABLING] im Safeguards-Bildschirm längst hinter
+ * einem Bestätigungsdialog versteckt (Katalogtext: kappt vermutlich sofort jede bestehende
+ * adb-Verbindung, danach nur noch hier umkehrbar). Live bestätigt: ein einzelner Tap hat auf dem
+ * Testgerät tatsächlich sofort die USB-Debugging-Verbindung getrennt. Diese Zeile ist nur ein
+ * zweiter, bequemerer Weg zu **demselben** Safeguard — sie darf dessen eigene Sicherung nicht
+ * umgehen, nur weil sie an anderer Stelle sitzt. [confirmTitle]/[confirmText] `null` (der
+ * Normalfall für risikolose Aktionen) lässt [onFix] weiterhin direkt beim Antippen laufen.
+ */
 @Composable
-private fun IntegrityStatusRow(label: String, active: Boolean, onFix: (() -> Unit)? = null) {
+private fun IntegrityStatusRow(
+    label: String,
+    active: Boolean,
+    onFix: (() -> Unit)? = null,
+    confirmTitle: String? = null,
+    confirmText: String? = null,
+) {
     val activeState = stringResource(R.string.security_scanner_state_active)
     val inactiveState = stringResource(R.string.security_scanner_state_inactive)
     val fixLabel = stringResource(R.string.security_scanner_fix_action)
+    var pendingConfirm by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (onFix != null) Modifier.clickable { onFix() } else Modifier)
+            .then(
+                if (onFix != null) {
+                    Modifier.clickable {
+                        if (confirmTitle != null) pendingConfirm = true else onFix()
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .semantics {
                 contentDescription = if (onFix != null) "$label — $fixLabel" else label
                 stateDescription = if (active) activeState else inactiveState
@@ -535,6 +578,28 @@ private fun IntegrityStatusRow(label: String, active: Boolean, onFix: (() -> Uni
             },
             style = MaterialTheme.typography.bodySmall,
             color = if (active) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    if (pendingConfirm && onFix != null && confirmTitle != null) {
+        AlertDialog(
+            onDismissRequest = { pendingConfirm = false },
+            title = { Text(confirmTitle) },
+            text = { confirmText?.let { Text(it) } },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingConfirm = false
+                        onFix()
+                    },
+                ) {
+                    Text(stringResource(R.string.action_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingConfirm = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
         )
     }
 }

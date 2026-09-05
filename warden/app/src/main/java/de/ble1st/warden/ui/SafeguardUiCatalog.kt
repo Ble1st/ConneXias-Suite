@@ -117,6 +117,13 @@ object SafeguardUiCatalog {
             }
             .toSet()
 
+    /** Nachschlagen eines Eintrags über seine Registry-`id` (2026-09-05) — für Aufrufstellen
+     * außerhalb von [SafeguardsScreen], die denselben Bestätigungstext zeigen wollen, statt ihn ein
+     * zweites Mal zu formulieren (s. `SecurityScannerScreen.IntegrityStatusRow`: der dortige
+     * "Antippen zum Beheben"-Knopf für `debugging_features_disabled` griff zunächst ungefragt
+     * durch — genau der Fall, für den dieser Katalogeintrag seinen Bestätigungstext trägt). */
+    fun entryById(id: String): Entry? = groups.flatMap { it.entries }.firstOrNull { it.id == id }
+
     val groups: List<Group> = listOf(
         Group(
             id = "alltag",
